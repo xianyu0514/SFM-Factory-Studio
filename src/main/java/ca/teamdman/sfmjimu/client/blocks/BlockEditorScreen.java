@@ -1977,6 +1977,12 @@ public class BlockEditorScreen extends Screen {
             values.add("paste");
             labels.add("粘贴");
         }
+        if (over == null) {
+            values.add("new_timer");
+            labels.add("新建定时触发器");
+            values.add("new_pulse");
+            labels.add("新建脉冲触发器");
+        }
         if (over != null) {
             if (!selectedTriggers.contains(over)) {
                 selection.clear();
@@ -1994,6 +2000,8 @@ public class BlockEditorScreen extends Screen {
                 case "paste" -> pasteClipboard();
                 case "copy" -> copySelection();
                 case "delete" -> deleteSelection();
+                case "new_timer" -> createCardAt("timer", ccx, ccy);
+                case "new_pulse" -> createCardAt("pulse", ccx, ccy);
             }
         }));
     }
@@ -2719,6 +2727,11 @@ public class BlockEditorScreen extends Screen {
             redo();
             return true;
         }
+        if (keyCode == 53 && popup == null && !nameBox.isFocused()
+                && (codeEditor == null || !codeEditor.isFocused())) { // / — 卡片搜索
+            openCardSearch();
+            return true;
+        }
         if (keyCode == 344) { // F8 — 定位下一个问题
             stepIssue(1);
             return true;
@@ -2934,12 +2947,7 @@ public class BlockEditorScreen extends Screen {
         }
 
         if (program.triggers.isEmpty()) {
-            for (int i = 0; i < 2; i++) {
-                String line = T_EMPTY_PROGRAM.getString().split("\n")[i];
-                if (!line.isBlank()) {
-                    text(g, line, canvasX + 24, canvasY + 24 + i * 12, C_TEXT_SUB);
-                }
-            }
+            renderGuideCards(g, mx, my);
         }
 
         // ---- content (zoom + pan transform) ----
@@ -3419,6 +3427,13 @@ public class BlockEditorScreen extends Screen {
         if (titleX + this.font.width(T_TITLE.getString()) + 10 < (status != null ? statusX : groupLeft)) {
             text(g, T_TITLE.getString(), titleX, panelY + 10, C_TEXT);
         }
+        if (status == null && !dirty && !program.triggers.isEmpty()) {
+            String hint = "按 / 搜索卡片";
+            int hintX = groupLeft - 12 - this.font.width(hint);
+            if (hintX > titleX + this.font.width(T_TITLE.getString()) + 10) {
+                text(g, hint, hintX, panelY + 10, 0xFF9AA3B2);
+            }
+        }
     }
 
     private void button(GuiGraphics g, int x, int y, int w, int h, String label, int color, int hoverColor,
@@ -3478,6 +3493,100 @@ public class BlockEditorScreen extends Screen {
 
     // ============================================================== card render
 
+    /** 卡片快速定位：搜索卡摘要/标签/名称，点选相机居中。 */
+    private void openCardSearch() {
+        List<String> values = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        for (BProgram.Trigger t : program.triggers) {
+            String summary = cardSummary(t);
+            Set<String> cardLabels = new LinkedHashSet<>();
+            collectBodyLabels(t.body, cardLabels);
+            values.add("t:" + t.id);
+            labels.add((t instanceof BProgram.TimerTrigger ? "⟳" : "⚡") + " "
+                    + summary + (cardLabels.isEmpty() ? "" : " [" + String.join(",", cardLabels) + "]"));
+        }
+        if (values.isEmpty()) return;
+        setPopup(new Popup.ChoicePopup(panelX + PALETTE_W + 30, panelY + TOOLBAR_H + 12, 300,
+                values, labels, "", picked -> {
+            if (!picked.startsWith("t:")) return;
+            long id = Long.parseLong(picked.substring(2));
+            int[] r = layout.cardRectOf(id);
+            if (r != null) {
+                zoom = Math.max(0.6f, Math.min(1.25f, zoom));
+                viewX = Math.round(r[0] + r[2] / 2f - canvasW / (2f * zoom));
+                viewY = Math.round(r[1] + r[3] / 2f - canvasH / (2f * zoom));
+            }
+        }));
+        showStatus("输入关键词搜索卡片（标签名/摘要），点选定位", C_TEXT_SUB);
+    }
+
+    private void collectBodyLabels(List<BProgram.Statement> body, Set<String> out) {
+        for (BProgram.Statement s : body) {
+            if (s instanceof BProgram.Statement.Input in) out.addAll(in.access.labels);
+            else if (s instanceof BProgram.Statement.Output o) out.addAll(o.access.labels);
+            else if (s instanceof BProgram.Statement.Forget f) out.addAll(f.labels);
+            else if (s instanceof BProgram.Statement.If iff) {
+                for (BProgram.Branch b : iff.branches) {
+                    if (b.cond instanceof BProgram.Bool.Has h) out.addAll(h.access.labels);
+                    collectBodyLabels(b.body, out);
+                }
+                collectBodyLabels(iff.elseBody, out);
+            }
+        }
+    }
+
+    /** 在指定内容坐标处新建一张触发器卡（右键菜单/引导卡用）。 */
+    private void createCardAt(String kind, double cx, double cy) {
+        pushUndo();
+        BProgram.Trigger t = switch (kind) {
+            case "pulse" -> new BProgram.PulseTrigger();
+            case "energy" -> newEnergyTrigger();
+            default -> new BProgram.TimerTrigger();
+        };
+        program.triggers.add(t);
+        layout.setCardPos(t.id,
+                CardLayouts.snap((int) cx - CARD_W / 2),
+                CardLayouts.snap((int) cy - HEAD_H / 2));
+        layoutDirty = true;
+        showStatus("已在此处新建触发器，从左侧拖入积木", C_SELECT);
+    }
+
+    /** 空画布引导卡：三张可点击的"第一步"选项，简单直接不出错。 */
+    private void renderGuideCards(GuiGraphics g, int mx, int my) {
+        String[][] guides = {
+                {"⟳", "创建定时触发器", "timer"},
+                {"⚡", "创建脉冲触发器", "pulse"},
+                {"▶", "使用熔炉模板", "tpl_smelt"}};
+        int gw = 160, gh = 44, gap = 12;
+        int total = guides.length * gw + (guides.length - 1) * gap;
+        int startX = canvasX + (canvasW - total) / 2;
+        int startY = canvasY + Math.max(40, canvasH / 4);
+        for (int i = 0; i < guides.length; i++) {
+            int gx = startX + i * (gw + gap);
+            boolean hover = mx >= gx && mx < gx + gw && my >= startY && my < startY + gh;
+            rounded(g, gx + 2, startY + 3, gw, gh, 8, 0x30203A5A);
+            rounded(g, gx, startY, gw, gh, 8, 0xFFFFFFFF);
+            border(g, gx, startY, gw, gh, hover ? C_SELECT : G_BORDER);
+            g.fill(gx, startY + 4, gx + 4, startY + gh - 4, hover ? C_SELECT : 0xFFBCC9D8);
+            g.drawString(this.font, guides[i][0], gx + 12, startY + 14, 0xFF1B2432, false);
+            g.drawString(this.font, guides[i][1], gx + 26, startY + 16,
+                    hover ? C_SELECT : C_TEXT_SUB, false);
+            final String kind = guides[i][2];
+            final double ccx = ctX(gx + gw / 2.0), ccy = ctY(startY + gh / 2.0);
+            hits.add(hit(gx, startY, gw, gh, K_CLICK, null, () -> {
+                if (kind.equals("tpl_smelt")) {
+                    clickAdd("tpl_smelt");
+                    showStatus("已插入熔炉模板，连接方块标签即可使用", C_SELECT);
+                } else {
+                    createCardAt(kind, ccx, ccy);
+                }
+            }));
+        }
+        String hint = "从左侧拖入积木 · 滚轮缩放 · 拖动平移 · 右键菜单";
+        text(g, hint, canvasX + canvasW / 2 - this.font.width(hint) / 2,
+                startY + gh + 16, C_TEXT_SUB);
+    }
+
     private void renderCard(GuiGraphics g, CardL c, int mx, int my) {
         BProgram.Trigger t = c.trigger();
         boolean timer = t instanceof BProgram.TimerTrigger;
@@ -3516,6 +3625,10 @@ public class BlockEditorScreen extends Screen {
 
         // 头部左上角 ✕：删除这一张卡（永远删“自己”，与底部 − 的“删副本”分工）
         drawIcon(g, x + 1, y + 4, "✕", () -> deleteTrigger(t), mx, my, 0xFFC22B21);
+        // 运行状态小点：有内容=绿（正在工作），空=无点——纯本地判断，零开销
+        if (!t.body.isEmpty() && zoom >= LOD_ZOOM) {
+            g.fill(x + 18, y + 14, x + 21, y + 17, 0xFF10B981);
+        }
         int fx = x + 20;
         text(g, timer ? "⟳" : "⚡", fx, y + 10, accent);
         fx += 14;
