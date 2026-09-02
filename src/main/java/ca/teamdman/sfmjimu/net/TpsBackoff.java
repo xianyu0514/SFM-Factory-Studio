@@ -28,6 +28,38 @@ public final class TpsBackoff {
     private TpsBackoff() {
     }
 
+    // ---- 每刻全局预算（多工厂保险丝）：SFM 上游只有耗时测量，没有预算机制 ----
+    private static volatile double tickBudgetMs = 3.0;
+    private static long accNanos = 0;
+    private static long accGameTime = -1;
+    private static final WeakHashMap<ManagerBlockEntity, Integer> STARVE = new WeakHashMap<>();
+
+    /** 程序运行前：预算未超直接放行；超了看饥饿度（软公平，连续被跳的优先放行）。 */
+    public static boolean tryAcquire(ManagerBlockEntity manager) {
+        loadConfig();
+        long budgetNanos = (long) (tickBudgetMs * 1_000_000);
+        if (budgetNanos <= 0) return true; // 0=关闭
+        long gameTime = manager.getLevel() != null ? manager.getLevel().getGameTime() : 0;
+        if (gameTime != accGameTime) {
+            accGameTime = gameTime;
+            accNanos = 0;
+        }
+        if (accNanos < budgetNanos) return true;
+        Integer starve = STARVE.get(manager);
+        int s = starve == null ? 0 : starve;
+        if (s >= 3 && accNanos < budgetNanos * 3 / 2) {
+            STARVE.remove(manager); // 饥饿救济：放行但不再加重超支
+            return true;
+        }
+        STARVE.merge(manager, 1, Integer::sum);
+        return false;
+    }
+
+    /** 程序运行后：累计本刻耗时。 */
+    public static void record(long nanos) {
+        accNanos += nanos;
+    }
+
     private static void loadConfig() {
         if (configLoaded) return;
         configLoaded = true;
@@ -41,12 +73,16 @@ public final class TpsBackoff {
                         enableIdleBackoff=true
                         # 最大退避倍数（8=空闲时最多每 8 倍间隔检测一次）
                         maxIdleBackoff=8
+                        # 每刻全局预算（毫秒）：所有 SFM 管理器单游戏刻总耗时封顶，超出者本轮顺延（软公平防饿死）
+                        # 0=关闭；3.0=每刻最多 3ms
+                        tickBudgetMs=3.0
                         """);
             }
             Properties props = new Properties();
             props.load(Files.newInputStream(file));
             enabled = Boolean.parseBoolean(props.getProperty("enableIdleBackoff", "true"));
             maxBackoff = Math.max(1, Math.min(64, Integer.parseInt(props.getProperty("maxIdleBackoff", "8"))));
+            tickBudgetMs = Math.max(0, Double.parseDouble(props.getProperty("tickBudgetMs", "3.0")));
         } catch (IOException | RuntimeException ignored) {
             // 读不到配置按默认值跑
         }

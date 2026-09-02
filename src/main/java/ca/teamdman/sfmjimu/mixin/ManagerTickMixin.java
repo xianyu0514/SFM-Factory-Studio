@@ -22,8 +22,15 @@ public abstract class ManagerTickMixin {
     )
     private static boolean sfmjimu$trackDidSomething(ca.teamdman.sfml.ast.Program program,
                                                      ManagerBlockEntity manager) {
+        // 每刻全局预算（多工厂保险丝）：超预算且不满足饥饿救济时本轮顺延。
+        // 放行的运行与原版逐字节一致；被顺延只是损失这一轮触发时机。
+        if (!ca.teamdman.sfmjimu.net.TpsBackoff.tryAcquire(manager)) {
+            return false;
+        }
+        long start = System.nanoTime();
         boolean didSomething = program.tick(manager);
-        TpsBackoff.onProgramRan(manager, didSomething);
+        ca.teamdman.sfmjimu.net.TpsBackoff.record(System.nanoTime() - start);
+        ca.teamdman.sfmjimu.net.TpsBackoff.onProgramRan(manager, didSomething);
         return didSomething;
     }
 }
