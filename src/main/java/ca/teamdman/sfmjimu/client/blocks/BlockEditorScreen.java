@@ -3557,9 +3557,7 @@ public class BlockEditorScreen extends Screen {
     }
 
     static boolean itemMatchesTag(net.minecraft.world.item.ItemStack stack, String matcher) {
-        var key = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem());
-        if (key == null) return false;
-        var holder = net.minecraft.core.registries.BuiltInRegistries.ITEM.getHolderOrThrow(key);
+        var holder = net.minecraft.core.registries.BuiltInRegistries.ITEM.wrapAsHolder(stack.getItem());
         for (var tagKey : holder.tags().toList()) {
             if (tagMatcherMatches(matcher, tagKey.location())) return true;
         }
@@ -4306,10 +4304,6 @@ public class BlockEditorScreen extends Screen {
         List<String> labels = new ArrayList<>();
         values.add("convert");
         labels.add(io instanceof BProgram.Statement.Input ? "⇄ 转为「放入方块」" : "⇄ 转为「从方块取出」");
-        if (current != null) {
-            values.add("preview_match");
-            labels.add("预览匹配物品…");
-        }
         if (SfmCaps.withComponent()) {
             values.add("nbt");
             labels.add("NBT 组件筛选…");
@@ -5056,6 +5050,8 @@ public class BlockEditorScreen extends Screen {
                     "＋ 从物品添加“且”特征", "＋ 从物品添加“或”特征",
                     "＋ 搜索并添加“且”特征", "＋ 搜索并添加“或”特征",
                     "＋ 手动添加“且”（高级）", "＋ 手动添加“或”（高级）"));
+            values.add("preview_match");
+            labels.add("预览匹配物品…");
         }
         List<BProgram.WithExpr.Tag> tags = new ArrayList<>();
         if (current != null) collectWithTags(current.expr, tags);
