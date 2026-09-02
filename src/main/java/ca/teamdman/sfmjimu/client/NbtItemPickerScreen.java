@@ -1,0 +1,279 @@
+package ca.teamdman.sfmjimu.client;
+
+import ca.teamdman.sfmjimu.client.blocks.ComponentNames;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.component.DataComponentType;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Consumer;
+
+/**
+ * NBT 组件可视化选择器：背包物品 / 全部物品 双页签，图标网格 + 拼音搜索；
+ * 选中物品后列出其全部非默认数据组件（中文名 + 值预览 + 灰色原始 id），
+ * 点选回调组件 id。输入分发 super 优先——搜索框是屏幕子控件，必须先让
+ * 它拿到点击与按键，其余面板区域再自行处理。
+ */
+public class NbtItemPickerScreen extends Screen {
+    private static final int SLOT = 20, COLS = 12, GRID_W = COLS * SLOT;
+    private static final int PANEL_W = GRID_W + 24, ROW_H = 18, MAX_ROWS = 8;
+    private static final int PANEL_TOP = 34, TAB_Y = 44, SEARCH_Y = 64, CONTENT_Y = 84;
+
+    private final Screen parent;
+    private final Consumer<String> onPick;
+    private final List<ItemStack> inventory = new ArrayList<>();
+    /** 全注册表物品堆叠只建一次（整合包上万物品，逐次打开重建会造成明显卡顿）。 */
+    private static List<ItemStack> allItemsCache = null;
+    private final List<ItemStack> allItems;
+    private List<ItemStack> shownItems = new ArrayList<>();
+    private final List<DataComponentType<?>> components = new ArrayList<>();
+    private boolean componentPage = false;
+    private boolean allTab = false;
+    private ItemStack selected = ItemStack.EMPTY;
+    private EditBox search;
+    private String query = "";
+    private int itemScroll = 0, compScroll = 0;
+
+    public NbtItemPickerScreen(Screen parent, Consumer<String> onPick) {
+        super(Component.literal("选择 NBT 组件"));
+        this.parent = parent;
+        this.onPick = onPick;
+        var player = Minecraft.getInstance().player;
+        if (player != null) {
+            var inv = player.getInventory();
+            for (int i = 0; i < inv.getContainerSize(); i++) {
+                ItemStack s = inv.getItem(i);
+                if (!s.isEmpty()) inventory.add(s.copy());
+            }
+        }
+        if (allItemsCache == null) {
+            allItemsCache = new ArrayList<>();
+            for (var item : BuiltInRegistries.ITEM) allItemsCache.add(new ItemStack(item));
+        }
+        allItems = allItemsCache;
+    }
+
+    @Override
+    protected void init() {
+        int px = panelX();
+        search = new EditBox(this.font, px + 8, SEARCH_Y, PANEL_W - 16, 14, Component.literal(""));
+        search.setHint(Component.literal("搜索物品名称或拼音…"));
+        search.setResponder(q -> {
+            query = q.trim().toLowerCase(Locale.ROOT);
+            itemScroll = 0;
+            compScroll = 0;
+            refilter();
+        });
+        addRenderableWidget(search);
+        setInitialFocus(search);
+        refilter();
+    }
+
+    private int panelX() {
+        return width / 2 - PANEL_W / 2;
+    }
+
+    private void refilter() {
+        List<ItemStack> source = allTab ? allItems : inventory;
+        shownItems = new ArrayList<>();
+        if (query.isEmpty()) {
+            shownItems.addAll(source);
+            return;
+        }
+        for (ItemStack s : source) {
+            String name = s.getHoverName().getString();
+            if (name.toLowerCase(Locale.ROOT).contains(query)
+                    || PinyinSearch.matchesNormalized(name, query)) {
+                shownItems.add(s);
+            }
+        }
+    }
+
+    private void openComponents(ItemStack stack) {
+        selected = stack;
+        components.clear();
+        componentPage = true;
+        compScroll = 0;
+        BuiltInRegistries.DATA_COMPONENT_TYPE.forEach(type -> {
+            if (ca.teamdman.sfmjimu.net.NbtMatcherHook.hasNonDefault(stack, type)) {
+                components.add(type);
+            }
+        });
+    }
+
+    private String idOf(DataComponentType<?> type) {
+        return String.valueOf(BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(type));
+    }
+
+    @Override
+    public void render(GuiGraphics g, int mx, int my, float partialTick) {
+        g.fill(0, 0, width, height, 0x90000000);
+        int px = panelX();
+        int rows = Math.min(MAX_ROWS, Math.max(1, (shownItems.size() + COLS - 1) / COLS));
+        int panelH = componentPage
+                ? CONTENT_Y - PANEL_TOP + Math.min(MAX_ROWS, Math.max(1, components.size())) * ROW_H + 10
+                : CONTENT_Y - PANEL_TOP + rows * SLOT + 10;
+        g.fill(px + 3, PANEL_TOP + 3, px + PANEL_W + 3, PANEL_TOP + panelH + 3, 0x30203A5A);
+        g.fill(px, PANEL_TOP, px + PANEL_W, PANEL_TOP + panelH, 0xFFF6F8FC);
+        g.fill(px, PANEL_TOP, px + PANEL_W, PANEL_TOP + 1, 0xFFC9D4E2);
+        g.fill(px, PANEL_TOP + panelH - 1, px + PANEL_W, PANEL_TOP + panelH, 0xFFC9D4E2);
+        g.fill(px, PANEL_TOP, px + 1, PANEL_TOP + panelH, 0xFFC9D4E2);
+        g.fill(px + PANEL_W - 1, PANEL_TOP, px + PANEL_W, PANEL_TOP + panelH, 0xFFC9D4E2);
+
+        if (componentPage) {
+            g.drawString(font, selected.getHoverName().getString() + " 的 NBT（" + components.size() + " 项）",
+                    px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
+            g.drawString(font, "← 返回选物品", px + 10, TAB_Y, 0xFF2F6FED, false);
+            int visible = Math.min(MAX_ROWS, components.size());
+            compScroll = Math.min(compScroll, Math.max(0, components.size() - visible));
+            for (int i = 0; i < visible; i++) {
+                DataComponentType<?> type = components.get(compScroll + i);
+                String id = idOf(type);
+                int ry = CONTENT_Y + i * ROW_H;
+                boolean hover = mx >= px + 4 && mx < px + PANEL_W - 4 && my >= ry && my < ry + ROW_H;
+                g.fill(px + 4, ry, px + PANEL_W - 4, ry + ROW_H, hover ? 0xFFF1F4F9 : 0xFFFFFFFF);
+                g.fill(px + 8, ry + 6, px + 11, ry + 10, 0xFF8B5CF6);
+                String pv = ComponentNames.preview(type, selected);
+                String main = pv.isEmpty() ? ComponentNames.display(id) : ComponentNames.display(id) + " · " + pv;
+                int idW = font.width(id);
+                g.drawString(font, font.plainSubstrByWidth(main, PANEL_W - 32 - idW),
+                        px + 15, ry + 4, 0xFF1B2432, false);
+                g.drawString(font, id, px + PANEL_W - idW - 8, ry + 5, 0xFF9AA3B2, false);
+            }
+            if (components.isEmpty()) {
+                String empty = allTab && shownItems.contains(selected)
+                        ? "该物品原始状态没有 NBT；请在「背包物品」页选带 NBT 的实际物品"
+                        : "这件物品没有 NBT 数据（无非默认组件），换一件试试";
+                g.drawString(font, empty, px + PANEL_W / 2 - font.width(empty) / 2,
+                        CONTENT_Y + 5, 0xFFB45309, false);
+            }
+        } else {
+            g.drawString(font, "选择一件物品，查看它的 NBT", px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
+            // 页签：背包物品 / 全部物品
+            String[] tabs = {"背包物品（" + inventory.size() + "）", "全部物品（" + allItems.size() + "）"};
+            int tx = px + 10;
+            for (int i = 0; i < 2; i++) {
+                boolean active = (i == 1) == allTab;
+                int tw = font.width(tabs[i]) + 14;
+                g.fill(tx, TAB_Y - 2, tx + tw, TAB_Y + 12, active ? 0xFFDDE8FB : 0xFFEDF2F8);
+                g.drawString(font, tabs[i], tx + 7, TAB_Y + 1, active ? 0xFF1B4FA0 : 0xFF5C6779, false);
+                tx += tw + 4;
+            }
+            int gridRows = (shownItems.size() + COLS - 1) / COLS;
+            int visibleRows = Math.min(MAX_ROWS, Math.max(1, gridRows));
+            itemScroll = Math.min(itemScroll, Math.max(0, gridRows - visibleRows));
+            for (int r = 0; r < visibleRows; r++) {
+                for (int c = 0; c < COLS; c++) {
+                    int idx = (r + itemScroll) * COLS + c;
+                    if (idx >= shownItems.size()) break;
+                    ItemStack s = shownItems.get(idx);
+                    int sx = px + 12 + c * SLOT, sy = CONTENT_Y + r * SLOT;
+                    boolean hover = mx >= sx - 1 && mx < sx + 19 && my >= sy - 1 && my < sy + 19;
+                    if (hover) g.fill(sx - 1, sy - 1, sx + 19, sy + 19, 0xFFE0EBFB);
+                    g.renderItem(s, sx, sy);
+                    if (!allTab) g.renderItemDecorations(font, s, sx, sy);
+                }
+            }
+            if (shownItems.isEmpty()) {
+                String empty = inventory.isEmpty() ? "背包是空的，先把要区分的物品拿在身上；或切到「全部物品」"
+                        : allTab ? "没有匹配的物品" : "背包里没有匹配的物品";
+                g.drawString(font, empty, px + PANEL_W / 2 - font.width(empty) / 2,
+                        CONTENT_Y + 6, 0xFFB45309, false);
+            }
+        }
+        super.render(g, mx, my, partialTick);
+    }
+
+    @Override
+    public boolean mouseClicked(double mx, double my, int button) {
+        // 搜索框是屏幕子控件，super 优先：先让控件吃掉点击/焦点
+        if (super.mouseClicked(mx, my, button)) return true;
+        if (button != 0) return true;
+        int px = panelX();
+        if (componentPage) {
+            if (my >= TAB_Y - 3 && my < TAB_Y + 14 && mx >= px + 8 && mx < px + 100) {
+                componentPage = false;
+                return true;
+            }
+            int visible = Math.min(MAX_ROWS, components.size());
+            for (int i = 0; i < visible; i++) {
+                int ry = CONTENT_Y + i * ROW_H;
+                if (my >= ry && my < ry + ROW_H && mx >= px + 4 && mx < px + PANEL_W - 4) {
+                    String id = idOf(components.get(compScroll + i));
+                    Minecraft.getInstance().setScreen(parent);
+                    onPick.accept(id);
+                    return true;
+                }
+            }
+            return true;
+        }
+        // 页签
+        String[] tabs = {"背包物品", "全部物品"};
+        int tx = px + 10;
+        for (int i = 0; i < 2; i++) {
+            int tw = font.width(tabs[i]) + 14;
+            if (my >= TAB_Y - 2 && my < TAB_Y + 12 && mx >= tx && mx < tx + tw) {
+                boolean wantAll = i == 1;
+                if (wantAll != allTab) {
+                    allTab = wantAll;
+                    itemScroll = 0;
+                    refilter();
+                }
+                return true;
+            }
+            tx += tw + 4;
+        }
+        // 物品网格
+        int gridRows = (shownItems.size() + COLS - 1) / COLS;
+        int visibleRows = Math.min(MAX_ROWS, Math.max(1, gridRows));
+        for (int r = 0; r < visibleRows; r++) {
+            for (int c = 0; c < COLS; c++) {
+                int idx = (r + itemScroll) * COLS + c;
+                if (idx >= shownItems.size()) break;
+                int sx = px + 12 + c * SLOT, sy = CONTENT_Y + r * SLOT;
+                if (mx >= sx - 1 && mx < sx + 19 && my >= sy - 1 && my < sy + 19) {
+                    openComponents(shownItems.get(idx));
+                    return true;
+                }
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (super.keyPressed(keyCode, scanCode, modifiers)) return true;
+        if (keyCode == 256) {
+            onClose();
+            return true;
+        }
+        return true;
+    }
+
+    @Override
+    public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
+        if (componentPage) {
+            compScroll = Math.max(0, compScroll - (int) Math.signum(scrollY));
+        } else {
+            itemScroll = Math.max(0, itemScroll - (int) Math.signum(scrollY));
+        }
+        return true;
+    }
+
+    @Override
+    public void onClose() {
+        Minecraft.getInstance().setScreen(parent);
+    }
+
+    @Override
+    public void renderBackground(GuiGraphics g, int mx, int my, float partialTick) {
+        // 不吃原版背景模糊
+    }
+}

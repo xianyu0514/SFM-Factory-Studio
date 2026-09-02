@@ -1,0 +1,119 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.gradle.userdev' version '7.0.190'
+}
+
+version = project.mod_version
+group = project.mod_group_id
+
+base {
+    // Public-facing artifact name. Keep mod_id/package names stable for world,
+    // network and config compatibility; only the distributable filename changes.
+    archivesName = "SFM-Factory-Studio-${project.minecraft_version}"
+}
+
+// The bundled build is the normal release, so it gets the clean filename.
+// Keep the dependency-free artifact clearly marked for developers only.
+tasks.named('jar', Jar).configure {
+    archiveClassifier.set('slim')
+}
+
+tasks.named('jarJar').configure {
+    archiveClassifier.set('')
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+repositories {
+    maven { url = 'https://maven.aliyun.com/repository/public' } // CN mirror of maven central
+    mavenCentral()
+    maven { url = 'https://maven.neoforged.net/releases' }
+    maven { url = 'https://jitpack.io' }
+    // Mekanism maven (for API jar)
+    maven { url = 'https://modmaven.dev/' }
+    // BlameJared maven (for the JEI API jar)
+    maven { url = 'https://maven.blamejared.com' }
+}
+
+// The SFM mod jar this addon builds against.
+def sfmJar = files(project.sfm_jar)
+
+// Mekanism API jar (compileOnly — only needed for chemical icon rendering at compile time).
+def mekApiCoords = "mekanism:Mekanism:1.21.1-10.7.4.60:api"
+
+// JEI API (compileOnly — optional integration for item enumeration/rendering; guarded
+// at runtime so the addon works with or without JEI installed). The API is split into a
+// common part (IModPlugin, runtime, ingredients, constants) and a neoforge part.
+def jeiVersion = "19.21.0.247"
+def jeiCommonApi = "mezz.jei:jei-1.21.1-common-api:${jeiVersion}"
+def jeiNeoApi = "mezz.jei:jei-1.21.1-neoforge-api:${jeiVersion}"
+
+// PinIn: standalone Chinese pinyin matching library (bundled so pinyin search
+// works without requiring JustEnoughCharacters). Depends on fastutil, already
+// present in Minecraft, so we exclude it from the bundle.
+def pininCoords = "com.github.Towdium:PinIn:1.6.0"
+
+dependencies {
+    implementation "net.neoforged:neoforge:${project.neo_version}"
+
+    // SFM is a required companion mod at runtime; we only need it at compile time.
+    compileOnly sfmJar
+    // Mekanism API: compile-only for chemical icon rendering; guarded at runtime.
+    compileOnly(mekApiCoords) { transitive = false }
+    // JEI API: compile-only optional integration; guarded at runtime.
+    compileOnly(jeiCommonApi) { transitive = false }
+    compileOnly(jeiNeoApi) { transitive = false }
+    // Make SFM classes available when running tests (they use SFM's SFML parser/AST).
+    testImplementation sfmJar
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // PinIn: compile against it, bundle it into the jar via jarJar.
+    implementation(pininCoords) { transitive = false }
+    jarJar(pininCoords) { version { strictly "1.6.0" } }
+    testImplementation(pininCoords) { transitive = false }
+}
+
+// Provide SFM to the dev runtime classpath so runClient works with both mods loaded.
+runs {
+    configureEach {
+        systemProperty 'forge.logging.markers', 'REGISTRIES'
+        systemProperty 'forge.logging.console.level', 'debug'
+        modSource project.sourceSets.main
+        // SFM must be present at runtime; add it to the mod runtime classpath.
+        dependencies {
+            runtime sfmJar
+        }
+    }
+    client { }
+    server { }
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    // load properties as UTF-8 so the Chinese mod name survives template expansion
+    def utf8Props = new Properties()
+    file('gradle.properties').newReader('UTF-8').withCloseable { reader -> utf8Props.load(reader) }
+    def replaceProperties = [
+            minecraft_version      : utf8Props['minecraft_version'],
+            minecraft_version_range: utf8Props['minecraft_version_range'],
+            neo_version            : utf8Props['neo_version'],
+            neo_version_range      : utf8Props['neo_version_range'],
+            loader_version_range   : utf8Props['loader_version_range'],
+            mod_id                 : utf8Props['mod_id'],
+            mod_name               : utf8Props['mod_name'],
+            mod_license            : utf8Props['mod_license'],
+            mod_version            : utf8Props['mod_version'],
+            mod_authors            : utf8Props['mod_authors'],
+            mod_description        : utf8Props['mod_description']
+    ]
+    inputs.properties replaceProperties
+    filesMatching(['META-INF/neoforge.mods.toml']) {
+        expand replaceProperties
+    }
+}
+
+test {
+    useJUnitPlatform()
+}

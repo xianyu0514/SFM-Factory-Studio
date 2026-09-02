@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "ca.teamdman.sfmjimu.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "WithTagMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}
