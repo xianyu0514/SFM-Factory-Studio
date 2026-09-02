@@ -22,14 +22,14 @@ import java.util.WeakHashMap;
 public final class TpsBackoff {
     private static final WeakHashMap<ManagerBlockEntity, Integer> EMPTY_STREAK = new WeakHashMap<>();
     private static volatile boolean enabled = true;
-    private static volatile int maxBackoff = 8;
+    private static volatile int maxBackoff = 4; // 吞吐中性（累积批量搬），仅影响空闲后首件延迟
     private static boolean configLoaded = false;
 
     private TpsBackoff() {
     }
 
     // ---- 每刻全局预算（多工厂保险丝）：SFM 上游只有耗时测量，没有预算机制 ----
-    private static volatile double tickBudgetMs = 3.0;
+    private static volatile double tickBudgetMs = 0; // 默认关闭：预算会丢轮次=动吞吐，玩家在意效率
     private static long accNanos = 0;
     private static long accGameTime = -1;
     private static final WeakHashMap<ManagerBlockEntity, Integer> STARVE = new WeakHashMap<>();
@@ -71,18 +71,18 @@ public final class TpsBackoff {
                 Files.writeString(file, """
                         # 空转退避：管理器连续空转时定时触发间隔逐级拉长（搬运成功立即恢复）
                         enableIdleBackoff=true
-                        # 最大退避倍数（8=空闲时最多每 8 倍间隔检测一次）
-                        maxIdleBackoff=8
-                        # 每刻全局预算（毫秒）：所有 SFM 管理器单游戏刻总耗时封顶，超出者本轮顺延（软公平防饿死）
-                        # 0=关闭；3.0=每刻最多 3ms
-                        tickBudgetMs=3.0
+                        # 最大退避倍数（吞吐中性：物品累积后批量搬，每秒平均量不变；只影响空闲后首件延迟）
+                        maxIdleBackoff=4
+                        # 每刻全局预算（毫秒）：所有管理器单刻总耗时封顶，超出者丢本轮触发（=动吞吐！）
+                        # 玩家在意吞吐请保持 0=关闭；只在高负载服务器想保 TPS 时手动开启
+                        tickBudgetMs=0
                         """);
             }
             Properties props = new Properties();
             props.load(Files.newInputStream(file));
             enabled = Boolean.parseBoolean(props.getProperty("enableIdleBackoff", "true"));
-            maxBackoff = Math.max(1, Math.min(64, Integer.parseInt(props.getProperty("maxIdleBackoff", "8"))));
-            tickBudgetMs = Math.max(0, Double.parseDouble(props.getProperty("tickBudgetMs", "3.0")));
+            maxBackoff = Math.max(1, Math.min(64, Integer.parseInt(props.getProperty("maxIdleBackoff", "4"))));
+            tickBudgetMs = Math.max(0, Double.parseDouble(props.getProperty("tickBudgetMs", "0")));
         } catch (IOException | RuntimeException ignored) {
             // 读不到配置按默认值跑
         }
