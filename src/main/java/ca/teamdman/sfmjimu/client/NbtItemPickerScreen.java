@@ -34,6 +34,7 @@ public class NbtItemPickerScreen extends Screen {
     private final List<ItemStack> allItems;
     private List<ItemStack> shownItems = new ArrayList<>();
     private final List<DataComponentType<?>> components = new ArrayList<>();
+    private final List<String> clickTargets = new ArrayList<>();
     private boolean componentPage = false;
     private boolean allTab = false;
     private ItemStack selected = ItemStack.EMPTY;
@@ -96,9 +97,16 @@ public class NbtItemPickerScreen extends Screen {
         }
     }
 
+    /** 组件页可点行：主显示 + 追加到组件 id 之后的深路径（点格式）。 */
+    private record ValueRow(String main, String suffix) {
+    }
+
+    private final List<ValueRow> valueRows = new ArrayList<>();
+
     private void openComponents(ItemStack stack) {
         selected = stack;
         components.clear();
+        valueRows.clear();
         componentPage = true;
         compScroll = 0;
         BuiltInRegistries.DATA_COMPONENT_TYPE.forEach(type -> {
@@ -106,6 +114,51 @@ public class NbtItemPickerScreen extends Screen {
                 components.add(type);
             }
         });
+        // 已知类型展开为具体值行，点选即生成深匹配（附魔按条、药水按种、
+        // custom_data 按顶层子键、名称按文本）
+        for (DataComponentType<?> type : components) {
+            String id = idOf(type);
+            Object value = stack.getComponents().get(type);
+            if (value instanceof net.minecraft.world.item.enchantment.ItemEnchantments ench) {
+                for (var e : ench.entrySet()) {
+                    var k = e.getKey().unwrapKey();
+                    if (k.isEmpty()) continue;
+                    String loc = k.get().location().toString();
+                    String name = net.minecraft.network.chat.Component.translatable(
+                            "enchantment." + loc.replace(':', '.')).getString();
+                    valueRows.add(new ValueRow(
+                            ComponentNames.display(id) + " · " + name + " " + e.getValue(),
+                            "/" + loc.replace(':', '.')));
+                }
+            } else if (value instanceof net.minecraft.world.item.alchemy.PotionContents pc) {
+                pc.potion().ifPresent(h -> {
+                    var k = BuiltInRegistries.POTION.getKey(h.value());
+                    if (k != null) {
+                        valueRows.add(new ValueRow(
+                                ComponentNames.display(id) + " · " + k.getPath(),
+                                "/" + k.toString().replace(':', '.')));
+                    }
+                });
+            } else if (value instanceof net.minecraft.world.item.component.CustomData data) {
+                var tag = data.copyTag();
+                for (String key : tag.getAllKeys()) {
+                    if (valueRows.size() > 30) break;
+                    String leaf;
+                    var t = tag.get(key);
+                    if (t instanceof net.minecraft.nbt.NumericTag n) leaf = " = " + n.getAsLong();
+                    else if (t instanceof net.minecraft.nbt.StringTag st) leaf = " = " + st.getAsString();
+                    else leaf = "";
+                    valueRows.add(new ValueRow(
+                            ComponentNames.display(id) + " · " + key + leaf,
+                            "/" + key));
+                }
+            } else if (value instanceof net.minecraft.network.chat.Component text) {
+                String t = text.getString();
+                if (t.length() > 18) t = t.substring(0, 18) + "…";
+                valueRows.add(new ValueRow(
+                        ComponentNames.display(id) + " · " + t, "/" + t));
+            }
+        }
     }
 
     private String idOf(DataComponentType<?> type) {
@@ -131,22 +184,38 @@ public class NbtItemPickerScreen extends Screen {
             g.drawString(font, selected.getHoverName().getString() + " 的 NBT（" + components.size() + " 项）",
                     px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
             g.drawString(font, "← 返回选物品", px + 10, TAB_Y, 0xFF2F6FED, false);
-            int visible = Math.min(MAX_ROWS, components.size());
-            compScroll = Math.min(compScroll, Math.max(0, components.size() - visible));
+            int rowCount = Math.max(components.size(), valueRows.size());
+            int visible = Math.min(MAX_ROWS, Math.max(1, rowCount));
+            compScroll = Math.min(compScroll, Math.max(0, rowCount - visible));
             for (int i = 0; i < visible; i++) {
-                DataComponentType<?> type = components.get(compScroll + i);
-                String id = idOf(type);
+                int idx = compScroll + i;
+                String main;
+                String pickTarget; // null=按组件存在性匹配；否则=组件id+深路径
+                DataComponentType<?> type = idx < components.size() ? components.get(idx) : null;
+                ValueRow vr = idx < valueRows.size() ? valueRows.get(idx) : null;
+                if (vr != null) {
+                    main = vr.main();
+                    DataComponentType<?> owner = components.stream()
+                            .filter(t -> vr.main().startsWith(ComponentNames.display(idOf(t)) + " ·"))
+                            .findFirst().orElse(type);
+                    pickTarget = (owner != null ? idOf(owner) : "") + vr.suffix();
+                } else if (type != null) {
+                    String id = idOf(type);
+                    String pv = ComponentNames.preview(type, selected);
+                    main = pv.isEmpty() ? ComponentNames.display(id) : ComponentNames.display(id) + " · " + pv;
+                    pickTarget = id;
+                } else {
+                    continue;
+                }
                 int ry = CONTENT_Y + i * ROW_H;
                 boolean hover = mx >= px + 4 && mx < px + PANEL_W - 4 && my >= ry && my < ry + ROW_H;
                 g.fill(px + 4, ry, px + PANEL_W - 4, ry + ROW_H, hover ? 0xFFF1F4F9 : 0xFFFFFFFF);
                 g.fill(px + 8, ry + 6, px + 11, ry + 10, 0xFF8B5CF6);
-                String pv = ComponentNames.preview(type, selected);
-                String main = pv.isEmpty() ? ComponentNames.display(id) : ComponentNames.display(id) + " · " + pv;
-                int idW = font.width(id);
-                g.drawString(font, font.plainSubstrByWidth(main, PANEL_W - 32 - idW),
+                g.drawString(font, font.plainSubstrByWidth(main, PANEL_W - 32),
                         px + 15, ry + 4, 0xFF1B2432, false);
-                g.drawString(font, id, px + PANEL_W - idW - 8, ry + 5, 0xFF9AA3B2, false);
+                clickTargets.add(pickTarget);
             }
+            while (clickTargets.size() > visible) clickTargets.remove(clickTargets.size() - 1);
             if (components.isEmpty()) {
                 String empty = allTab && shownItems.contains(selected)
                         ? "该物品原始状态没有 NBT；请在「背包物品」页选带 NBT 的实际物品"
@@ -202,13 +271,13 @@ public class NbtItemPickerScreen extends Screen {
                 componentPage = false;
                 return true;
             }
-            int visible = Math.min(MAX_ROWS, components.size());
+            int visible = Math.min(clickTargets.size(), MAX_ROWS);
             for (int i = 0; i < visible; i++) {
                 int ry = CONTENT_Y + i * ROW_H;
                 if (my >= ry && my < ry + ROW_H && mx >= px + 4 && mx < px + PANEL_W - 4) {
-                    String id = idOf(components.get(compScroll + i));
+                    String target = clickTargets.get(i);
                     Minecraft.getInstance().setScreen(parent);
-                    onPick.accept(id);
+                    onPick.accept(target);
                     return true;
                 }
             }

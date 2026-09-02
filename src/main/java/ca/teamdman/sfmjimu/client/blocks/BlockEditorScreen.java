@@ -4970,16 +4970,29 @@ public class BlockEditorScreen extends Screen {
      * 组件 id → 伪标签匹配串：SFML 的 tagMatcher 语法是 ns:elem/elem（路径内不允许
      * 冒号），所以组件 id 的冒号写成斜杠：minecraft:enchantments → nbt:minecraft/enchantments。
      */
-    private static String nbtMatcher(String componentId) {
-        return "nbt:" + componentId.replace(':', '/');
+    private static String nbtMatcher(String componentIdOrDeep) {
+        // 深路径形如 minecraft:enchantments/minecraft.sharpness——组件 id 的冒号
+        // 写斜杠，选择器原样保留
+        int slash = componentIdOrDeep.indexOf('/');
+        if (slash < 0) return "nbt:" + componentIdOrDeep.replace(':', '/');
+        String comp = componentIdOrDeep.substring(0, slash).replace(':', '/');
+        return "nbt:" + comp + componentIdOrDeep.substring(slash);
     }
 
     /** 伪标签匹配串 → 组件 id（显示用）。非 nbt: 前缀原样返回。 */
     private static String nbtComponentDisplay(String matcher) {
         if (!matcher.startsWith("nbt:")) return matcher;
-        String id = matcher.substring(4).replace('/', ':');
-        String zh = ComponentNames.nameOf(id);
-        return zh != null ? "NBT·" + zh : "NBT·" + id;
+        var parsed = ca.teamdman.sfmjimu.net.NbtMatcherHook.parse(matcher);
+        if (parsed == null) return matcher;
+        String zh = ComponentNames.nameOf(parsed.componentId());
+        StringBuilder sb = new StringBuilder("NBT·").append(zh != null ? zh : parsed.componentId());
+        for (String sel : parsed.selector()) {
+            if (sel.startsWith("gt")) sb.append("·>").append(sel.substring(2));
+            else if (sel.startsWith("lt")) sb.append("·<").append(sel.substring(2));
+            else if (sel.startsWith("eq")) sb.append("·=").append(sel.substring(2));
+            else sb.append("·").append(sel.replace('.', ':'));
+        }
+        return sb.toString();
     }
 
     /** NBT 组件条件选择：物品选择器（推荐）/ 常用中文列表 / 手动输入。 */
