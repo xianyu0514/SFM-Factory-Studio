@@ -3535,6 +3535,88 @@ public class BlockEditorScreen extends Screen {
         }
     }
 
+    // ---- 预览匹配：标签/NBT 条件 → 匹配物品列表 ----
+
+    static boolean matchesFilter(BProgram.WithExpr expr, net.minecraft.world.item.ItemStack stack) {
+        if (expr instanceof BProgram.WithExpr.Tag tag) {
+            if (tag.matcher.startsWith("nbt:")) {
+                return ca.teamdman.sfmjimu.net.NbtMatcherHook.matchesComponent(tag.matcher, stack);
+            }
+            return itemMatchesTag(stack, tag.matcher);
+        }
+        if (expr instanceof BProgram.WithExpr.Not not) return !matchesFilter(not.inner, stack);
+        if (expr instanceof BProgram.WithExpr.And and) {
+            for (var p : and.parts) if (!matchesFilter(p, stack)) return false;
+            return true;
+        }
+        if (expr instanceof BProgram.WithExpr.Or or) {
+            for (var p : or.parts) if (matchesFilter(p, stack)) return true;
+            return false;
+        }
+        return false;
+    }
+
+    static boolean itemMatchesTag(net.minecraft.world.item.ItemStack stack, String matcher) {
+        var key = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem());
+        if (key == null) return false;
+        var holder = net.minecraft.core.registries.BuiltInRegistries.ITEM.getHolderOrThrow(key);
+        for (var tagKey : holder.tags().toList()) {
+            if (tagMatcherMatches(matcher, tagKey.location())) return true;
+        }
+        return false;
+    }
+
+    static boolean tagMatcherMatches(String matcher, net.minecraft.resources.ResourceLocation tag) {
+        String ns, path;
+        int colon = matcher.indexOf(':');
+        if (colon > 0) {
+            ns = matcher.substring(0, colon);
+            path = matcher.substring(colon + 1).replace('/', '.');
+        } else {
+            ns = ".*";
+            path = matcher.replace('/', '.');
+        }
+        return ca.teamdman.sfmjimu.net.NbtMatcherHook.wildcardMatches(ns, tag.getNamespace())
+                && ca.teamdman.sfmjimu.net.NbtMatcherHook.wildcardMatches(path, tag.getPath());
+    }
+
+    private void openFilterPreview(BProgram.WithFilter filter) {
+        var mc = Minecraft.getInstance();
+        List<net.minecraft.world.item.ItemStack> matched = new ArrayList<>();
+        if (mc.player != null) {
+            var inv = mc.player.getInventory();
+            for (int i = 0; i < inv.getContainerSize(); i++) {
+                var st = inv.getItem(i);
+                if (!st.isEmpty() && matchesFilter(filter.expr, st)
+                        && !matched.stream().anyMatch(m -> m.getItem() == st.getItem())) {
+                    matched.add(st.copy());
+                }
+            }
+        }
+        for (var item : net.minecraft.core.registries.BuiltInRegistries.ITEM) {
+            if (matched.size() >= 24) break;
+            var st = new net.minecraft.world.item.ItemStack(item);
+            if (matchesFilter(filter.expr, st)
+                    && !matched.stream().anyMatch(m -> m.getItem() == item)) {
+                matched.add(st);
+            }
+        }
+        if (matched.isEmpty()) {
+            showStatus("没有找到匹配的物品——检查条件是否太严", 0xFFB45309);
+            return;
+        }
+        List<String> values = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        for (int i = 0; i < Math.min(24, matched.size()); i++) {
+            values.add("m:" + i);
+            labels.add(matched.get(i).getHoverName().getString());
+        }
+        setPopup(new Popup.ChoicePopup(panelX + panelW / 2 - 130, panelY + panelH / 2 - 60,
+                260, values, labels, "", picked -> {
+                    showStatus("匹配预览共 " + matched.size() + " 件物品", C_TEXT_SUB);
+                }));
+    }
+
     /** 在指定内容坐标处新建一张触发器卡（右键菜单/引导卡用）。 */
     private void createCardAt(String kind, double cx, double cy) {
         pushUndo();
@@ -4224,6 +4306,10 @@ public class BlockEditorScreen extends Screen {
         List<String> labels = new ArrayList<>();
         values.add("convert");
         labels.add(io instanceof BProgram.Statement.Input ? "⇄ 转为「放入方块」" : "⇄ 转为「从方块取出」");
+        if (current != null) {
+            values.add("preview_match");
+            labels.add("预览匹配物品…");
+        }
         if (SfmCaps.withComponent()) {
             values.add("nbt");
             labels.add("NBT 组件筛选…");
@@ -4983,6 +5069,11 @@ public class BlockEditorScreen extends Screen {
             labels.add("删除第 " + (i + 1) + " 项：" + display);
         }
         setPopup(new Popup.ChoicePopup(screenX, screenY, 230, values, labels, "", picked -> {
+            if (picked.equals("preview_match")) {
+                BProgram.WithFilter f = getter.get();
+                if (f != null) openFilterPreview(f);
+                return;
+            }
             if (picked.equals("first_item") || picked.equals("first_all")) {
                 openResourceTagPicker(picked.equals("first_all"), matcher -> {
                     pushUndo();
