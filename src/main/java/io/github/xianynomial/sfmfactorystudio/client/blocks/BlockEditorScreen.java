@@ -4049,7 +4049,9 @@ public class BlockEditorScreen extends Screen {
         BProgram.ResourceLimit rl = primaryLimit(in.limits);
         fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
-        fx = drawOrAddField(g, fx, y, rl, mx, my);
+        if (rl == null || rl.resources.size() <= 1) {
+            fx = drawAndAddSlot(g, fx, y, rl, mx, my);
+        }
         fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? "收起" : "展开", 34,
                 () -> expandOrMenu(stmt, in, x, y, list, index), mx, my, true);
         drawDelete(g, x + w - 16, y + 3, () -> {
@@ -4081,7 +4083,9 @@ public class BlockEditorScreen extends Screen {
         BProgram.ResourceLimit rl = primaryLimit(out.limits);
         fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
-        fx = drawOrAddField(g, fx, y, rl, mx, my);
+        if (rl == null || rl.resources.size() <= 1) {
+            fx = drawAndAddSlot(g, fx, y, rl, mx, my);
+        }
         fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? "收起" : "展开", 34,
                 () -> expandOrMenu(stmt, out, x, y, list, index), mx, my, true);
         drawDelete(g, x + w - 16, y + 3, () -> {
@@ -4096,15 +4100,38 @@ public class BlockEditorScreen extends Screen {
         }
     }
 
-    /** 或者也搬运的入口：主行紧凑「或＋」，点开直接选一种备选资源。 */
-    private int drawOrAddField(GuiGraphics g, int x, int y, BProgram.ResourceLimit rl, int mx, int my) {
+    /**
+     * 「和」空位：默认常驻一个空槽，点击选资源或从 JEI 拖入即新增一个备选；
+     * 不填则完全不参与程序。与主槽同样的视觉（灰底空槽+淡＋号）。
+     */
+    private int drawAndAddSlot(GuiGraphics g, int x, int y, BProgram.ResourceLimit rl, int mx, int my) {
         if (rl == null) return x;
-        final int px = x;
-        return drawField(g, x, y, "或＋", 26, () -> openNewResourceKindMenu(px, y, res -> {
+        int fx = drawText(g, x, y, "和");
+        final int px = fx, py = y;
+        int size = BAR_H;
+        boolean hover = overField(mx, my, fx, y, size, size);
+        g.fill(fx + 1, y + 1, fx + size - 1, y + size - 1, hover ? 0x997080A0 : 0x90606B7E);
+        g.fill(fx + 1, y + 1, fx + size - 1, y + 2, 0x8C2A2A2A);
+        g.fill(fx + 1, y + 1, fx + 2, y + size - 1, 0x8C2A2A2A);
+        g.fill(fx + 1, y + size - 2, fx + size - 1, y + size - 1, 0x8CFFFFFF);
+        g.fill(fx + size - 2, y + 1, fx + size - 1, y + size - 1, 0x8CFFFFFF);
+        g.drawString(this.font, "＋", fx + 6, y + 6, 0xFF8A94A6, false);
+        hits.add(hit(fx, y, size, size, K_CLICK, null, () -> openNewResourceKindMenu(px, py, res -> {
             pushUndo();
             rl.resources.add(res);
             layoutDirty = true;
-        }), mx, my, false);
+        })));
+        JeiGhostDrops.add(new Rect2i(sX(fx), sY(y), size, size), "*", dropped -> {
+            try {
+                BProgram.ResourceRef incoming = BProgram.ResourceRef.parse(dropped);
+                pushUndo();
+                rl.resources.add(incoming);
+                layoutDirty = true;
+            } catch (IllegalArgumentException ex) {
+                showStatus("✖ 无法识别这个资源", 0xFFD13438);
+            }
+        });
+        return fx + size + 4;
     }
 
     /**
@@ -4117,7 +4144,7 @@ public class BlockEditorScreen extends Screen {
         int rows = (alts + EditorLayout.RES_ALT_PER_ROW - 1) / EditorLayout.RES_ALT_PER_ROW;
         for (int r = 0; r < rows; r++) {
             int fx = x + 12;
-            fx = drawText(g, fx, y, "或");
+            fx = drawText(g, fx, y, "和");
             int start = 1 + r * EditorLayout.RES_ALT_PER_ROW;
             int end = Math.min(rl.resources.size(), start + EditorLayout.RES_ALT_PER_ROW);
             for (int idx = start; idx < end; idx++) {
@@ -4134,13 +4161,7 @@ public class BlockEditorScreen extends Screen {
                 fx += 6;
             }
             if (r == rows - 1) {
-                final int px = fx;
-                final int py = y;
-                drawField(g, fx, y, "＋", 18, () -> openNewResourceKindMenu(px, py, res -> {
-                    pushUndo();
-                    rl.resources.add(res);
-                    layoutDirty = true;
-                }), mx, my, false);
+                drawAndAddSlot(g, fx, y, rl, mx, my);
             }
             y += BAR_H;
         }
