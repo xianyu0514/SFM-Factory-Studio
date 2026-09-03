@@ -233,7 +233,7 @@ public class BlockEditorScreen extends Screen {
     private final Set<Long> collapsedCards = new LinkedHashSet<>();
     private final Set<Long> collapsedIfs = new LinkedHashSet<>();
     /** LOD：低于该缩放只画卡片标题与摘要，不画正文行。 */
-    private static final float LOD_ZOOM = 0.3f;
+    private static final float LOD_ZOOM = 0.25f;
 
     // ---- 三色工作区 -------------------------------------------------------------
     // 内容坐标矩形 + 名称，纯客户端数据（存 layouts.json 的 ":zones" 键）。
