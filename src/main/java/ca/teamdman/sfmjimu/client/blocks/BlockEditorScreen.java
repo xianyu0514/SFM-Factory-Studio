@@ -4278,7 +4278,8 @@ public class BlockEditorScreen extends Screen {
         startX = Math.min(startX, x + w - reserved);
 
         List<BProgram.WithExpr.Tag> tags = new ArrayList<>();
-        collectWithTags(with.expr, tags);
+        List<Boolean> tagIsOr = new ArrayList<>();
+        collectTagsWithConn(with.expr, tags, tagIsOr, false);
         int fx = startX;
         int placed = 0;
         for (int i = 0; i < tags.size(); i++) {
@@ -4288,7 +4289,9 @@ public class BlockEditorScreen extends Screen {
                 fx = startX;
                 placed = 0;
             }
-            fx = drawWithTagPill(g, fx, y, limit, tags.get(i), mx, my);
+            // 第一个标签不带前缀，后续标签带「且」或「或」前缀
+            String conn = (i == 0) ? "" : (tagIsOr.get(i) ? "或 " : "且 ");
+            fx = drawWithTagPill(g, fx, y, limit, tags.get(i), conn, mx, my);
             placed++;
         }
         final int addX = fx, addY = y;
@@ -4308,8 +4311,44 @@ public class BlockEditorScreen extends Screen {
     }
 
     /** 一颗条件药丸：点开重选 / 手动编辑 / 删除，右侧自带 ✕。 */
+
+    /** 收集标签时同时记录连接类型：isOr[i]=true 表示第 i 个标签与前面是"或"关系。 */
+    private void collectTagsWithConn(BProgram.WithExpr expr, List<BProgram.WithExpr.Tag> tags,
+                                     List<Boolean> isOrList, boolean parentIsOr) {
+        if (expr instanceof BProgram.WithExpr.Tag tag) {
+            tags.add(tag);
+            isOrList.add(parentIsOr);
+        } else if (expr instanceof BProgram.WithExpr.And and) {
+            for (BProgram.WithExpr p : and.parts) collectTagsWithConn(p, tags, isOrList, false);
+        } else if (expr instanceof BProgram.WithExpr.Or or) {
+            for (BProgram.WithExpr p : or.parts) collectTagsWithConn(p, tags, isOrList, true);
+        } else if (expr instanceof BProgram.WithExpr.Not not) {
+            collectTagsWithConn(not.inner, tags, isOrList, parentIsOr);
+        }
+    }
     private int drawWithTagPill(GuiGraphics g, int x, int y, BProgram.ResourceLimit limit,
-                                BProgram.WithExpr.Tag tag, int mx, int my) {
+                                 BProgram.WithExpr.Tag tag, String connector, int mx, int my) {
+        String display = connector + shortUi(ResourceTagIndex.displayName(
+                nbtComponentDisplay(tag.matcher)), 16);
+        int pw = Math.max(30, this.font.width(display) + 8);
+        boolean hover = overField(mx, my, x, y + 2, pw, OPT_H - 6);
+        pill(g, x, y + 2, pw, OPT_H - 6, hover);
+        // 且/或 前缀用蓝色/橙色区分，标签名用默认色
+        int connW = connector.isEmpty() ? 0 : this.font.width(connector);
+        if (connW > 0) {
+            g.drawString(this.font, connector, x + 4, y + 8,
+                    connector.startsWith("或") ? 0xFFD79A2B : 0xFF1B4FA0, false);
+        }
+        g.drawString(this.font, shortUi(ResourceTagIndex.displayName(
+                nbtComponentDisplay(tag.matcher)), 16), x + 4 + connW, y + 8,
+                0xFF1B2432, false);
+        hits.add(hit(x, y + 2, pw, OPT_H - 6, K_CLICK, null,
+                () -> openWithTagMenu(x, y, limit, tag)));
+        return x + pw + 2;
+    }
+
+    @SuppressWarnings("unused")
+    private int drawWithTagPillOld(GuiGraphics g, int x, int y, BProgram.ResourceLimit limit,                                BProgram.WithExpr.Tag tag, int mx, int my) {
         String name = ResourceTagIndex.displayName(nbtComponentDisplay(tag.matcher));
         int room = WITH_PILL_MAX - 24;
         String shown = this.font.width(name) > room
