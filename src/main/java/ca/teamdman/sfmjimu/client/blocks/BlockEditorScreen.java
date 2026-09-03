@@ -4334,40 +4334,20 @@ public class BlockEditorScreen extends Screen {
     }
     private int drawWithTagPill(GuiGraphics g, int x, int y, BProgram.ResourceLimit limit,
                                  BProgram.WithExpr.Tag tag, String connector, int mx, int my) {
-        String display = connector + shortUi(ResourceTagIndex.displayName(
-                nbtComponentDisplay(tag.matcher)), 16);
-        int pw = Math.max(30, this.font.width(display) + 8);
-        boolean hover = overField(mx, my, x, y + 2, pw, OPT_H - 6);
-        pill(g, x, y + 2, pw, OPT_H - 6, hover);
-        // 且/或 前缀用蓝色/橙色区分，标签名用默认色
-        int connW = connector.isEmpty() ? 0 : this.font.width(connector);
+        String name = ResourceTagIndex.displayName(nbtComponentDisplay(tag.matcher));
+        String shown = shortUi(name, 16);
+        int connW = connector.isEmpty() ? 0 : this.font.width(connector) + 2;
+        int pw = Math.max(48, connW + this.font.width(shown) + 30);
+        boolean hover = overField(mx, my, x, y + 2, pw - 18, OPT_H - 6);
+        pill(g, x, y + 2, pw - 18, OPT_H - 6, hover);
         if (connW > 0) {
             g.drawString(this.font, connector, x + 4, y + 8,
                     connector.startsWith("或") ? 0xFFD79A2B : 0xFF1B4FA0, false);
         }
-        g.drawString(this.font, shortUi(ResourceTagIndex.displayName(
-                nbtComponentDisplay(tag.matcher)), 16), x + 4 + connW, y + 8,
-                0xFF1B2432, false);
-        hits.add(hit(x, y + 2, pw, OPT_H - 6, K_CLICK, null,
-                () -> openWithTagMenu(x, y, limit, tag)));
-        return x + pw + 2;
-    }
-
-    @SuppressWarnings("unused")
-    private int drawWithTagPillOld(GuiGraphics g, int x, int y, BProgram.ResourceLimit limit,                                BProgram.WithExpr.Tag tag, int mx, int my) {
-        String name = ResourceTagIndex.displayName(nbtComponentDisplay(tag.matcher));
-        int room = WITH_PILL_MAX - 24;
-        String shown = this.font.width(name) > room
-                ? this.font.plainSubstrByWidth(name, Math.max(8, room - 6)) + "…"
-                : name;
-        int pw = Math.max(48, this.font.width(shown) + 24);
-        boolean hover = overField(mx, my, x, y + 2, pw, OPT_H - 6);
-        rounded(g, x, y + 2, pw, OPT_H - 6, 4, hover ? 0xFFDCEAFB : 0xFFEFF4FB);
-        border(g, x, y + 2, pw, OPT_H - 6, 0xFFA9C6E8);
-        text(g, shown, x + 4, y + 6, 0xFF1B4FA0);
-        final int pillX = x, pillY = y;
-        hits.add(hit(x, y + 2, pw, OPT_H - 6, K_CLICK, null,
-                () -> openWithTagMenu(pillX, pillY + OPT_H, limit, tag)));
+        g.drawString(this.font, shown, x + 4 + connW, y + 8, 0xFF1B4FA0, false);
+        final int px2 = x, py2 = y;
+        hits.add(hit(x, y + 2, pw - 18, OPT_H - 6, K_CLICK, null,
+                () -> openWithTagMenu(px2, py2 + OPT_H, limit, tag)));
         drawIcon(g, x + pw - 17, y - 1, "✕", () -> {
             pushUndo();
             BProgram.WithExpr remaining = removeWithTag(limit.with.expr, tag);
