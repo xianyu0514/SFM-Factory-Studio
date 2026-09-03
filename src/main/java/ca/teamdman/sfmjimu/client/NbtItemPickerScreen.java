@@ -22,7 +22,7 @@ import java.util.function.Consumer;
 public class NbtItemPickerScreen extends Screen {
     private static final int SLOT = 20, COLS = 12, GRID_W = COLS * SLOT;
     private static final int PANEL_W = GRID_W + 24, ROW_H = 18;
-    private static final int PANEL_TOP = 34, TAB_Y = 44, SEARCH_Y = 64, CONTENT_Y = 84;
+    private static final int PANEL_TOP = 34, TAB_Y = 44, SEARCH_Y = 68, CONTENT_Y = 92;
 
     /** 可见行数跟着窗口高度走，大屏多显示、小屏也不至于挤没。 */
     private int maxRows() {
@@ -69,6 +69,8 @@ public class NbtItemPickerScreen extends Screen {
     protected void init() {
         int px = panelX();
         search = new EditBox(this.font, px + 8, SEARCH_Y, PANEL_W - 16, 14, Component.literal(""));
+        search.setBordered(false); // 去掉 EditBox 黑色边框——它的自绘背景会盖住我们的面板和页签
+        search.setTextColor(0xFF1B2432);
         search.setHint(Component.literal("搜索物品名称或拼音…"));
         search.setResponder(q -> {
             query = q.trim().toLowerCase(Locale.ROOT);
@@ -159,6 +161,12 @@ public class NbtItemPickerScreen extends Screen {
         });
     }
 
+    private static void rounded(GuiGraphics g, int x, int y, int w, int h, int r, int color) {
+        if (r <= 0 || w < r * 2 || h < r * 2) { g.fill(x, y, x + w, y + h, color); return; }
+        g.fill(x + 1, y, x + w - 1, y + h, color);
+        g.fill(x, y + 1, x + w, y + h - 1, color);
+    }
+
     @Override
     public void render(GuiGraphics g, int mx, int my, float partialTick) {
         g.fill(0, 0, width, height, 0x90000000);
@@ -224,6 +232,10 @@ public class NbtItemPickerScreen extends Screen {
                 g.drawString(font, empty, px + PANEL_W / 2 - font.width(empty) / 2,
                         CONTENT_Y + 6, 0xFFB45309, false);
             }
+        }
+        // 搜索框底板（EditBox 无边框后需要自己画底色才能看清位置）
+        if (search != null) {
+            rounded(g, search.getX() - 2, search.getY() - 2, search.getWidth() + 4, 18, 4, 0xFFF1F4F9);
         }
         super.render(g, mx, my, partialTick);
     }
