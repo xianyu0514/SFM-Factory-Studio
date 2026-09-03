@@ -163,9 +163,9 @@ public class NbtItemPickerScreen extends Screen {
     public void render(GuiGraphics g, int mx, int my, float partialTick) {
         g.fill(0, 0, width, height, 0x90000000);
         int px = panelX();
-        int rows = Math.min(maxRows(), Math.max(1, (shownItems.size() + COLS - 1) / COLS));
+        int rows = Math.min(maxRows(), (shownItems.size() + COLS - 1) / COLS);
         int panelH = componentPage
-                ? CONTENT_Y - PANEL_TOP + Math.min(maxRows(), Math.max(1, pickRows.size())) * ROW_H + 10
+                ? CONTENT_Y - PANEL_TOP + pickRows.size() * ROW_H + 10
                 : CONTENT_Y - PANEL_TOP + rows * SLOT + 10;
         g.fill(px + 3, PANEL_TOP + 3, px + PANEL_W + 3, PANEL_TOP + panelH + 3, 0x30203A5A);
         g.fill(px, PANEL_TOP, px + PANEL_W, PANEL_TOP + panelH, 0xFFF6F8FC);
@@ -178,7 +178,7 @@ public class NbtItemPickerScreen extends Screen {
             g.drawString(font, selected.getHoverName().getString() + " 的 NBT（" + pickRows.size() + " 项）",
                     px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
             g.drawString(font, "← 返回选物品", px + 10, TAB_Y, 0xFF2F6FED, false);
-            int visible = Math.min(maxRows(), Math.max(1, pickRows.size()));
+            int visible = pickRows.size();
             compScroll = Math.min(compScroll, Math.max(0, pickRows.size() - visible));
             for (int i = 0; i < visible; i++) {
                 PickRow row = pickRows.get(compScroll + i);
@@ -206,7 +206,7 @@ public class NbtItemPickerScreen extends Screen {
                 tx += tw + 4;
             }
             int gridRows = (shownItems.size() + COLS - 1) / COLS;
-            int visibleRows = Math.min(maxRows(), Math.max(1, gridRows));
+            int visibleRows = Math.min(maxRows(), gridRows);
             itemScroll = Math.min(itemScroll, Math.max(0, gridRows - visibleRows));
             for (int r = 0; r < visibleRows; r++) for (int c = 0; c < COLS; c++) {
                 int idx = (r + itemScroll) * COLS + c;
@@ -237,7 +237,7 @@ public class NbtItemPickerScreen extends Screen {
             if (my >= TAB_Y - 3 && my < TAB_Y + 14 && mx >= px + 8 && mx < px + 100) {
                 componentPage = false; return true;
             }
-            int visible = Math.min(maxRows(), Math.max(1, pickRows.size()));
+            int visible = pickRows.size();
             for (int i = 0; i < visible; i++) {
                 int ry = CONTENT_Y + i * ROW_H;
                 if (my >= ry && my < ry + ROW_H && mx >= px + 4 && mx < px + PANEL_W - 4) {
@@ -261,7 +261,7 @@ public class NbtItemPickerScreen extends Screen {
             tx += tw + 4;
         }
         int gridRows = (shownItems.size() + COLS - 1) / COLS;
-        int visibleRows = Math.min(maxRows(), Math.max(1, gridRows));
+        int visibleRows = Math.min(maxRows(), gridRows);
         for (int r = 0; r < visibleRows; r++) for (int c = 0; c < COLS; c++) {
             int idx = (r + itemScroll) * COLS + c;
             if (idx >= shownItems.size()) break;
