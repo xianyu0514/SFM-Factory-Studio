@@ -4309,8 +4309,8 @@ public class BlockEditorScreen extends Screen {
         rounded(g, x, y + 2, WITH_BTN_W, OPT_H - 6, 4,
                 hover ? (or ? 0xFFFFE3C2 : 0xFFCFE4FA) : (or ? 0xFFFFF4E6 : 0xFFF1F5FB));
         border(g, x, y + 2, WITH_BTN_W, OPT_H - 6, or ? 0xFFD79A2B : 0xFF7FA8DD);
-        g.drawCenteredString(this.font, label, x + WITH_BTN_W / 2, y + 6,
-                or ? 0xFF8A5A00 : 0xFF1B4FA0);
+        g.drawString(this.font, label, x + (WITH_BTN_W - this.font.width(label)) / 2, y + 6,
+                or ? 0xFF8A5A00 : 0xFF1B4FA0, false);
         hits.add(hit(x, y + 2, WITH_BTN_W, OPT_H - 6, K_CLICK, null, onClick));
     }
 
@@ -4510,19 +4510,37 @@ public class BlockEditorScreen extends Screen {
                 case "convert" -> convertIO(io, list, index);
                 case "nbt" -> Minecraft.getInstance().setScreen(
                         new ca.teamdman.sfmjimu.client.NbtItemPickerScreen(this, id -> {
-                            pushUndo();
                             BProgram.ResourceLimit rl = primaryLimit(limits);
-                            BProgram.WithFilter added = new BProgram.WithFilter();
-                            added.expr = new BProgram.WithExpr.Tag(nbtMatcher(id));
-                            if (rl.with != null) {
-                                BProgram.WithExpr.And and = new BProgram.WithExpr.And();
-                                and.parts.add(rl.with.expr);
-                                and.parts.add(added.expr);
-                                rl.with.expr = and;
+                            BProgram.WithExpr addedTag = new BProgram.WithExpr.Tag(nbtMatcher(id));
+                            if (rl.with == null) {
+                                pushUndo();
+                                BProgram.WithFilter created = new BProgram.WithFilter();
+                                created.expr = addedTag;
+                                rl.with = created;
+                                layoutDirty = true;
                             } else {
-                                rl.with = added;
+                                // 已有条件：让用户选「且」还是「或」再组合
+                                setPopup(new Popup.ChoicePopup(
+                                        panelX + panelW / 2 - 100, panelY + panelH / 2 - 30, 200,
+                                        List.of("and", "or"),
+                                        List.of("且（都要满足）", "或（任一满足）"), "", choice -> {
+                                            pushUndo();
+                                            BProgram.WithExpr combined;
+                                            if ("or".equals(choice)) {
+                                                BProgram.WithExpr.Or or = new BProgram.WithExpr.Or();
+                                                or.parts.add(rl.with.expr);
+                                                or.parts.add(addedTag);
+                                                combined = or;
+                                            } else {
+                                                BProgram.WithExpr.And and = new BProgram.WithExpr.And();
+                                                and.parts.add(rl.with.expr);
+                                                and.parts.add(addedTag);
+                                                combined = and;
+                                            }
+                                            rl.with.expr = combined;
+                                            layoutDirty = true;
+                                        }));
                             }
-                            layoutDirty = true;
                         }));
                 case "add_group" -> openNewResourceKindMenu(x, y, resource -> {
                     pushUndo();
