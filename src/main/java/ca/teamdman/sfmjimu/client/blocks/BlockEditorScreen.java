@@ -2690,6 +2690,13 @@ public class BlockEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        // "/" 搜索：任何文本框未聚焦时触发（必须放在 popup/nameBox 之前，否则被吃掉）
+        boolean inTextField = (nameBox != null && nameBox.isFocused())
+                || (codeEditor != null && codeEditor.isFocused());
+        if (keyCode == 53 && modifiers == 0 && !inTextField && popup == null) {
+            openCardSearch();
+            return true;
+        }
         if (popup != null) {
             if (popup.keyPressed(keyCode, scanCode, modifiers)) return true;
             if (keyCode == 256) {
@@ -2725,11 +2732,6 @@ public class BlockEditorScreen extends Screen {
         }
         if (ctrl && (keyCode == 89 || (keyCode == 90 && (modifiers & 1) != 0))) { // ctrl+y / ctrl+shift+z
             redo();
-            return true;
-        }
-        if (keyCode == 53 && popup == null && !nameBox.isFocused()
-                && (codeEditor == null || !codeEditor.isFocused())) { // / — 卡片搜索
-            openCardSearch();
             return true;
         }
         if (keyCode == 344) { // F8 — 定位下一个问题
@@ -3427,11 +3429,11 @@ public class BlockEditorScreen extends Screen {
         if (titleX + this.font.width(T_TITLE.getString()) + 10 < (status != null ? statusX : groupLeft)) {
             text(g, T_TITLE.getString(), titleX, panelY + 10, C_TEXT);
         }
-        if (status == null && !dirty && !program.triggers.isEmpty()) {
-            String hint = "按 / 搜索卡片";
-            int hintX = groupLeft - 12 - this.font.width(hint);
-            if (hintX > titleX + this.font.width(T_TITLE.getString()) + 10) {
-                text(g, hint, hintX, panelY + 10, 0xFF9AA3B2);
+        if (!program.triggers.isEmpty() && !dirty) {
+            String hint = "  / 搜索卡片";
+            int hintX = groupLeft - 8 - this.font.width(hint);
+            if (hintX > titleX) {
+                text(g, hint, hintX, panelY + 10, 0xFF7C8798);
             }
         }
     }
@@ -3653,7 +3655,7 @@ public class BlockEditorScreen extends Screen {
                     hover ? C_SELECT : C_TEXT_SUB, false);
             final String kind = guides[i][2];
             final double ccx = ctX(gx + gw / 2.0), ccy = ctY(startY + gh / 2.0);
-            hits.add(hit(gx, startY, gw, gh, K_CLICK, null, () -> {
+            uiHits.add(hit(gx, startY, gw, gh, K_CLICK, null, () -> {
                 if (kind.equals("tpl_smelt")) {
                     clickAdd("tpl_smelt");
                     showStatus("已插入熔炉模板，连接方块标签即可使用", C_SELECT);
@@ -3705,10 +3707,7 @@ public class BlockEditorScreen extends Screen {
 
         // 头部左上角 ✕：删除这一张卡（永远删“自己”，与底部 − 的“删副本”分工）
         drawIcon(g, x + 1, y + 4, "✕", () -> deleteTrigger(t), mx, my, 0xFFC22B21);
-        // 运行状态小点：有内容=绿（正在工作），空=无点——纯本地判断，零开销
-        if (!t.body.isEmpty() && zoom >= LOD_ZOOM) {
-            g.fill(x + 18, y + 14, x + 21, y + 17, 0xFF10B981);
-        }
+
         int fx = x + 20;
         text(g, timer ? "⟳" : "⚡", fx, y + 10, accent);
         fx += 14;
