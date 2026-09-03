@@ -3775,17 +3775,7 @@ public class BlockEditorScreen extends Screen {
                         }
                     }, mx, my);
             fx = drawText(g, fx, y + 4, T_DO.getString());
-            String gDisp = (tt.global ? "◉ " : "○ ") + T_GLOBAL.getString();
-            fx = drawField(g, fx, y + 4, gDisp, 34, () -> {
-                pushUndo();
-                tt.global = !tt.global;
-            }, mx, my, false);
-            String pDisp = tt.plus > 0 ? "+" + tt.plus : T_PLUS.getString();
-            final int hfx = fx;
-            fx = drawField(g, fx, y + 4, pDisp, 30, () -> openNumber(hfx, y + 4, 40, Math.max(0, tt.plus), v -> {
-                pushUndo();
-                tt.plus = v;
-            }), mx, my, false);
+            // 全局/偏移已从 UI 移除（进阶语法，模型与序列化保留以无损往返旧程序）
         } else {
             fx = drawText(g, fx, y + 4, T_PULSE.getString());
         }

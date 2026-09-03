@@ -75,8 +75,11 @@ public final class BlockTemplates {
     public static List<BProgram.Statement> energyTransfer(String source, String target) {
         BProgram.Statement.Input input = input(source);
         input.limits.get(0).resources.add(BProgram.ResourceRef.forKind(BProgram.ResourceKind.FORGE_ENERGY));
+        // 能量接口按真实方向暴露，空面查询抽不到——能量搬运固定逐面传输
+        input.access.eachSide = true;
         BProgram.Statement.Output output = output(target);
         output.limits.get(0).resources.add(BProgram.ResourceRef.forKind(BProgram.ResourceKind.FORGE_ENERGY));
+        output.access.eachSide = true;
         return List.of(input, output);
     }
 

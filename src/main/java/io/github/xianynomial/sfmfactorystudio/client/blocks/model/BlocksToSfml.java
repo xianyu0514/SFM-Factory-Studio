@@ -116,7 +116,7 @@ public final class BlocksToSfml {
             writeExcept(sb, in.except);
             sb.append(" from");
             if (in.each) sb.append(" each");
-            sb.append(' ').append(writeLabelAccess(in.access)).append('\n');
+            sb.append(' ').append(writeLabelAccess(in.access, energyOnly(in.limits))).append('\n');
         } else if (s instanceof Statement.Output out) {
             sb.append(pad).append("output");
             writeLimits(sb, out.limits);
@@ -124,7 +124,7 @@ public final class BlocksToSfml {
             sb.append(" to");
             if (out.emptySlots) sb.append(" empty slots in");
             if (out.each) sb.append(" each");
-            sb.append(' ').append(writeLabelAccess(out.access)).append('\n');
+            sb.append(' ').append(writeLabelAccess(out.access, energyOnly(out.limits))).append('\n');
         } else if (s instanceof Statement.Forget f) {
             sb.append(pad).append("forget");
             for (int i = 0; i < f.labels.size(); i++) {
@@ -208,7 +208,17 @@ public final class BlocksToSfml {
     }
 
     public static String writeLabelAccess(LabelAccess a) {
-        StringBuilder sb = new StringBuilder();
+        return writeLabelAccess(a, false);
+    }
+
+    /**
+     * 能量语句的侧面默认值修正：SFM 对"未指定侧面"只查空面（SideQualifier
+     * DEFAULT=NULL），而能量接口按真实方向暴露——物品栏返回同一对象所以
+     * 无感，能量对空面查询返回空导致零传输。纯能量语句且未指定侧面时自动
+     * 补 each side（逐面查询），用户显式选过侧面则完全尊重。
+     */
+    private static String writeLabelAccess(LabelAccess a, boolean energyOnly) {
+        boolean forceEachSide = energyOnly && !a.eachSide && a.sides.isEmpty();        StringBuilder sb = new StringBuilder();
         List<String> labels = a.labels.stream().filter(x -> x != null && !x.isBlank()).distinct().toList();
         if (labels.isEmpty()) {
             sb.append(quoteLabelIfNeeded("未设置标签"));
@@ -219,7 +229,7 @@ public final class BlocksToSfml {
         if (a.roundRobin == BProgram.RoundRobinMode.LABEL || a.roundRobin == BProgram.RoundRobinMode.BLOCK) {
             sb.append(" round robin by ").append(a.roundRobin.name().toLowerCase(java.util.Locale.ROOT));
         }
-        if (a.eachSide) {
+        if (a.eachSide || forceEachSide) {
             sb.append(" each side");
         } else if (!a.sides.isEmpty()) {
             sb.append(" ");
@@ -236,6 +246,21 @@ public final class BlocksToSfml {
             }
         }
         return sb.toString();
+    }
+
+    /** 语句的全部资源都是 FE 能量（空资源列表 = 物品通配，不算能量）。 */
+    private static boolean energyOnly(List<ResourceLimit> limits) {
+        boolean any = false;
+        for (ResourceLimit rl : limits) {
+            if (rl == null) continue;
+            List<ResourceRef> refs = rl.resources.stream().filter(java.util.Objects::nonNull).toList();
+            if (refs.isEmpty()) return false; // 无资源 = *（全部物品）
+            for (ResourceRef r : refs) {
+                if (!"forge_energy".equals(r.typeName)) return false;
+            }
+            any = true;
+        }
+        return any;
     }
 
     public static String writeBool(Bool b) {

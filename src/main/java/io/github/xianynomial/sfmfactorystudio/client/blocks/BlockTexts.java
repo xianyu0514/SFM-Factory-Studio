@@ -59,8 +59,6 @@ public final class BlockTexts {
     public static final Loc T_RES_BROWSE = new Loc("gui.sfmfactorystudio.blocks.res_browse", "浏览物品…");
     public static final Loc T_SAVED_OK = new Loc("gui.sfmfactorystudio.blocks.saved", "✔ 已保存到磁盘");
     public static final Loc T_EMPTY_PROGRAM = new Loc("gui.sfmfactorystudio.blocks.empty_program", "从左侧拖入或点击积木，开始编写程序\n拖动空白处框选积木 · 滚轮缩放 · 拖动平移");
-    public static final Loc T_GLOBAL = new Loc("gui.sfmfactorystudio.blocks.global", "全局");
-    public static final Loc T_PLUS = new Loc("gui.sfmfactorystudio.blocks.plus", "+偏移");
     public static final Loc T_TPL_SMELT = new Loc("gui.sfmfactorystudio.blocks.tpl_smelt", "熔炉自动线");
     public static final Loc T_TPL_SORT = new Loc("gui.sfmfactorystudio.blocks.tpl_sort", "满仓分类");
     public static final Loc T_TPL_EVEN = new Loc("gui.sfmfactorystudio.blocks.tpl_even", "均衡分配");
