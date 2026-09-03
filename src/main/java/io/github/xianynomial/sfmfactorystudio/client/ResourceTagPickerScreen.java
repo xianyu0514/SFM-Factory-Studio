@@ -52,7 +52,7 @@ public final class ResourceTagPickerScreen extends Screen {
     private ResourceTagIndex.TagEntry hoveredTag;
 
     public ResourceTagPickerScreen(Screen previousScreen, boolean allTags, Consumer<String> onPick) {
-        super(Component.literal(allTags ? "搜索全部资源特征" : "通过物品选择资源特征"));
+        super(Component.literal(allTags ? "搜索全部资源标签" : "通过物品选择资源标签"));
         this.previousScreen = previousScreen;
         this.startWithAllTags = allTags;
         this.mode = allTags ? Mode.ALL_TAGS : Mode.ITEM;
@@ -199,8 +199,8 @@ public final class ResourceTagPickerScreen extends Screen {
         g.fill(0, 0, width, height, 0xFFF2F4F8);
         String heading = switch (mode) {
             case ITEM -> "先选择一个物品";
-            case ITEM_TAGS -> selectedItem == null ? "选择资源特征" : selectedItem.displayName() + " 所属的资源特征";
-            case ALL_TAGS -> "搜索全部资源特征";
+            case ITEM_TAGS -> selectedItem == null ? "选择资源标签" : selectedItem.displayName() + " 所属的资源标签";
+            case ALL_TAGS -> "搜索全部资源标签";
         };
         drawCentered(g, font.plainSubstrByWidth(heading, width - 24), width / 2, 9, 0xFF1B2432);
 
@@ -280,7 +280,7 @@ public final class ResourceTagPickerScreen extends Screen {
         if (filteredTags.isEmpty()) {
             String empty = tagFilter == TagFilter.RECOMMENDED
                     ? "没有推荐项；点“全部”可查看所有语法有效的特征"
-                    : mode == Mode.ITEM_TAGS ? "这个物品没有可用于SFM的资源特征" : "没有匹配的资源特征";
+                    : mode == Mode.ITEM_TAGS ? "这个物品没有可用于SFM的资源标签" : "没有匹配的资源标签";
             drawCentered(g, font.plainSubstrByWidth(empty, w - 12), left + w / 2, top + 20, 0xFF6B7688);
         }
         renderMemberPreview(g, mx, my);
@@ -334,9 +334,9 @@ public final class ResourceTagPickerScreen extends Screen {
             lines.add(Component.literal(hoveredResource.sfmlId()));
             if (mode == Mode.ITEM) {
                 lines.add(Component.literal(ResourceTagIndex.forItem(hoveredResource.sfmlId()).size()
-                        + " 个可用资源特征"));
+                        + " 个可用资源标签"));
             } else {
-                lines.add(Component.literal("属于当前资源特征"));
+                lines.add(Component.literal("属于当前资源标签"));
             }
             g.renderTooltip(font, lines, Optional.empty(), mx, my);
             return;
@@ -461,7 +461,7 @@ public final class ResourceTagPickerScreen extends Screen {
                     mode = Mode.ITEM_TAGS;
                     tagFilter = TagFilter.RECOMMENDED;
                     searchBox.setValue("");
-                    searchBox.setHint(Component.literal("搜索这个物品的资源特征…"));
+                    searchBox.setHint(Component.literal("搜索这个物品的资源标签…"));
                     applyFilter(true);
                 }
                 return true;

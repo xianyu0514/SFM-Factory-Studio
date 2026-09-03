@@ -558,19 +558,19 @@ public final class ProgramDiagnostics {
 
     private static void checkWith(BProgram.WithExpr expr, String path, List<Issue> issues) {
         if (expr == null) {
-            error(issues, path, "缺少资源特征条件", null, null, null);
+            error(issues, path, "缺少资源标签条件", null, null, null);
         } else if (expr instanceof BProgram.WithExpr.Tag tag) {
             String matcher = tag.matcher == null ? "" : tag.matcher.trim().replaceFirst("^#+", "");
             if (!matcher.matches("[a-zA-Z_*][a-zA-Z0-9_*]*(?::[a-zA-Z_*][a-zA-Z0-9_*]*)?(?:/[a-zA-Z_*][a-zA-Z0-9_*]*)*")) {
-                error(issues, path, "资源特征标签格式不正确", null, null, null);
+                error(issues, path, "资源标签标签格式不正确", null, null, null);
             }
         } else if (expr instanceof BProgram.WithExpr.Not not) {
             checkWith(not.inner, path, issues);
         } else if (expr instanceof BProgram.WithExpr.And and) {
-            if (and.parts.size() < 2) error(issues, path, "资源特征的“且”至少需要两项", null, null, null);
+            if (and.parts.size() < 2) error(issues, path, "资源标签的“且”至少需要两项", null, null, null);
             for (BProgram.WithExpr part : and.parts) checkWith(part, path, issues);
         } else if (expr instanceof BProgram.WithExpr.Or or) {
-            if (or.parts.size() < 2) error(issues, path, "资源特征的“或”至少需要两项", null, null, null);
+            if (or.parts.size() < 2) error(issues, path, "资源标签的“或”至少需要两项", null, null, null);
             for (BProgram.WithExpr part : or.parts) checkWith(part, path, issues);
         }
     }

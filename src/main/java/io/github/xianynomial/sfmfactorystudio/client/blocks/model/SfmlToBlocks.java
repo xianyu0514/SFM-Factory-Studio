@@ -406,7 +406,7 @@ public final class SfmlToBlocks {
             return new ResultWithFilter(null, result.errors());
         }
         if (result.program().triggers.get(0).body.isEmpty()) {
-            return new ResultWithFilter(null, List.of("没有识别到资源特征条件"));
+            return new ResultWithFilter(null, List.of("没有识别到资源标签条件"));
         }
         Statement statement = result.program().triggers.get(0).body.get(0);
         if (statement instanceof Statement.Input in && !in.limits.isEmpty() && in.limits.get(0).with != null) {

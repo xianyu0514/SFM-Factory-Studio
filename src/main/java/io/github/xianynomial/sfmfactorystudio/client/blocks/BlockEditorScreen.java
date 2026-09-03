@@ -807,7 +807,7 @@ public class BlockEditorScreen extends Screen {
 
     private boolean save() {
         if (!SfmCaps.withComponent() && programHasNbtMatcher()) {
-            showStatus("✖ 此服务器未安装 NBT 区分支持；请先移除资源特征里的组件条件再保存", 0xFFD13438);
+            showStatus("✖ 此服务器未安装 NBT 区分支持；请先移除资源标签里的组件条件再保存", 0xFFD13438);
             return false;
         }
         if (codeTextEdited && !applyCodeText(true)) {
@@ -4297,13 +4297,13 @@ public class BlockEditorScreen extends Screen {
                 () -> openIOExtensionMenu(x, addY, io, list, index)));
     }
 
-    // ---- 资源特征：条件药丸链 + 「＋ 且…」「＋ 或…」小积木 --------------------
+    // ---- 资源标签：条件药丸链 + 「＋ 且…」「＋ 或…」小积木 --------------------
 
     private static final int WITH_PILL_MAX = 76;   // 单颗条件药丸的宽度上限
     private static final int WITH_BTN_W = 44;      // 小积木按钮宽度
 
     /**
-     * 资源特征不再挤成一行摘要：每个条件是一颗可点的小积木，链尾永远跟着
+     * 资源标签不再挤成一行摘要：每个条件是一颗可点的小积木，链尾永远跟着
      * 「＋ 且…」「＋ 或…」，加完一颗就往后长一颗。行数由
      * {@link EditorLayout#withRows} 用同一套规则算，渲染和布局不会打架。
      */
@@ -4313,7 +4313,7 @@ public class BlockEditorScreen extends Screen {
         boolean negated = with.expr instanceof BProgram.WithExpr.Not;
         String label = shortUi(with.mode == BProgram.WithFilter.Mode.WITHOUT
                 ? (negated ? "排除特征·反" : "排除特征")
-                : (negated ? "资源特征·反" : "资源特征"), 6);
+                : (negated ? "资源标签·反" : "资源标签"), 6);
         final int labelY = y;   // 标签只在第一行，下面的循环会推进 y
         int startX = extensionRow(g, x, y, w, accent, groupPrefix + label);
         // 药丸链 + 两个小积木 + 行尾 ✕ 必须整行放得下：标签再长也只能挤到这里
@@ -4412,8 +4412,8 @@ public class BlockEditorScreen extends Screen {
         String prefix = useOr ? "或：" : "且：";
         List<String> values = new ArrayList<>(List.of("item", "all", "manual"));
         List<String> labels = new ArrayList<>(List.of(
-                prefix + "从物品选择资源特征",
-                prefix + "搜索全部资源特征",
+                prefix + "从物品选择资源标签",
+                prefix + "搜索全部资源标签",
                 prefix + "手动输入原标签（高级）"));
         if (SfmCaps.withComponent()) {
             values.add("nbt");
@@ -4542,25 +4542,15 @@ public class BlockEditorScreen extends Screen {
         primaryLimit(limits);
         List<String> values = new ArrayList<>();
         List<String> labels = new ArrayList<>();
-        values.add("convert");
-        labels.add(io instanceof BProgram.Statement.Input ? "⇄ 转为「放入方块」" : "⇄ 转为「从方块取出」");
-        if (SfmCaps.withComponent()) {
-            values.add("nbt");
-            labels.add("NBT 组件筛选…");
+        // 菜单按使用频率排序：常用筛选/保留在前，多组与类型转换垫底；
+        // 只有第 2 组起才带"第 N 组"前缀——单组是绝大多数场景。
+        BProgram.ResourceLimit primary = limits.isEmpty() ? null : limits.get(0);
+        if (primary != null && primary.with == null && supportsResourceFeatures(primary)) {
+            addChoice(values, labels, "with:0", "按资源标签筛选");
         }
-
-        for (int i = 0; i < limits.size(); i++) {
-            BProgram.ResourceLimit limit = limits.get(i);
-            String group = "第 " + (i + 1) + " 组：";
-            if (limit.quantity == null && i > 0) addChoice(values, labels, "quantity:" + i, group + "限制搬运数量");
-            if (limit.retain == null) addChoice(values, labels, "retain:" + i, group + "至少留下指定数量");
-            addChoice(values, labels, "add_or:" + i, group + "或者再选一种资源");
-            if (limit.with == null && supportsResourceFeatures(limit)) {
-                addChoice(values, labels, "with:" + i, group + "按资源特征筛选");
-            }
-        }
-        addChoice(values, labels, "add_group", "另外搬运一组资源");
+        if (primary != null && primary.retain == null) addChoice(values, labels, "retain:0", "至少留下指定数量");
         addChoice(values, labels, "except", "排除一种资源");
+        if (primary != null) addChoice(values, labels, "add_or:0", "或者也搬运");
         if (!access.eachSide && access.sides.isEmpty()) addChoice(values, labels, "sides", "指定方块侧面");
         if (access.slots.isEmpty()) addChoice(values, labels, "slots", "指定槽位");
         if (access.roundRobin == BProgram.RoundRobinMode.NONE) addChoice(values, labels, "round_robin", "轮流选择目标");
@@ -4568,6 +4558,21 @@ public class BlockEditorScreen extends Screen {
         if (io instanceof BProgram.Statement.Output && !emptySlots) {
             addChoice(values, labels, "empty_slots", "只放入完全空白的槽位");
         }
+        if (SfmCaps.withComponent()) {
+            addChoice(values, labels, "nbt", "NBT 组件筛选…");
+        }
+        for (int i = 1; i < limits.size(); i++) {
+            BProgram.ResourceLimit limit = limits.get(i);
+            String group = "第 " + (i + 1) + " 组：";
+            if (limit.quantity == null) addChoice(values, labels, "quantity:" + i, group + "限制搬运数量");
+            if (limit.retain == null) addChoice(values, labels, "retain:" + i, group + "至少留下指定数量");
+            addChoice(values, labels, "add_or:" + i, group + "或者再选一种资源");
+            if (limit.with == null && supportsResourceFeatures(limit)) {
+                addChoice(values, labels, "with:" + i, group + "按资源标签筛选");
+            }
+        }
+        addChoice(values, labels, "add_group", "另外搬运一组资源");
+        addChoice(values, labels, "convert", io instanceof BProgram.Statement.Input ? "⇄ 转为「放入方块」" : "⇄ 转为「从方块取出」");
         setPopup(new Popup.ChoicePopup(sX(x), sY(y) + OPT_H, 190, values, labels, "", action -> {
             int separator = action.indexOf(':');
             if (separator > 0) {
@@ -4759,7 +4764,7 @@ public class BlockEditorScreen extends Screen {
         }
         SfmlToBlocks.ResultWithFilter parsed = SfmlToBlocks.parseWithFilter(text);
         if (!parsed.ok()) {
-            showStatus("✖ 资源特征条件不正确：" + String.join("；", parsed.errors()), 0xFFD13438);
+            showStatus("✖ 资源标签条件不正确：" + String.join("；", parsed.errors()), 0xFFD13438);
             return;
         }
         pushUndo();
@@ -5290,7 +5295,7 @@ public class BlockEditorScreen extends Screen {
         List<String> labels = new ArrayList<>();
         if (current == null) {
             values.addAll(List.of("first_item", "first_all", "first_manual"));
-            labels.addAll(List.of("从物品选择资源特征", "搜索全部资源特征", "手动输入原标签（高级）"));
+            labels.addAll(List.of("从物品选择资源标签", "搜索全部资源标签", "手动输入原标签（高级）"));
             if (SfmCaps.withComponent()) {
                 values.add("first_nbt");
                 labels.add("按物品组件(NBT)筛选…");
@@ -5298,7 +5303,7 @@ public class BlockEditorScreen extends Screen {
         } else {
             // 「且/或」已经搬到行内的小积木上，这里只留整体设置，菜单才不会长得要滚
             values.addAll(List.of("clear", "with", "without", "not", "preview_match"));
-            labels.addAll(List.of("不限制资源特征", "只处理符合条件的资源", "排除符合条件的资源",
+            labels.addAll(List.of("不限制资源标签", "只处理符合条件的资源", "排除符合条件的资源",
                     "把整个条件取反", "预览匹配物品…"));
         }
         setPopup(new Popup.ChoicePopup(screenX, screenY, 230, values, labels, "", picked -> {
@@ -5488,7 +5493,7 @@ public class BlockEditorScreen extends Screen {
         String matcher = value == null ? "" : value.trim().replaceFirst("^#+", "");
         SfmlToBlocks.ResultWithFilter parsed = SfmlToBlocks.parseWithFilter("with #" + matcher);
         if (!parsed.ok()) {
-            showStatus("✖ 资源特征原标签格式不正确", 0xFFD13438);
+            showStatus("✖ 资源标签原标签格式不正确", 0xFFD13438);
             return null;
         }
         return matcher;
@@ -5867,18 +5872,34 @@ public class BlockEditorScreen extends Screen {
 
     // =========================================================== condition popup
 
-    /** Structured editor for a single condition. */
+    /** Structured editor for a single condition.
+     *
+     *  Layout: pill 链沿水平方向累加，到达右边界自动折到下一行
+     *  （flow layout）。applyBounds 在落位后按最长行宽度收紧 w、按
+     *  实际行数算出 h，避免原来写死 240×144 时"≥ 物品 全部 更多资源"
+     *  这一行被截到面板外面、把画布上的"否则如"压住的错乱。 */
     private class ConditionPopup extends Popup {
         private final BProgram.Bool cond;
         private final int rowH = 22;
+        /** 上下左右的内边距：左右 6 / 上下 6，跟原 render() 的 rx/ry 起点对齐。 */
+        private static final int PAD = 12;
+        /** 面板最小宽度，避免出现窄到看不清的窄条。 */
+        private static final int MIN_W = 220;
         private final List<Hit> localHits = new ArrayList<>();
+        /** drawP 的当前行 y；render() 开头重置。存为字段是为了让换行后的
+         *  ry 能跨 drawP 调用持续推进（参数 py 只能改当前调用）。 */
+        private int ry;
+        /** 最近一个 drawP 画下的 pill 左上角与宽度——给 JeiGhostDrops 注册
+         *  资源按钮的 ghost drop 矩形用。 */
+        private int lastPillX, lastPillY, lastPillW;
 
         ConditionPopup(int sx, int sy, BProgram.Bool cond) {
             this.x = sx;
             this.y = sy;
             this.w = 240;
             this.cond = cond;
-            this.h = rowH * 6 + 12;
+            // h 是初值；setPopup -> applyBounds 会按内容重写。
+            this.h = rowH * 6 + PAD;
         }
 
         private BProgram.Bool inner() {
@@ -5904,20 +5925,22 @@ public class BlockEditorScreen extends Screen {
             rounded(g, x + 2, y + 3, w, h, 8, G_SHADOW);
             rounded(g, x, y, w, h, 8, G_CARD);
             border(g, x, y, w, h, G_BORDER);
-            int ph = h;
             int rx = x + 6;
-            int ry = y + 5;
-            rx = drawP(g, fnt, rx, ry, switch (kind()) {
+            ry = y + 5;
+            // 弹出子菜单都从 ConditionPopup 底部弹出，避免换行后位置错位；
+            // 用 this.h 而不是局部 ph——onClick 在玩家点击时才执行，要拿当下面板高度。
+            int popY = y + h - 22;
+            rx = drawP(g, fnt, rx, switch (kind()) {
                 case "has" -> T_COND.getString();
                 case "redstone" -> "红石";
                 case "true" -> "总是成立";
                 case "false" -> "永不成立";
                 default -> "原样";
-            }, 40, () -> setPopup(new Popup.ChoicePopup(x + 6, y + ph - 22, 120,
+            }, 40, () -> setPopup(new Popup.ChoicePopup(x + 6, popY, 120,
                     List.of("has", "redstone", "true", "false"),
                     List.of(T_COND.getString(), "红石信号", "总是成立", "永不成立"), kind(),
                     this::switchKind)), mx, my);
-            rx = drawP(g, fnt, rx, ry, cond instanceof BProgram.Bool.Not ? "◉ 已取反" : "○ 取反", 56,
+            rx = drawP(g, fnt, rx, cond instanceof BProgram.Bool.Not ? "◉ 已取反" : "○ 取反", 56,
                     () -> {
                         pushUndo();
                         toggleNot();
@@ -5926,29 +5949,31 @@ public class BlockEditorScreen extends Screen {
             if (has != null) {
                 ry += rowH;
                 rx = x + 6;
-                rx = drawP(g, fnt, rx, ry, setOpZh(has.setMode), 70,
-                        () -> setPopup(new Popup.ChoicePopup(x + 6, y + ph - 22, 150,
+                rx = drawP(g, fnt, rx, setOpZh(has.setMode), 70,
+                        () -> setPopup(new Popup.ChoicePopup(x + 6, popY, 150,
                                 List.of("default", "overall", "some", "every", "one", "lone"),
                                 List.of("默认按合计", "所有方块合计", "至少一个方块", "每个方块", "恰好一个方块", "不超过一个方块"),
                                 has.setMode.name().toLowerCase(java.util.Locale.ROOT), v -> {
                             pushUndo();
                             has.setMode = BProgram.Bool.SetMode.valueOf(v.toUpperCase(java.util.Locale.ROOT));
                         })), mx, my);
-                rx = drawP(g, fnt, rx, ry,
+                rx = drawP(g, fnt, rx,
                         has.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", has.access.labels), 50,
-                        () -> showLabelEditor(x + 6, y + ph - 22, has.access.labels, false), mx, my);
+                        () -> showLabelEditor(x + 6, popY, has.access.labels, false), mx, my);
                 ry += rowH;
                 rx = x + 6;
-                rx = drawP(g, fnt, rx, ry, has.comparison.symbol(), 24, () -> setPopup(new Popup.ChoicePopup(
-                        x + 6, y + ph - 22, 90, List.of(">", ">=", "=", "<=", "<"),
+                rx = drawP(g, fnt, rx, has.comparison.symbol(), 24, () -> setPopup(new Popup.ChoicePopup(
+                        x + 6, popY, 90, List.of(">", ">=", "=", "<=", "<"),
                         List.of(">", "≥", "=", "≤", "<"), has.comparison.symbol(), v -> {
                             pushUndo();
                             has.comparison = BProgram.Bool.Comparison.fromSfml(v);
                         })), mx, my);
                 long num = has.number;
-                final int frx = rx, fry = ry;
-                rx = drawP(g, fnt, rx, ry, String.valueOf(num), 34, () ->
-                        popup = new Popup.TextPopup(BlockEditorScreen.this, frx, fry + rowH - 10, 90,
+                // 数字 pill 的二级弹窗原本"贴在该 pill 下方"，但当 pill 因换行
+                // 落到新行时，事先 capture 的 frx/fry 会指向旧位置——改成统一
+                // 从面板底部弹出（跟其他 pill 的二级弹窗一致）。
+                rx = drawP(g, fnt, rx, String.valueOf(num), 34, () ->
+                        popup = new Popup.TextPopup(BlockEditorScreen.this, x + 6, popY, 90,
                                 String.valueOf(num), "0..999999",
                                 s -> {
                                     try {
@@ -5958,19 +5983,20 @@ public class BlockEditorScreen extends Screen {
                                     }
                                 }, null), mx, my);
                 BProgram.ResourceRef resource = firstResource(has.resources);
-                rx = drawP(g, fnt, rx, ry, resource.kind().chineseName, 38,
-                        () -> showResourceKindMenu(x + 6, y + ph - 22, resource, replacement -> {
+                rx = drawP(g, fnt, rx, resource.kind().chineseName, 38,
+                        () -> showResourceKindMenu(x + 6, popY, resource, replacement -> {
                             pushUndo();
                             setFirstResource(has.resources, replacement);
                         }), mx, my);
-                final int resourceX = rx, resourceY = ry;
                 String resourceText = resource.isWildcard() ? "□ 全部" : shortResource(resource);
-                rx = drawP(g, fnt, rx, ry, resourceText, 44,
-                        () -> showResourceValueMenu(x + 6, y + ph - 22, resource, replacement -> {
+                rx = drawP(g, fnt, rx, resourceText, 44,
+                        () -> showResourceValueMenu(x + 6, popY, resource, replacement -> {
                             pushUndo();
                             setFirstResource(has.resources, replacement);
                         }), mx, my);
-                JeiGhostDrops.add(new Rect2i(resourceX, resourceY, rx - resourceX - 6, 16), resource.toString(), dropped -> {
+                // 资源按钮 ghost drop：注册矩形改用 lastPill*——资源按钮 pill 自身
+                // 的真实矩形（覆盖换行后落到新行的情况，不再跨越两行）。
+                JeiGhostDrops.add(new Rect2i(lastPillX, lastPillY, lastPillW, 16), resource.toString(), dropped -> {
                     try {
                         BProgram.ResourceRef incoming = BProgram.ResourceRef.parse(dropped);
                         if (!sameResourceCategory(resource, incoming)) {
@@ -5983,29 +6009,28 @@ public class BlockEditorScreen extends Screen {
                         showStatus("✖ 无法识别这个资源", 0xFFD13438);
                     }
                 });
-                rx = drawP(g, fnt, rx, ry, "＋更多资源", 54,
-                        () -> showResourceListMenu(x + 6, y + ph - 22, has.resources, "再加一种判断资源"), mx, my);
+                rx = drawP(g, fnt, rx, "＋更多资源", 54,
+                        () -> showResourceListMenu(x + 6, popY, has.resources, "再加一种判断资源"), mx, my);
                 ry += rowH;
                 rx = x + 6;
-                String withText = has.with == null ? "＋资源特征" : shortUi(shortWith(has.with), 15);
-                rx = drawP(g, fnt, rx, ry, withText, 80,
-                        () -> showWithEditor(x + 6, y + ph - 22, () -> has.with, value -> has.with = value), mx, my);
+                String withText = has.with == null ? "＋资源标签" : shortUi(shortWith(has.with), 15);
+                rx = drawP(g, fnt, rx, withText, 80,
+                        () -> showWithEditor(x + 6, popY, () -> has.with, value -> has.with = value), mx, my);
                 String exceptText = has.except.isEmpty() ? "＋排除资源" : "排除 " + has.except.size() + " 种资源";
-                rx = drawP(g, fnt, rx, ry, exceptText, 70,
-                        () -> showResourceListMenu(x + 6, y + ph - 22, has.except, "添加要排除的资源"), mx, my);
+                rx = drawP(g, fnt, rx, exceptText, 70,
+                        () -> showResourceListMenu(x + 6, popY, has.except, "添加要排除的资源"), mx, my);
                 ry += rowH;
                 rx = x + 6;
                 String sideText = has.access.eachSide || !has.access.sides.isEmpty()
                         ? sidesDisp(has.access) : "不限侧面";
-                rx = drawP(g, fnt, rx, ry, sideText, 58,
-                        () -> showSideEditor(x + 6, y + ph - 22, has.access), mx, my);
+                rx = drawP(g, fnt, rx, sideText, 58,
+                        () -> showSideEditor(x + 6, popY, has.access), mx, my);
                 String slotsText = has.access.slots.isEmpty() ? "不限槽位" : slotText(has.access.slots);
-                final int slotX = rx;
-                rx = drawP(g, fnt, rx, ry, slotsText, 58, () -> setPopup(new Popup.TextPopup(
-                        BlockEditorScreen.this, slotX, y + ph - 22, 150, slotText(has.access.slots),
+                rx = drawP(g, fnt, rx, slotsText, 58, () -> setPopup(new Popup.TextPopup(
+                        BlockEditorScreen.this, x + 6, popY, 150, slotText(has.access.slots),
                         "槽位，例如 0,2-5", value -> setSlotsFromText(has.access.slots, value), null)), mx, my);
-                rx = drawP(g, fnt, rx, ry, rrDisp(has.access.roundRobin), 64,
-                        () -> setPopup(new Popup.ChoicePopup(x + 6, y + ph - 22, 120,
+                rx = drawP(g, fnt, rx, rrDisp(has.access.roundRobin), 64,
+                        () -> setPopup(new Popup.ChoicePopup(x + 6, popY, 120,
                                 List.of("none", "label", "block"),
                                 List.of("不轮流", "按标签轮流", "按方块轮流"),
                                 has.access.roundRobin.name().toLowerCase(java.util.Locale.ROOT), value -> {
@@ -6014,24 +6039,25 @@ public class BlockEditorScreen extends Screen {
                         })), mx, my);
                 ry += rowH;
                 rx = x + 6;
-                rx = drawP(g, fnt, rx, ry, "✕ 删除条件", 60, () -> {
+                rx = drawP(g, fnt, rx, "✕ 删除条件", 60, () -> {
                     pushUndo();
                     replaceSelf(new BProgram.Bool.Const(true));
                     popup = null;
                 }, mx, my);
             } else if (inner() instanceof BProgram.Bool.Redstone r) {
-                String redstoneComparison = r.comparison == null ? "any" : r.comparison.symbol();
-                rx = drawP(g, fnt, rx, ry, r.comparison == null ? "有信号" : r.comparison.symbol(), 30,
-                        () -> setPopup(new Popup.ChoicePopup(x + 6, y + ph - 22, 100,
+                ry += rowH;
+                rx = x + 6;
+                String redstoneComparison = r.comparison == null ? "有信号" : r.comparison.symbol();
+                rx = drawP(g, fnt, rx, r.comparison == null ? "有信号" : r.comparison.symbol(), 30,
+                        () -> setPopup(new Popup.ChoicePopup(x + 6, popY, 100,
                                 List.of("any", ">", ">=", "=", "<=", "<"),
                                 List.of("有信号", ">", "≥", "=", "≤", "<"), redstoneComparison, v -> {
                             pushUndo();
                             r.comparison = v.equals("any") ? null : BProgram.Bool.Comparison.fromSfml(v);
                         })), mx, my);
                 long num = r.number;
-                final int frx = rx, fry = ry;
-                rx = drawP(g, fnt, rx, ry, String.valueOf(num), 34, () ->
-                        popup = new Popup.TextPopup(BlockEditorScreen.this, frx, fry + rowH - 10, 90,
+                rx = drawP(g, fnt, rx, String.valueOf(num), 34, () ->
+                        popup = new Popup.TextPopup(BlockEditorScreen.this, x + 6, popY, 90,
                                 String.valueOf(num), "0..999999",
                                 s -> {
                                     try {
@@ -6042,20 +6068,22 @@ public class BlockEditorScreen extends Screen {
                                 }, null), mx, my);
                 ry += rowH;
                 rx = x + 6;
-                rx = drawP(g, fnt, rx, ry, "✕ 删除条件", 60, () -> {
+                rx = drawP(g, fnt, rx, "✕ 删除条件", 60, () -> {
                     pushUndo();
                     replaceSelf(new BProgram.Bool.Const(true));
                     popup = null;
                 }, mx, my);
             } else if (inner() instanceof BProgram.Bool.RawBool r) {
-                rx = drawP(g, fnt, rx, ry, "兼容条件（只读）", 100,
+                ry += rowH;
+                rx = x + 6;
+                rx = drawP(g, fnt, rx, "兼容条件（只读）", 100,
                         () -> {
                             if (!previewMode) toggleCodeEditor();
                             showStatus("请在下方代码编辑区修改兼容条件", 0xFFB45309);
                         }, mx, my);
                 ry += rowH;
                 rx = x + 6;
-                rx = drawP(g, fnt, rx, ry, "✕ 删除条件", 60, () -> {
+                rx = drawP(g, fnt, rx, "✕ 删除条件", 60, () -> {
                     pushUndo();
                     replaceSelf(new BProgram.Bool.Const(true));
                     popup = null;
@@ -6063,7 +6091,7 @@ public class BlockEditorScreen extends Screen {
             } else if (inner() instanceof BProgram.Bool.Const constant) {
                 ry += rowH;
                 rx = x + 6;
-                rx = drawP(g, fnt, rx, ry,
+                rx = drawP(g, fnt, rx,
                         constant.value ? "这个条件始终成立" : "这个条件始终不成立", 110,
                         () -> {
                             pushUndo();
@@ -6071,7 +6099,7 @@ public class BlockEditorScreen extends Screen {
                         }, mx, my);
                 ry += rowH;
                 rx = x + 6;
-                rx = drawP(g, fnt, rx, ry, "✕ 删除条件", 60, () -> {
+                rx = drawP(g, fnt, rx, "✕ 删除条件", 60, () -> {
                     pushUndo();
                     replaceSelf(newConditionHas());
                     popup = null;
@@ -6079,14 +6107,127 @@ public class BlockEditorScreen extends Screen {
             }
         }
 
-        private int drawP(GuiGraphics g, Font fnt, int px, int py,
+        /** Pill 绘制助手：放得下就紧跟上一个 pill；放不下自动折到下一行。
+         *  返回新 rx 给下一个 pill；ry 用字段推进（跨 drawP 调用持续）。 */
+        private int drawP(GuiGraphics g, Font fnt, int px,
                           String t, int minW, Runnable onClick, int mx, int my) {
             int pw = Math.max(minW, fnt.width(t) + 10);
-            boolean hover = mx >= px && mx < px + pw && my >= py && my < py + 16;
-            pill(g, px, py, pw, 16, hover);
-            g.drawString(fnt, t, px + (pw - fnt.width(t)) / 2, py + 4, C_TEXT, false);
-            localHits.add(Hit.of(px, py, pw, 16, K_CLICK, null, onClick));
+            // 放不下就换行；用面板内边距右边界（x + w - 6）做裁剪。
+            // 允许换行的前提是面板还能再装一行（ry + rowH 仍在 y + h 范围内），
+            // 避免在已经被裁短的小面板里无限追加行。
+            if (px + pw > x + w - 6 && ry < y + h - rowH) {
+                px = x + 6;
+                ry += rowH;
+            }
+            boolean hover = mx >= px && mx < px + pw && my >= ry && my < ry + 16;
+            pill(g, px, ry, pw, 16, hover);
+            g.drawString(fnt, t, px + (pw - fnt.width(t)) / 2, ry + 4, C_TEXT, false);
+            localHits.add(Hit.of(px, ry, pw, 16, K_CLICK, null, onClick));
+            lastPillX = px;
+            lastPillY = ry;
+            lastPillW = pw;
             return px + pw + 6;
+        }
+
+        /** 落位时按面板剩余空间算 w/h：宽度按最长行收紧，高度按行数展开。
+         *  setPopup 顺序保证本方法在 render() 前被调用，渲染时 w/h 已是最终值。 */
+        @Override
+        public void applyBounds(int minX, int maxX, int minY, int maxY) {
+            Font fnt = Minecraft.getInstance().font;
+            int[] widths = computePillWidths(fnt);
+            if (widths.length == 0) {
+                this.h = rowH + PAD;
+                return;
+            }
+            int panelMaxW = Math.max(MIN_W, maxX - minX);
+            int panelMaxH = Math.max(rowH + PAD, maxY - minY);
+
+            // 第一遍：在最大可用宽度下贪心分组——找出"最长那一行"的宽度。
+            // 第二遍：用这个宽度重算行数（收窄到该宽度后行数可能变多）。
+            // 跑两遍是因为"最宽行宽度"和"行数"互相耦合。
+            int firstWidest = flowLayout(widths, panelMaxW - PAD)[0];
+            int wantW = Math.max(MIN_W, Math.min(firstWidest + PAD, panelMaxW));
+            int[] again = flowLayout(widths, wantW - PAD);
+            int rows = again[1];
+            int widest = again[0];
+
+            // 行数变化后再校准一次宽度（极端短文本可能让 wantW 比真实最宽还小）。
+            this.w = Math.max(MIN_W, Math.min(widest + PAD, panelMaxW));
+            int[] finalLayout = flowLayout(widths, this.w - PAD);
+            this.h = Math.min(panelMaxH, finalLayout[1] * rowH + PAD);
+        }
+
+        /** 收集 render() 里每个 pill 的最终宽度，与 render() 的 pill 顺序一致——
+         *  唯一区别是这里不渲染、不记录 hit，只算 pw。 */
+        private int[] computePillWidths(Font fnt) {
+            List<Integer> out = new ArrayList<>();
+            out.add(pillW(fnt, switch (kind()) {
+                case "has" -> T_COND.getString();
+                case "redstone" -> "红石";
+                case "true" -> "总是成立";
+                case "false" -> "永不成立";
+                default -> "原样";
+            }, 40));
+            out.add(pillW(fnt, cond instanceof BProgram.Bool.Not ? "◉ 已取反" : "○ 取反", 56));
+
+            BProgram.Bool.Has has = asHas();
+            if (has != null) {
+                out.add(pillW(fnt, setOpZh(has.setMode), 70));
+                out.add(pillW(fnt, has.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", has.access.labels), 50));
+                out.add(pillW(fnt, has.comparison.symbol(), 24));
+                out.add(pillW(fnt, String.valueOf(has.number), 34));
+                BProgram.ResourceRef resource = firstResource(has.resources);
+                out.add(pillW(fnt, resource.kind().chineseName, 38));
+                out.add(pillW(fnt, resource.isWildcard() ? "□ 全部" : shortResource(resource), 44));
+                out.add(pillW(fnt, "＋更多资源", 54));
+                String withText = has.with == null ? "＋资源标签" : shortUi(shortWith(has.with), 15);
+                out.add(pillW(fnt, withText, 80));
+                String exceptText = has.except.isEmpty() ? "＋排除资源" : "排除 " + has.except.size() + " 种资源";
+                out.add(pillW(fnt, exceptText, 70));
+                String sideText = has.access.eachSide || !has.access.sides.isEmpty() ? sidesDisp(has.access) : "不限侧面";
+                out.add(pillW(fnt, sideText, 58));
+                String slotsText = has.access.slots.isEmpty() ? "不限槽位" : slotText(has.access.slots);
+                out.add(pillW(fnt, slotsText, 58));
+                out.add(pillW(fnt, rrDisp(has.access.roundRobin), 64));
+                out.add(pillW(fnt, "✕ 删除条件", 60));
+            } else if (inner() instanceof BProgram.Bool.Redstone r) {
+                out.add(pillW(fnt, r.comparison == null ? "有信号" : r.comparison.symbol(), 30));
+                out.add(pillW(fnt, String.valueOf(r.number), 34));
+                out.add(pillW(fnt, "✕ 删除条件", 60));
+            } else if (inner() instanceof BProgram.Bool.RawBool) {
+                out.add(pillW(fnt, "兼容条件（只读）", 100));
+                out.add(pillW(fnt, "✕ 删除条件", 60));
+            } else if (inner() instanceof BProgram.Bool.Const constant) {
+                out.add(pillW(fnt, constant.value ? "这个条件始终成立" : "这个条件始终不成立", 110));
+                out.add(pillW(fnt, "✕ 删除条件", 60));
+            }
+            return out.stream().mapToInt(Integer::intValue).toArray();
+        }
+
+        private static int pillW(Font fnt, String t, int minW) {
+            return Math.max(minW, fnt.width(t) + 10);
+        }
+
+        /** 贪心 flow layout：固定宽度 contentW，把宽度数组按"放得下就加，
+         *  放不下换行"分组，返回 [最宽行累加宽度, 行数]。 */
+        private static int[] flowLayout(int[] widths, int contentW) {
+            int widest = 0;
+            int line = 0;
+            int rows = 1;
+            for (int pw : widths) {
+                if (line == 0) {
+                    line = pw;
+                    widest = Math.max(widest, line);
+                } else if (line + 6 + pw <= contentW) {
+                    line += 6 + pw;
+                    widest = Math.max(widest, line);
+                } else {
+                    rows++;
+                    line = pw;
+                    widest = Math.max(widest, line);
+                }
+            }
+            return new int[]{widest, rows};
         }
 
         private void switchKind(String k) {
