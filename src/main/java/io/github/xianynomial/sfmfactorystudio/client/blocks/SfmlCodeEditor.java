@@ -53,6 +53,8 @@ final class SfmlCodeEditor extends AbstractWidget {
     private List<Integer> lineStarts = List.of(0);
     private List<MutableComponent> highlighted = List.of(Component.empty());
     private int highlightDelay;
+    // 窗口隐藏时跳过昂贵的 ANTLR 高亮（每次放积木的模型→代码同步都会走到这里）
+    private boolean highlightStale = false;
     private final ArrayDeque<State> undo = new ArrayDeque<>();
     private final ArrayDeque<State> redo = new ArrayDeque<>();
     private List<IntellisenseAction> suggestions = List.of();
@@ -151,9 +153,10 @@ final class SfmlCodeEditor extends AbstractWidget {
             if (value.charAt(i) == '\n') starts.add(i + 1);
         }
         lineStarts = List.copyOf(starts);
-        if (highlightNow) {
+        if (highlightNow && visible) {
             highlighted = SfmlHighlight.lines(value);
             highlightDelay = 0;
+            highlightStale = false;
         } else {
             ArrayList<MutableComponent> plain = new ArrayList<>(lineStarts.size());
             for (int line = 0; line < lineStarts.size(); line++) {
@@ -161,6 +164,7 @@ final class SfmlCodeEditor extends AbstractWidget {
             }
             highlighted = List.copyOf(plain);
             highlightDelay = 3;
+            if (highlightNow) highlightStale = true;
         }
     }
 
@@ -313,7 +317,11 @@ final class SfmlCodeEditor extends AbstractWidget {
 
     void tick() {
         if (highlightDelay > 0 && --highlightDelay == 0) {
-            highlighted = SfmlHighlight.lines(value);
+            if (visible) {
+                highlighted = SfmlHighlight.lines(value);
+                highlightStale = false;
+            }
+            // 不可见时留给 highlightStale，render 发现可见再重建
         }
     }
 
@@ -500,6 +508,10 @@ final class SfmlCodeEditor extends AbstractWidget {
 
     @Override
     protected void renderWidget(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        if (highlightStale && visible) {
+            highlighted = SfmlHighlight.lines(value);
+            highlightStale = false;
+        }
         if (!visible) return;
         // SFM's highlighter uses bright token colours, so an opaque dark
         // surface gives every token crisp contrast without text shadows.

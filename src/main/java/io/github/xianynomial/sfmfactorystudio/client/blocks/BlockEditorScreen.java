@@ -4049,15 +4049,18 @@ public class BlockEditorScreen extends Screen {
         BProgram.ResourceLimit rl = primaryLimit(in.limits);
         fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
-        fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? "− 收起扩展" : "＋ 扩展积木", 54,
-                () -> toggleOptions(stmt), mx, my, true);
+        fx = drawOrAddField(g, fx, y, rl, mx, my);
+        fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? "收起" : "展开", 34,
+                () -> expandOrMenu(stmt, in, x, y, list, index), mx, my, true);
         drawDelete(g, x + w - 16, y + 3, () -> {
             pushUndo();
             list.remove(index);
         }, mx, my);
 
+        drawAltResourceRows(g, x, y + BAR_H, rl, mx, my);
+
         if (expandedIds.contains(stmt.id)) {
-            renderIOOptions(g, x + INDENT, y + BAR_H, mx, my, in, list, index);
+            renderIOOptions(g, x + INDENT, y + BAR_H + EditorLayout.altResourceRows(in.limits) * BAR_H, mx, my, in, list, index);
         }
     }
 
@@ -4078,16 +4081,104 @@ public class BlockEditorScreen extends Screen {
         BProgram.ResourceLimit rl = primaryLimit(out.limits);
         fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
-        fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? "− 收起扩展" : "＋ 扩展积木", 54,
-                () -> toggleOptions(stmt), mx, my, true);
+        fx = drawOrAddField(g, fx, y, rl, mx, my);
+        fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? "收起" : "展开", 34,
+                () -> expandOrMenu(stmt, out, x, y, list, index), mx, my, true);
         drawDelete(g, x + w - 16, y + 3, () -> {
             pushUndo();
             list.remove(index);
         }, mx, my);
 
+        drawAltResourceRows(g, x, y + BAR_H, rl, mx, my);
+
         if (expandedIds.contains(stmt.id)) {
-            renderOutputOptions(g, x + INDENT, y + BAR_H, mx, my, out, list, index);
+            renderOutputOptions(g, x + INDENT, y + BAR_H + EditorLayout.altResourceRows(out.limits) * BAR_H, mx, my, out, list, index);
         }
+    }
+
+    /** 或者也搬运的入口：主行紧凑「或＋」，点开直接选一种备选资源。 */
+    private int drawOrAddField(GuiGraphics g, int x, int y, BProgram.ResourceLimit rl, int mx, int my) {
+        if (rl == null) return x;
+        final int px = x;
+        return drawField(g, x, y, "或＋", 26, () -> openNewResourceKindMenu(px, y, res -> {
+            pushUndo();
+            rl.resources.add(res);
+            layoutDirty = true;
+        }), mx, my, false);
+    }
+
+    /**
+     * 主组备选资源续行：每行「或」前缀 + 最多 4 个芯片（类别+槽+✕），尾行带「＋」。
+     * 高度由 EditorLayout.altResourceRows 按同一规则预留，加再多也不会超出卡片。
+     */
+    private void drawAltResourceRows(GuiGraphics g, int x, int y, BProgram.ResourceLimit rl, int mx, int my) {
+        if (rl == null || rl.resources.size() <= 1) return;
+        int alts = rl.resources.size() - 1;
+        int rows = (alts + EditorLayout.RES_ALT_PER_ROW - 1) / EditorLayout.RES_ALT_PER_ROW;
+        for (int r = 0; r < rows; r++) {
+            int fx = x + 12;
+            fx = drawText(g, fx, y, "或");
+            int start = 1 + r * EditorLayout.RES_ALT_PER_ROW;
+            int end = Math.min(rl.resources.size(), start + EditorLayout.RES_ALT_PER_ROW);
+            for (int idx = start; idx < end; idx++) {
+                final int i2 = idx;
+                fx = drawResourceSelector(g, fx, y, rl.resources.get(idx), picked -> {
+                    pushUndo();
+                    rl.resources.set(i2, picked);
+                }, mx, my);
+                fx = drawIcon(g, fx - 2, y, "✕", () -> {
+                    pushUndo();
+                    rl.resources.remove(i2);
+                    layoutDirty = true;
+                }, mx, my, 0xFFC22B21);
+                fx += 6;
+            }
+            if (r == rows - 1) {
+                final int px = fx;
+                final int py = y;
+                drawField(g, fx, y, "＋", 18, () -> openNewResourceKindMenu(px, py, res -> {
+                    pushUndo();
+                    rl.resources.add(res);
+                    layoutDirty = true;
+                }), mx, my, false);
+            }
+            y += BAR_H;
+        }
+    }
+
+    /**
+     * 展开按钮：已展开→收起；已有扩展内容→展开；还什么都没有→展开并直接弹
+     * 添加菜单（省掉旧流程里「点扩展积木→再点添加扩展积木」的多一次点击）。
+     */
+    private void expandOrMenu(BProgram.Statement stmt, Object io, int x, int y,
+                              List<BProgram.Statement> list, int index) {
+        if (expandedIds.contains(stmt.id)) {
+            toggleOptions(stmt);
+            return;
+        }
+        boolean any = hasExtensionConfig(io);
+        toggleOptions(stmt); // 展开区先立起来，加完内容立刻可见
+        if (!any) openIOExtensionMenu(x, y, io, list, index);
+    }
+
+    /** 扩展区是否已有任何已配置内容（备选资源不算——它们常驻在语句主体上）。 */
+    private boolean hasExtensionConfig(Object io) {
+        if (io instanceof BProgram.Statement.Input in) {
+            for (BProgram.ResourceLimit rl : in.limits) {
+                if (rl != null && (rl.quantity != null || rl.retain != null || rl.with != null)) return true;
+            }
+            return !in.except.isEmpty() || in.access.eachSide || !in.access.sides.isEmpty()
+                    || !in.access.slots.isEmpty()
+                    || in.access.roundRobin != BProgram.RoundRobinMode.NONE || in.each;
+        }
+        BProgram.Statement.Output out = (BProgram.Statement.Output) io;
+        for (BProgram.ResourceLimit rl : out.limits) {
+            if (rl != null && (rl.quantity != null || rl.retain != null || rl.with != null)) return true;
+        }
+        return !out.except.isEmpty() || out.access.eachSide || !out.access.sides.isEmpty()
+                || !out.access.slots.isEmpty()
+                || out.access.roundRobin != BProgram.RoundRobinMode.NONE
+                || out.each || out.emptySlots;
     }
 
     /**
@@ -4164,7 +4255,7 @@ public class BlockEditorScreen extends Screen {
                 }, mx, my, 0xFFC22B21);
                 y += OPT_H;
             }
-            for (int resourceIndex = 1; resourceIndex < limit.resources.size(); resourceIndex++) {
+            if (i > 0) for (int resourceIndex = 1; resourceIndex < limit.resources.size(); resourceIndex++) {
                 BProgram.ResourceRef current = limit.resources.get(resourceIndex);
                 int fx = extensionRow(g, x, y, w, accent, groupPrefix + "或者也搬运");
                 final int ri = resourceIndex;
@@ -4291,7 +4382,7 @@ public class BlockEditorScreen extends Screen {
             y += OPT_H;
         }
 
-        extensionRow(g, x, y, w, C_SELECT, "＋ 添加扩展积木");
+        extensionRow(g, x, y, w, C_SELECT, "＋ 添加");
         final int addY = y;
         hits.add(hit(x, y, w, OPT_H - 2, K_CLICK, null,
                 () -> openIOExtensionMenu(x, addY, io, list, index)));
@@ -4550,7 +4641,6 @@ public class BlockEditorScreen extends Screen {
         }
         if (primary != null && primary.retain == null) addChoice(values, labels, "retain:0", "至少留下指定数量");
         addChoice(values, labels, "except", "排除一种资源");
-        if (primary != null) addChoice(values, labels, "add_or:0", "或者也搬运");
         if (!access.eachSide && access.sides.isEmpty()) addChoice(values, labels, "sides", "指定方块侧面");
         if (access.slots.isEmpty()) addChoice(values, labels, "slots", "指定槽位");
         if (access.roundRobin == BProgram.RoundRobinMode.NONE) addChoice(values, labels, "round_robin", "轮流选择目标");
@@ -5947,8 +6037,7 @@ public class BlockEditorScreen extends Screen {
                     }, mx, my);
             BProgram.Bool.Has has = asHas();
             if (has != null) {
-                ry += rowH;
-                rx = x + 6;
+                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx, setOpZh(has.setMode), 70,
                         () -> setPopup(new Popup.ChoicePopup(x + 6, popY, 150,
                                 List.of("default", "overall", "some", "every", "one", "lone"),
@@ -5960,8 +6049,7 @@ public class BlockEditorScreen extends Screen {
                 rx = drawP(g, fnt, rx,
                         has.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", has.access.labels), 50,
                         () -> showLabelEditor(x + 6, popY, has.access.labels, false), mx, my);
-                ry += rowH;
-                rx = x + 6;
+                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx, has.comparison.symbol(), 24, () -> setPopup(new Popup.ChoicePopup(
                         x + 6, popY, 90, List.of(">", ">=", "=", "<=", "<"),
                         List.of(">", "≥", "=", "≤", "<"), has.comparison.symbol(), v -> {
@@ -6011,16 +6099,14 @@ public class BlockEditorScreen extends Screen {
                 });
                 rx = drawP(g, fnt, rx, "＋更多资源", 54,
                         () -> showResourceListMenu(x + 6, popY, has.resources, "再加一种判断资源"), mx, my);
-                ry += rowH;
-                rx = x + 6;
+                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 String withText = has.with == null ? "＋资源标签" : shortUi(shortWith(has.with), 15);
                 rx = drawP(g, fnt, rx, withText, 80,
                         () -> showWithEditor(x + 6, popY, () -> has.with, value -> has.with = value), mx, my);
                 String exceptText = has.except.isEmpty() ? "＋排除资源" : "排除 " + has.except.size() + " 种资源";
                 rx = drawP(g, fnt, rx, exceptText, 70,
                         () -> showResourceListMenu(x + 6, popY, has.except, "添加要排除的资源"), mx, my);
-                ry += rowH;
-                rx = x + 6;
+                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 String sideText = has.access.eachSide || !has.access.sides.isEmpty()
                         ? sidesDisp(has.access) : "不限侧面";
                 rx = drawP(g, fnt, rx, sideText, 58,
@@ -6037,16 +6123,14 @@ public class BlockEditorScreen extends Screen {
                             pushUndo();
                             has.access.roundRobin = BProgram.RoundRobinMode.fromSfml(value);
                         })), mx, my);
-                ry += rowH;
-                rx = x + 6;
+                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx, "✕ 删除条件", 60, () -> {
                     pushUndo();
                     replaceSelf(new BProgram.Bool.Const(true));
                     popup = null;
                 }, mx, my);
             } else if (inner() instanceof BProgram.Bool.Redstone r) {
-                ry += rowH;
-                rx = x + 6;
+                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 String redstoneComparison = r.comparison == null ? "有信号" : r.comparison.symbol();
                 rx = drawP(g, fnt, rx, r.comparison == null ? "有信号" : r.comparison.symbol(), 30,
                         () -> setPopup(new Popup.ChoicePopup(x + 6, popY, 100,
@@ -6066,39 +6150,34 @@ public class BlockEditorScreen extends Screen {
                                     } catch (NumberFormatException ignored) {
                                     }
                                 }, null), mx, my);
-                ry += rowH;
-                rx = x + 6;
+                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx, "✕ 删除条件", 60, () -> {
                     pushUndo();
                     replaceSelf(new BProgram.Bool.Const(true));
                     popup = null;
                 }, mx, my);
             } else if (inner() instanceof BProgram.Bool.RawBool r) {
-                ry += rowH;
-                rx = x + 6;
+                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx, "兼容条件（只读）", 100,
                         () -> {
                             if (!previewMode) toggleCodeEditor();
                             showStatus("请在下方代码编辑区修改兼容条件", 0xFFB45309);
                         }, mx, my);
-                ry += rowH;
-                rx = x + 6;
+                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx, "✕ 删除条件", 60, () -> {
                     pushUndo();
                     replaceSelf(new BProgram.Bool.Const(true));
                     popup = null;
                 }, mx, my);
             } else if (inner() instanceof BProgram.Bool.Const constant) {
-                ry += rowH;
-                rx = x + 6;
+                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx,
                         constant.value ? "这个条件始终成立" : "这个条件始终不成立", 110,
                         () -> {
                             pushUndo();
                             constant.value = !constant.value;
                         }, mx, my);
-                ry += rowH;
-                rx = x + 6;
+                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx, "✕ 删除条件", 60, () -> {
                     pushUndo();
                     replaceSelf(newConditionHas());

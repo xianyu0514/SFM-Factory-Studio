@@ -32,6 +32,8 @@ public final class EditorLayout {
 
     // ---- metrics (content px), single source of truth for screen + layout ----
     public static final int BAR_H = 20;
+    /** 主组「或者也搬运」芯片每行数量（渲染与高度计算共用，改要同步）。 */
+    public static final int RES_ALT_PER_ROW = 4;
     public static final int OPT_H = 20;
     public static final int ROW_GAP = 4;
     public static final int INDENT = 16;
@@ -347,10 +349,16 @@ public final class EditorLayout {
         return y + ADD_H;
     }
 
+    /** 主组「或者也搬运」占的续行数（第 1 个资源在主行，其余按 4 个/行换行）。 */
+    public static int altResourceRows(java.util.List<BProgram.ResourceLimit> limits) {
+        int alts = limits.isEmpty() ? 0 : Math.max(0, limits.get(0).resources.size() - 1);
+        return (alts + RES_ALT_PER_ROW - 1) / RES_ALT_PER_ROW;
+    }
+
     private int layoutStatement(BProgram.Statement s, int x, int y, int w, CardCache cc) {
         int wEff = Math.min(w, CARD_W - CARD_INNER * 2 - 8);
         if (s instanceof BProgram.Statement.Input in) {
-            int h = BAR_H;
+            int h = BAR_H + altResourceRows(in.limits);
             putRow(cc, s, new int[]{x, y, wEff, h});
             if (expandedIds.contains(in.id)) {
                 h += ioOptionsHeight(in);
@@ -358,7 +366,7 @@ public final class EditorLayout {
             return rememberHeight(cc, s, h);
         }
         if (s instanceof BProgram.Statement.Output out) {
-            int h = BAR_H;
+            int h = BAR_H + altResourceRows(out.limits);
             putRow(cc, s, new int[]{x, y, wEff, h});
             if (expandedIds.contains(out.id)) {
                 h += ioOptionsHeight(out);
