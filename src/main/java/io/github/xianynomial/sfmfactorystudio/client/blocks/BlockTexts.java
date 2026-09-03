@@ -15,7 +15,7 @@ public final class BlockTexts {
     public static final Loc T_UNDO = new Loc("gui.sfmfactorystudio.blocks.undo", "撤销");
     public static final Loc T_FIT = new Loc("gui.sfmfactorystudio.blocks.fit", "适配");
     public static final Loc T_NAME = new Loc("gui.sfmfactorystudio.blocks.name", "程序名");
-    public static final Loc T_CAT_TRIGGER = new Loc("gui.sfmfactorystudio.blocks.cat_trigger", "什么时候运行");
+    public static final Loc T_CAT_TRIGGER = new Loc("gui.sfmfactorystudio.blocks.cat_trigger", "触发器");
     public static final Loc T_CAT_MOVE = new Loc("gui.sfmfactorystudio.blocks.cat_move", "搬运资源");
     public static final Loc T_CAT_LOGIC = new Loc("gui.sfmfactorystudio.blocks.cat_logic", "判断");
     public static final Loc T_CAT_RAW = new Loc("gui.sfmfactorystudio.blocks.cat_raw", "说明");

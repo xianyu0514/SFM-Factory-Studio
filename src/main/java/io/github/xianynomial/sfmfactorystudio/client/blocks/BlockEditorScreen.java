@@ -2112,11 +2112,11 @@ public class BlockEditorScreen extends Screen {
     private void clickAdd(String kind) {
         pushUndo();
         switch (kind) {
-            case "timer" -> program.triggers.add(new BProgram.TimerTrigger());
-            case "pulse" -> program.triggers.add(new BProgram.PulseTrigger());
-            case "input" -> targetBody().add(newInput());
-            case "output" -> targetBody().add(newOutput());
-            case "energy" -> program.triggers.add(newEnergyTrigger());
+            case "timer" -> program.triggers.add(newTriggerCard("timer"));
+            case "pulse" -> program.triggers.add(newTriggerCard("pulse"));
+            case "input" -> addInheriting(targetBody(), newInput());
+            case "output" -> addInheriting(targetBody(), newOutput());
+            case "energy" -> program.triggers.add(newTriggerCard("energy"));
             case "forget" -> targetBody().add(new BProgram.Statement.Forget());
             case "if" -> targetBody().add(newIf());
             case "comment" -> targetBody().add(new BProgram.Statement.Comment("备注"));
@@ -2135,8 +2135,7 @@ public class BlockEditorScreen extends Screen {
     private void dropPalette(String kind, double cx, double cy) {
         if (kind.equals("timer") || kind.equals("pulse") || kind.equals("energy")) {
             pushUndo();
-            BProgram.Trigger t = kind.equals("timer") ? new BProgram.TimerTrigger()
-                    : kind.equals("pulse") ? new BProgram.PulseTrigger() : newEnergyTrigger();
+            BProgram.Trigger t = newTriggerCard(kind);
             program.triggers.add(t);
             // 新卡落在鼠标位置，不再自动堆到最下方
             layout.setCardPos(t.id, CardLayouts.snap((int) cx), CardLayouts.snap((int) cy));
@@ -2151,7 +2150,11 @@ public class BlockEditorScreen extends Screen {
         Gap g = layout.nearestGap(cx, cy);
         if (g != null) {
             pushUndo();
-            g.body().list().add(Math.max(0, Math.min(g.index(), g.body().list().size())), buildBlock(kind));
+            List<BProgram.Statement> list = g.body().list();
+            BProgram.Statement built = buildBlock(kind);
+            int at = Math.max(0, Math.min(g.index(), list.size()));
+            inheritAccess(list, at, built);
+            list.add(at, built);
             layoutDirty = true;
         } else if (inCanvas(cx, cy)) {
             // 空白画布：在鼠标位置新建一张卡装这块积木（不再随机塞进别的卡）
@@ -2161,6 +2164,44 @@ public class BlockEditorScreen extends Screen {
             program.triggers.add(t);
             layout.setCardPos(t.id, CardLayouts.snap((int) cx), CardLayouts.snap((int) cy));
             layoutDirty = true;
+        }
+    }
+
+    /** 新建触发器卡：定时/脉冲自动带「从方块取出 + 放入方块」骨架；能量模板自带结构。 */
+    private BProgram.Trigger newTriggerCard(String kind) {
+        if (kind.equals("energy")) return newEnergyTrigger();
+        BProgram.Trigger t = kind.equals("pulse") ? new BProgram.PulseTrigger() : new BProgram.TimerTrigger();
+        t.body.add(newInput());
+        t.body.add(newOutput());
+        return t;
+    }
+
+    /** 插入语句并继承同列表里上一条取出/存入的标签与侧面。 */
+    private void addInheriting(List<BProgram.Statement> list, BProgram.Statement stmt) {
+        inheritAccess(list, list.size(), stmt);
+        list.add(stmt);
+    }
+
+    /**
+     * 新放的取出/存入自动继承同一列表中上一条取出/存入的 标签+侧面+逐面
+     * （流水线搭建最常见的重复设置）；找不到就不动。不继承 槽位/轮流/分别处理。
+     */
+    private void inheritAccess(List<BProgram.Statement> body, int index, BProgram.Statement inserted) {
+        if (!(inserted instanceof BProgram.Statement.Input) && !(inserted instanceof BProgram.Statement.Output)) return;
+        for (int i = index - 1; i >= 0; i--) {
+            BProgram.LabelAccess src;
+            BProgram.Statement prev = body.get(i);
+            if (prev instanceof BProgram.Statement.Input p) src = p.access;
+            else if (prev instanceof BProgram.Statement.Output p) src = p.access;
+            else continue;
+            BProgram.LabelAccess dst = inserted instanceof BProgram.Statement.Input in ? in.access
+                    : ((BProgram.Statement.Output) inserted).access;
+            dst.labels.clear();
+            dst.labels.addAll(src.labels);
+            dst.sides.clear();
+            dst.sides.addAll(src.sides);
+            dst.eachSide = src.eachSide;
+            return;
         }
     }
 
@@ -3645,11 +3686,7 @@ public class BlockEditorScreen extends Screen {
     /** 在指定内容坐标处新建一张触发器卡（右键菜单/引导卡用）。 */
     private void createCardAt(String kind, double cx, double cy) {
         pushUndo();
-        BProgram.Trigger t = switch (kind) {
-            case "pulse" -> new BProgram.PulseTrigger();
-            case "energy" -> newEnergyTrigger();
-            default -> new BProgram.TimerTrigger();
-        };
+        BProgram.Trigger t = newTriggerCard(kind);
         program.triggers.add(t);
         layout.setCardPos(t.id,
                 CardLayouts.snap((int) cx - CARD_W / 2),
@@ -4100,6 +4137,26 @@ public class BlockEditorScreen extends Screen {
         }
     }
 
+    /** 数量点选：常用值一键即选，免弹键盘；手动输入作为第二入口。 */
+    private void openQtyQuickPick(int x, int y, BProgram.ResourceLimit rl) {
+        List<String> values = List.of("1", "16", "32", "64", "all", "manual");
+        List<String> labels = new ArrayList<>(List.of("1", "16", "32", "64", "全部", "手动输入…"));
+        setPopup(new Popup.ChoicePopup(sX(x), sY(y) + BAR_H, 150, values, labels, "", picked -> {
+            if (picked.equals("manual")) {
+                openNumber(x, y, 40, rl.quantity == null ? 0 : rl.quantity, v -> {
+                    rl.quantity = v <= 0 ? null : v;   // openNumber 已推撤销；0/清空 = 全部
+                    if (rl.quantity == null) rl.quantityEach = false;
+                    layoutDirty = true;
+                });
+                return;
+            }
+            pushUndo();
+            rl.quantity = picked.equals("all") ? null : Long.parseLong(picked);
+            if (rl.quantity == null) rl.quantityEach = false;
+            layoutDirty = true;
+        }));
+    }
+
     /**
      * 「和」空位：默认常驻一个空槽，点击选资源或从 JEI 拖入即新增一个备选；
      * 不填则完全不参与程序。与主槽同样的视觉（灰底空槽+淡＋号）。
@@ -4211,11 +4268,7 @@ public class BlockEditorScreen extends Screen {
         String qtyDisp = rl.quantity == null ? T_QTY_ALL.getString() : String.valueOf(rl.quantity);
         final int px = x, py = y;
         int fx = drawField(g, x, y, qtyDisp, rl.quantity == null ? 30 : Math.max(26, font.width(qtyDisp) + 12),
-                () -> openNumber(px, py + BAR_H, 40, rl.quantity == null ? 0 : rl.quantity, v -> {
-                    rl.quantity = v <= 0 ? null : v;   // openNumber 已推撤销；0/清空 = 全部（不限制）
-                    if (rl.quantity == null) rl.quantityEach = false;
-                    layoutDirty = true;
-                }), mx, my, false);
+                () -> openQtyQuickPick(px, py, rl), mx, my, false);
         if (rl.quantity != null) {
             fx = drawField(g, fx, y, rl.quantityEach ? T_QTY_EACH_KIND.getString() : T_QTY_TOTAL.getString(),
                     34, () -> {

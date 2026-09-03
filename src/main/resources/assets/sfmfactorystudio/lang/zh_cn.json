@@ -5,7 +5,7 @@
   "gui.sfmfactorystudio.blocks.close": "关闭",
   "gui.sfmfactorystudio.blocks.undo": "撤销",
   "gui.sfmfactorystudio.blocks.name": "程序名",
-  "gui.sfmfactorystudio.blocks.cat_trigger": "什么时候运行",
+  "gui.sfmfactorystudio.blocks.cat_trigger": "触发器",
   "gui.sfmfactorystudio.blocks.cat_move": "搬运资源",
   "gui.sfmfactorystudio.blocks.cat_logic": "判断",
   "gui.sfmfactorystudio.blocks.cat_raw": "说明",
