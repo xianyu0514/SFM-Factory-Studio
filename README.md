@@ -9,9 +9,6 @@
 - **前置**: Super Factory Manager 4.34.0（必须安装）
 - **当前版本**: 0.7
 
-本模组基于 [Mimosa_LW 的 SFM-GUI](https://github.com/MimosaLW/SuperFactoryManager-GUI) 项目改造
-（同为 MPL-2.0 开源），把"节点连线"界面整体替换为更简单直接的**积木式**界面。
-
 ---
 
 ## 安装
