@@ -651,8 +651,16 @@ abstract class Popup {
                 finish();
                 return true;
             }
+            // EditBox.mouseClicked 不会自动释放另一框的焦点（popup 内不走 Screen
+            // 焦点管理），必须手动互斥：点谁谁聚焦、另一个取消。
+            boolean onSearch = my >= search.getY() && my < search.getY() + search.getHeight();
             search.mouseClicked(mx, my, button);
             newLabel.mouseClicked(mx, my, button);
+            if (newLabel.isFocused() && !onSearch) {
+                search.setFocused(false);
+            } else if (search.isFocused() && onSearch) {
+                newLabel.setFocused(false);
+            }
             int rows = Math.min(visibleRows, filtered.size() - scroll);
             for (int i = 0; i < rows; i++) {
                 int ry = y + 35 + i * rowH;
