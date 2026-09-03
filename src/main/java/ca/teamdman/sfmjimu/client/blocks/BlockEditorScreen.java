@@ -4482,6 +4482,10 @@ public class BlockEditorScreen extends Screen {
         List<String> labels = new ArrayList<>();
         values.add("convert");
         labels.add(io instanceof BProgram.Statement.Input ? "⇄ 转为「放入方块」" : "⇄ 转为「从方块取出」");
+        if (SfmCaps.withComponent()) {
+            values.add("nbt");
+            labels.add("NBT 组件筛选…");
+        }
 
         for (int i = 0; i < limits.size(); i++) {
             BProgram.ResourceLimit limit = limits.get(i);
@@ -4544,6 +4548,23 @@ public class BlockEditorScreen extends Screen {
             }
             switch (action) {
                 case "convert" -> convertIO(io, list, index);
+                case "nbt" -> Minecraft.getInstance().setScreen(
+                        new ca.teamdman.sfmjimu.client.NbtItemPickerScreen(this, id -> {
+                            pushUndo();
+                            BProgram.ResourceLimit rl = primaryLimit(limits);
+                            BProgram.WithExpr tag = new BProgram.WithExpr.Tag(nbtMatcher(id));
+                            if (rl.with == null) {
+                                BProgram.WithFilter created = new BProgram.WithFilter();
+                                created.expr = tag;
+                                rl.with = created;
+                            } else {
+                                BProgram.WithExpr.And and = new BProgram.WithExpr.And();
+                                and.parts.add(rl.with.expr);
+                                and.parts.add(tag);
+                                rl.with.expr = and;
+                            }
+                            layoutDirty = true;
+                        }));
 
                 case "add_group" -> openNewResourceKindMenu(x, y, resource -> {
                     pushUndo();
