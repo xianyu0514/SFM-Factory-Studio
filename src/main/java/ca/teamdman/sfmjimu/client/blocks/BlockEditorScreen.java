@@ -4233,6 +4233,7 @@ public class BlockEditorScreen extends Screen {
         String label = shortUi(with.mode == BProgram.WithFilter.Mode.WITHOUT
                 ? (negated ? "排除特征（反）" : "排除特征")
                 : (negated ? "资源特征（反）" : "资源特征"), 6);
+        final         final int labelY = y;   // 标签只在第一行，下面的循环会推进 y
         int startX = extensionRow(g, x, y, w, accent, groupPrefix + label);
         // 药丸链 + 两个小积木 + 行尾 ✕ 必须整行放得下：标签再长也只能挤到这里
         int reserved = WITH_PILL_MAX * EditorLayout.WITH_TAGS_PER_ROW + 4 + WITH_BTN_W * 2 + 4 + 24;
