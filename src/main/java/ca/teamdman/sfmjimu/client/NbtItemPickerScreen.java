@@ -101,9 +101,10 @@ public class NbtItemPickerScreen extends Screen {
                     for (var e : ench.entrySet()) {
                         var k = e.getKey().unwrapKey();
                         if (k.isEmpty()) continue;
-                        String loc = k.get().location().getPath(); // 只取路径（如 sharpness），不带命名空间——标识符不允许点号
+                        var fullLoc = k.get().location(); // 完整位置（如 minecraft:sharpness）
+                        String loc = fullLoc.getPath();     // 匹配目标只用路径（标识符不允许点号/冒号）
                         String name = Component.translatable(
-                                "enchantment." + loc.replace(':', '.')).getString();
+                                "enchantment." + fullLoc.getNamespace() + "." + fullLoc.getPath()).getString();
                         pickRows.add(new PickRow(
                                 ComponentNames.display(id) + " · " + name + " " + e.getValue(),
                                 id + "/" + loc));
