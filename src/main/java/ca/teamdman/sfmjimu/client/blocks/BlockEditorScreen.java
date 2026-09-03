@@ -4233,7 +4233,7 @@ public class BlockEditorScreen extends Screen {
         String label = shortUi(with.mode == BProgram.WithFilter.Mode.WITHOUT
                 ? (negated ? "排除特征（反）" : "排除特征")
                 : (negated ? "资源特征（反）" : "资源特征"), 6);
-        final         final int labelY = y;   // 标签只在第一行，下面的循环会推进 y
+        final int labelY = y;   // 标签只在第一行，下面的循环会推进 y
         int startX = extensionRow(g, x, y, w, accent, groupPrefix + label);
         // 药丸链 + 两个小积木 + 行尾 ✕ 必须整行放得下：标签再长也只能挤到这里
         int reserved = WITH_PILL_MAX * EditorLayout.WITH_TAGS_PER_ROW + 4 + WITH_BTN_W * 2 + 4 + 24;
@@ -4259,8 +4259,8 @@ public class BlockEditorScreen extends Screen {
         drawWithAddBlock(g, fx + WITH_BTN_W + 4, y, "＋ 或…", true,
                 () -> openWithAddMenu(addX + WITH_BTN_W + 4, addY, limit, true), mx, my);
         // 标签本身是"整体设置"的入口：with/without/取反/预览都还在里面
-        hits.add(hit(x, y, Math.max(24, startX - x - 4), OPT_H - 2, K_CLICK, null,
-                () -> openWithEditor(x, y, limit)));
+        hits.add(hit(x, labelY, Math.max(24, startX - x - 4), OPT_H - 2, K_CLICK, null,
+                () -> openWithEditor(x, labelY, limit)));
         drawIcon(g, x + w - 18, y, "✕", () -> {
             pushUndo();
             limit.with = null;
