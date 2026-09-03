@@ -60,7 +60,13 @@ public final class EditorLayout {
     private final Map<Long, CardCache> cardCaches = new HashMap<>();
     private boolean allDirty = true;
     private final Set<Long> dirtyCards = new HashSet<>();
+    // 编辑热路径：pushUndo 顺带产出的每触发器内容哈希，下次 relayout 做差分，
+    // 只有内容变了的卡才重新测量（代替曾经的 markAllDirty 全量重排）。
+    private boolean hashDirty = false;
+    private Map<Long, Long> pendingHashes = null;
     private int autoNextY = 0;
+    /** 仅供测试断言：上一次 relayout 实际重新测量的卡数。 */
+    private int cardsLaidLastPass = 0;
 
     // merged query structures, maintained incrementally from the card caches
     private final List<CardL> cards = new ArrayList<>();
@@ -75,6 +81,8 @@ public final class EditorLayout {
         int x, y;              // position the cached rows are laid out at
         int height;            // card height (position independent)
         boolean dirty = true;
+        long contentHash;      // trigger 内容哈希（hashed=true 时有效）
+        boolean hashed = false;
         final List<Gap> gaps = new ArrayList<>();
         final Map<List<BProgram.Statement>, int[]> addRowPos = new IdentityHashMap<>();
         final Map<Long, int[]> rows = new HashMap<>();   // statement id -> rect (shared with global rowRect)
@@ -117,6 +125,21 @@ public final class EditorLayout {
     }
 
     /**
+     * 普通字段编辑的精准失效：传入编辑时刻（pushUndo 时）全程序每个触发器
+     * 的内容哈希。下次 relayout 与各卡缓存哈希比对，只有内容变化的卡重新
+     * 测量。展开/折叠/整体替换等结构性变化仍走 {@link #markAllDirty()} 全量。
+     */
+    public void markModelEdited(Map<Long, Long> triggerHashes) {
+        this.pendingHashes = triggerHashes;
+        this.hashDirty = true;
+    }
+
+    /** 仅供测试断言：上一次 relayout 重新测量的卡数。 */
+    public int cardsLaidLastPass() {
+        return cardsLaidLastPass;
+    }
+
+    /**
      * Mark the card owning this body as needing a re-layout. Used on the
      * drag hot path where only one or two cards change per frame; when the
      * owner cannot be found (model was just replaced) everything is re-laid.
@@ -153,17 +176,31 @@ public final class EditorLayout {
      */
     public void relayout(boolean dragging, long keepPosId) {
         ensureCardPositions();
+        // 编辑热路径的哈希差分：与各卡缓存的内容哈希比对，未变的卡直接复用
+        boolean hashPass = hashDirty;
+        Map<Long, Long> hashes = hashPass ? pendingHashes : null;
+        hashDirty = false;
+        pendingHashes = null;
+        cardsLaidLastPass = 0;
         for (BProgram.Trigger t : program.triggers) {
             int[] pos = cardPos.get(t.id);
             if (pos == null) continue; // ensureCardPositions always fills these
             CardCache cc = cardCaches.get(t.id);
-            if (cc == null || allDirty || cc.dirty || dirtyCards.contains(t.id)) {
+            Long hash = hashes == null ? null : hashes.get(t.id);
+            boolean stale = cc == null || allDirty || cc.dirty || dirtyCards.contains(t.id)
+                    || (hash != null && (!cc.hashed || cc.contentHash != hash));
+            if (stale) {
                 if (cc == null) {
                     cc = new CardCache();
                     cardCaches.put(t.id, cc);
                 }
                 layoutCardInto(t, pos[0], pos[1], cc);
                 cc.dirty = false;
+                if (hash != null) {
+                    cc.contentHash = hash;
+                    cc.hashed = true;
+                }
+                cardsLaidLastPass++;
             } else if (cc.x != pos[0] || cc.y != pos[1]) {
                 shiftCard(cc, pos[0] - cc.x, pos[1] - cc.y);
             }

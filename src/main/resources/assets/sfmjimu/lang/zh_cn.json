@@ -93,5 +93,12 @@
   "gui.sfmjimu.blocks.issues_locate": "定位",
   "gui.sfmjimu.blocks.issues_fix": "修复",
   "gui.sfmjimu.blocks.issues_push_labels": "推送缺失标签到标签枪",
-  "gui.sfmjimu.blocks.issues_more": "还有 {n} 条提醒，点工具栏「提醒」查看"
+  "gui.sfmjimu.blocks.issues_more": "还有 {n} 条提醒，点工具栏「提醒」查看",
+
+  "sfmjimu.configuration.enableIdleBackoff": "空转退避（空闲省 TPS）",
+  "sfmjimu.configuration.enableIdleBackoff.comment": "管理器连续空转时把定时触发间隔逐级拉长，搬运成功立即恢复。默认关闭=与原版 SFM 完全一致（含空闲后首件延迟）。高负载服务器想省空闲 TPS 时再开启；每秒平均搬运量不变，红石脉冲触发器不受影响。",
+  "sfmjimu.configuration.maxIdleBackoff": "空转退避最大倍数",
+  "sfmjimu.configuration.maxIdleBackoff.comment": "仅空转退避开启时生效。空闲工厂的首件检测最多多等（倍数-1）个周期。",
+  "sfmjimu.configuration.tickBudgetMs": "每刻全局预算（毫秒）",
+  "sfmjimu.configuration.tickBudgetMs.comment": "所有管理器单刻总耗时封顶，超出者本轮顺延。注意：被顺延的轮次不搬运=损失吞吐！保持 0=关闭（默认）；只在高负载服务器 TPS 垂死、宁可牺牲吞吐也要保住服务器时手动开启。"
 }

@@ -93,5 +93,12 @@
   "gui.sfmjimu.blocks.issues_locate": "Locate",
   "gui.sfmjimu.blocks.issues_fix": "Fix",
   "gui.sfmjimu.blocks.issues_push_labels": "Push missing labels to label gun",
-  "gui.sfmjimu.blocks.issues_more": "{n} more — see toolbar Warnings"
+  "gui.sfmjimu.blocks.issues_more": "{n} more — see toolbar Warnings",
+
+  "sfmjimu.configuration.enableIdleBackoff": "Idle backoff (saves TPS when idle)",
+  "sfmjimu.configuration.enableIdleBackoff.comment": "Stretches timer intervals step by step while a manager keeps moving nothing; any successful move resets instantly. Default off = identical to vanilla SFM (including first-item latency after idle). Enable only on high-load servers; average throughput is unchanged and redstone triggers are unaffected.",
+  "sfmjimu.configuration.maxIdleBackoff": "Max idle backoff multiplier",
+  "sfmjimu.configuration.maxIdleBackoff.comment": "Only used when idle backoff is enabled. The first item of an idle factory may wait up to (multiplier-1) extra intervals.",
+  "sfmjimu.configuration.tickBudgetMs": "Per-tick global budget (ms)",
+  "sfmjimu.configuration.tickBudgetMs.comment": "Caps total per-tick time of all managers; over-budget runs are deferred this tick. Deferred runs move nothing = throughput loss! Keep 0 = off (default); enable only on dying servers where survival matters more than throughput."
 }

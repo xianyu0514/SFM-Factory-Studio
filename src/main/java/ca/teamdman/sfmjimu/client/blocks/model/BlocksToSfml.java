@@ -42,6 +42,25 @@ public final class BlocksToSfml {
     }
 
     public static String toSfml(BProgram program) {
+        return writeProgram(program, null).toString();
+    }
+
+    /** 一次序列化同时产出全文与每个触发器的内容哈希（零额外遍历）。 */
+    public record Snapshot(String sfml, java.util.Map<Long, Long> triggerHashes) {
+    }
+
+    /**
+     * 编辑热路径用：撤销快照与"哪些卡内容变了"共用同一次序列化遍历。
+     * 哈希按触发器分段（含其前导注释），供 EditorLayout 做 O(卡数) 差分，
+     * 把每次字段编辑的全量重排收敛为只重排内容变化的卡。
+     */
+    public static Snapshot snapshot(BProgram program) {
+        java.util.Map<Long, Long> hashes = new java.util.HashMap<>();
+        StringBuilder sb = writeProgram(program, hashes);
+        return new Snapshot(sb.toString(), hashes);
+    }
+
+    private static StringBuilder writeProgram(BProgram program, java.util.Map<Long, Long> hashes) {
         StringBuilder sb = new StringBuilder();
         writeComments(sb, program.fileHeaderComments, 0);
         if (program.name != null && !program.name.isBlank()) {
@@ -50,12 +69,20 @@ public final class BlocksToSfml {
         writeComments(sb, program.preambleComments, 0);
         if (!program.preambleComments.isEmpty() && !program.triggers.isEmpty()) sb.append('\n');
         for (Trigger t : program.triggers) {
+            int start = sb.length();
             writeComments(sb, t.leadingComments, 0);
             writeTrigger(sb, t);
             sb.append('\n');
+            if (hashes != null) hashes.put(t.id, hashRange(sb, start, sb.length()));
         }
         writeComments(sb, program.trailingComments, 0);
-        return sb.toString();
+        return sb;
+    }
+
+    private static long hashRange(StringBuilder sb, int from, int to) {
+        long h = 1125899906842597L;
+        for (int i = from; i < to; i++) h = 31 * h + sb.charAt(i);
+        return h;
     }
 
     private static void writeTrigger(StringBuilder sb, Trigger t) {

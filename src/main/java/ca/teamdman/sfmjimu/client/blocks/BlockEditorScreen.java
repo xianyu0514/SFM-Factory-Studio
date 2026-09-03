@@ -141,6 +141,9 @@ public class BlockEditorScreen extends Screen {
     private @Nullable SfmlCodeEditor codeEditor;
     private boolean codeTextEdited = false;
     private boolean codeAwaitingValidation = false;
+    // 积木侧编辑（含选择器回调）改过模型、代码窗尚未跟上。init() 重跑会刷新
+    // lastModelSfml，光靠"模型变了"检测不到这类编辑，需要显式标志兜底。
+    private boolean blocksNewerThanCode = false;
     private boolean settingCodeFromModel = false;
     private int codeValidateDelay = -1;
     private int codeSuggestDelay = -1;
@@ -414,9 +417,12 @@ public class BlockEditorScreen extends Screen {
 
     @Override
     protected void init() {
+        // 回显（从标签/NBT 选择器返回会重跑 init）：代码窗没有未提交的编辑时，
+        // 模型才是最新事实。若沿用窗里的旧文本，选择器刚写入模型的条件会被旧
+        // 代码"抢走所有权"，随后保存/校验会把整个模型重解析回没有条件的版本。
         String carriedCode = codeEditor == null
                 ? (savedProgramText.isBlank() && !importFailed ? generated() : savedProgramText)
-                : codeEditor.value();
+                : (codeTextEdited ? codeEditor.value() : generated());
         // Keep a valid disk program byte-for-byte until the first block edit;
         // comments and the player's formatting should not change just because
         // the source pane was opened.
@@ -513,11 +519,14 @@ public class BlockEditorScreen extends Screen {
 
         // A block edit happens after pushUndo() invalidates the generated cache.
         // Detect the completed model change here and update source once, keeping
-        // the code caret stable while the user is typing.
+        // the code caret stable while the user is typing. blocksNewerThanCode
+        // also covers edits that landed while a picker screen was showing,
+        // where init() already refreshed lastModelSfml.
         if (codeEditor != null && codeValidateDelay <= 0 && !codeAwaitingValidation) {
             String modelNow = generated();
-            if (!modelNow.equals(lastModelSfml)) {
+            if (blocksNewerThanCode || !modelNow.equals(lastModelSfml)) {
                 lastModelSfml = modelNow;
+                blocksNewerThanCode = false;
                 settingCodeFromModel = true;
                 codeEditor.setValueFromModel(modelNow);
                 settingCodeFromModel = false;
@@ -532,15 +541,20 @@ public class BlockEditorScreen extends Screen {
     // ================================================================ model edits
 
     private void pushUndo() {
-        undoStack.push(BlocksToSfml.toSfml(program));
+        // 撤销快照与每触发器内容哈希共用一次序列化遍历；哈希交给布局做差分，
+        // 普通字段编辑不再触发全程序重排（大程序每次按键 O(全部卡) → O(改动卡)）。
+        ca.teamdman.sfmjimu.client.blocks.model.BlocksToSfml.Snapshot snap =
+                ca.teamdman.sfmjimu.client.blocks.model.BlocksToSfml.snapshot(program);
+        undoStack.push(snap.sfml());
         while (undoStack.size() > 50) undoStack.removeLast();
         redoStack.clear(); // 新编辑使重做历史失效
         dirty = true;
         draftSaveDelay = DRAFT_DELAY_TICKS;
         generatedCache = "";
+        blocksNewerThanCode = true;
         layoutDirty = true;
         modelVersion++;
-        layout.markAllDirty();
+        layout.markModelEdited(snap.triggerHashes());
     }
 
     private void undo() {
@@ -608,6 +622,7 @@ public class BlockEditorScreen extends Screen {
         selectedBody = null;
         nameBox.setValue(program.name);
         generatedCache = "";
+        blocksNewerThanCode = true; // 撤销/重做也改了模型，代码窗需要跟上
         selection.clear();
         selectedTriggers.clear();
         actionBarVisible = false;
@@ -764,6 +779,7 @@ public class BlockEditorScreen extends Screen {
         restoreLinks(savedLinks);
         importFailed = false;
         codeAwaitingValidation = false;
+        blocksNewerThanCode = false; // 代码刚刚成为权威，模型同步标志随之消解
         resourceEntryCache.clear();
         selection.clear();
         selectedTriggers.clear();

@@ -1,6 +1,7 @@
 package dev.jimu.sfmjimu.test;
 
 import ca.teamdman.sfmjimu.client.blocks.model.BProgram;
+import ca.teamdman.sfmjimu.client.blocks.model.BlocksToSfml;
 import ca.teamdman.sfmjimu.client.blocks.model.EditorLayout;
 import org.junit.jupiter.api.Test;
 
@@ -251,5 +252,41 @@ public class EditorLayoutTest {
         int[] rb = el.cardRectOf(b.id);
         int[] ra = el.cardRectOf(a.id);
         assertTrue(rb[1] >= ra[1] + ra[3], "松手后避让应把 b 推到 a 下方");
+    }
+
+    @Test
+    public void fieldEditOnlyRelayoutsChangedCard() {
+        BProgram p = sampleProgram();
+        EditorLayout el = new EditorLayout();
+        el.setProgram(p);
+        el.relayout(false, -1);
+        assertEquals(3, el.cardsLaidLastPass(), "首次全量应排 3 张卡");
+
+        // 第一次哈希差分是"补课"：首次全量布局时无哈希可比，全部重排并记录哈希
+        el.markModelEdited(BlocksToSfml.snapshot(p).triggerHashes());
+        el.relayout(false, -1);
+        assertEquals(3, el.cardsLaidLastPass(), "首次差分应补记全部卡的哈希");
+
+        // 内容未变 → 零卡重排
+        el.markModelEdited(BlocksToSfml.snapshot(p).triggerHashes());
+        el.relayout(false, -1);
+        assertEquals(0, el.cardsLaidLastPass(), "内容未变不应重排任何卡");
+
+        // 改 t2 的一个字段（模拟 pushUndo 后的字段编辑）→ 只有 t2 的卡重排
+        ((BProgram.TimerTrigger) p.triggers.get(1)).count = 60;
+        el.markModelEdited(BlocksToSfml.snapshot(p).triggerHashes());
+        el.relayout(false, -1);
+        assertEquals(1, el.cardsLaidLastPass(), "只有被编辑的卡重排");
+
+        // 增量结果与全量重排几何等价
+        EditorLayout full = new EditorLayout();
+        full.setProgram(p);
+        full.relayout(false, -1);
+        assertSameGeometry(full, el, p);
+
+        // 结构性变化（markAllDirty，如展开/折叠）仍全量
+        el.markAllDirty();
+        el.relayout(false, -1);
+        assertEquals(3, el.cardsLaidLastPass(), "markAllDirty 仍应全量重排");
     }
 }

@@ -1,12 +1,7 @@
 package ca.teamdman.sfmjimu.net;
 
 import ca.teamdman.sfm.common.blockentity.ManagerBlockEntity;
-import net.neoforged.fml.loading.FMLPaths;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Properties;
 import java.util.WeakHashMap;
 
 /**
@@ -17,26 +12,44 @@ import java.util.WeakHashMap;
  * **每次触发搬运量与原版完全一致**，只有"全空闲系统的下次检测时机"变慢。
  * 红石脉冲触发器不受影响（只有 Interval 走倍率）。
  *
- * 配置：config/sfmjimu/tps.properties（enableIdleBackoff / maxIdleBackoff）。
+ * **默认关闭**（enableIdleBackoff=false）：开启后空闲工厂的首件检测最多
+ * 推迟 (maxBackoff-1) 个周期，与原版存在可感知差异；默认状态下行为与
+ * 原版 SFM 完全一致，仅在需要空闲 TPS 的服务器手动开启。
+ *
+ * 配置走 NeoForge 标准 TOML（见 {@link ca.teamdman.sfmjimu.TpsConfig}），
+ * Configured 等配置界面可直接可视化编辑，保存/重载即时生效。
  */
 public final class TpsBackoff {
     private static final WeakHashMap<ManagerBlockEntity, Integer> EMPTY_STREAK = new WeakHashMap<>();
-    private static volatile boolean enabled = true;
+    private static volatile boolean enabled = false; // 默认与原版完全一致（含首件延迟）
     private static volatile int maxBackoff = 4; // 吞吐中性（累积批量搬），仅影响空闲后首件延迟
-    private static boolean configLoaded = false;
-
-    private TpsBackoff() {
-    }
-
-    // ---- 每刻全局预算（多工厂保险丝）：SFM 上游只有耗时测量，没有预算机制 ----
     private static volatile double tickBudgetMs = 0; // 默认关闭：预算会丢轮次=动吞吐，玩家在意效率
     private static long accNanos = 0;
     private static long accGameTime = -1;
     private static final WeakHashMap<ManagerBlockEntity, Integer> STARVE = new WeakHashMap<>();
 
+    /** 由 TpsConfig 在配置加载/重载时同步（热路径只读 volatile，零查表成本）。 */
+    public static void updateFromConfig(boolean enableIdleBackoff, int maxIdleBackoff, double budgetMs) {
+        enabled = enableIdleBackoff;
+        maxBackoff = Math.max(1, Math.min(64, maxIdleBackoff));
+        tickBudgetMs = Math.max(0, budgetMs);
+    }
+
+    /** 当前生效值（配置界面的起始值）。 */
+    public static boolean isEnabled() {
+        return enabled;
+    }
+
+    public static int maxMultiplier() {
+        return maxBackoff;
+    }
+
+    public static double budgetMillis() {
+        return tickBudgetMs;
+    }
+
     /** 程序运行前：预算未超直接放行；超了看饥饿度（软公平，连续被跳的优先放行）。 */
     public static boolean tryAcquire(ManagerBlockEntity manager) {
-        loadConfig();
         long budgetNanos = (long) (tickBudgetMs * 1_000_000);
         if (budgetNanos <= 0) return true; // 0=关闭
         long gameTime = manager.getLevel() != null ? manager.getLevel().getGameTime() : 0;
@@ -60,36 +73,9 @@ public final class TpsBackoff {
         accNanos += nanos;
     }
 
-    private static void loadConfig() {
-        if (configLoaded) return;
-        configLoaded = true;
-        try {
-            Path dir = FMLPaths.CONFIGDIR.get().resolve("sfmjimu");
-            Files.createDirectories(dir);
-            Path file = dir.resolve("tps.properties");
-            if (!Files.exists(file)) {
-                Files.writeString(file, """
-                        # 空转退避：管理器连续空转时定时触发间隔逐级拉长（搬运成功立即恢复）
-                        enableIdleBackoff=true
-                        # 最大退避倍数（吞吐中性：物品累积后批量搬，每秒平均量不变；只影响空闲后首件延迟）
-                        maxIdleBackoff=4
-                        # 每刻全局预算（毫秒）：所有管理器单刻总耗时封顶，超出者丢本轮触发（=动吞吐！）
-                        # 玩家在意吞吐请保持 0=关闭；只在高负载服务器想保 TPS 时手动开启
-                        tickBudgetMs=0
-                        """);
-            }
-            Properties props = new Properties();
-            props.load(Files.newInputStream(file));
-            enabled = Boolean.parseBoolean(props.getProperty("enableIdleBackoff", "true"));
-            maxBackoff = Math.max(1, Math.min(64, Integer.parseInt(props.getProperty("maxIdleBackoff", "4"))));
-            tickBudgetMs = Math.max(0, Double.parseDouble(props.getProperty("tickBudgetMs", "0")));
-        } catch (IOException | RuntimeException ignored) {
-            // 读不到配置按默认值跑
-        }
-    }
-
     /** 由 ManagerTickMixin 在每次程序运行结束后回调。 */
     public static void onProgramRan(ManagerBlockEntity manager, boolean didSomething) {
+        if (!enabled) return; // 关闭时连空转计数都不记，运行路径与原版零差异
         if (didSomething) {
             EMPTY_STREAK.remove(manager);
         } else {
@@ -99,7 +85,6 @@ public final class TpsBackoff {
 
     /** 当前有效倍率：空转 4 轮后从 1 起，每再空转一轮 ×1.5，封顶 maxBackoff。 */
     public static int multiplierFor(ManagerBlockEntity manager) {
-        loadConfig();
         if (!enabled) return 1;
         Integer streak = EMPTY_STREAK.get(manager);
         if (streak == null || streak < 4) return 1;
