@@ -3798,7 +3798,11 @@ public class BlockEditorScreen extends Screen {
         // 正文：折叠 = 一行摘要；LOD（缩太小）= 摘要 + 提示；否则正常渲染。
         // 两种省略形态都要整卡占位命中：否则卡内空白会穿透成"空白画布"起框选。
         if (collapsedCards.contains(t.id)) {
-            text(g, "▶ 已折叠 · " + cardSummary(t), x + CARD_INNER, y + HEAD_H + 12, C_TEXT_SUB);
+            g.pose().pushPose();
+            g.pose().translate(x + CARD_INNER, y + HEAD_H + 6, 0);
+            g.pose().scale(1.4f, 1.4f, 1);
+            g.drawString(this.font, "▶ " + cardSummary(t), 0, 0, C_TEXT, false);
+            g.pose().popPose();
         } else if (zoom < LOD_ZOOM) {
             // LOD 极端缩小：点击卡片=缩放到该卡可编辑大小
             hits.add(hit(x, y, w, h, K_CLICK, t, () -> {
@@ -3807,7 +3811,11 @@ public class BlockEditorScreen extends Screen {
                 viewY = Math.round(y + h / 2f - canvasH / (2f * zoom));
                 showStatus("已缩放到可编辑大小", C_SELECT);
             }));
-            text(g, cardSummary(t) + " · 点击放大编辑", x + CARD_INNER, y + HEAD_H + 12, C_TEXT_SUB);
+            g.pose().pushPose();
+            g.pose().translate(x + CARD_INNER, y + HEAD_H + 6, 0);
+            g.pose().scale(1.4f, 1.4f, 1);
+            g.drawString(this.font, cardSummary(t) + "  点击放大", 0, 0, C_TEXT, false);
+            g.pose().popPose();
         } else {
             int by = y + HEAD_H + 6;
             renderBody(g, t.body, x + CARD_INNER, by, mx, my);
@@ -3841,20 +3849,26 @@ public class BlockEditorScreen extends Screen {
     }
 
     /** 卡片摘要（折叠/LOD 时显示）：顶层积木计数。 */
+    /** 卡片摘要：触发器类型 + 使用的标签 + 取放计数——一眼认出这张卡是干嘛的。 */
     private String cardSummary(BProgram.Trigger t) {
-        int in = 0, out = 0, iff = 0, other = 0;
+        String head;
+        if (t instanceof BProgram.TimerTrigger tt) {
+            head = "⟳" + tt.count + (tt.unit == BProgram.TimerTrigger.Unit.TICKS ? "刻" : "秒");
+        } else {
+            head = "⚡脉冲";
+        }
+        Set<String> labels = new LinkedHashSet<>();
+        collectBodyLabels(t.body, labels);
+        String labelStr = labels.isEmpty() ? "" : " " + String.join("→", labels);
+        int in = 0, out = 0;
         for (BProgram.Statement s : t.body) {
             if (s instanceof BProgram.Statement.Input) in++;
             else if (s instanceof BProgram.Statement.Output) out++;
-            else if (s instanceof BProgram.Statement.If) iff++;
-            else other++;
         }
-        StringBuilder sb = new StringBuilder();
-        if (in > 0) sb.append(in).append(" 取出 · ");
-        if (out > 0) sb.append(out).append(" 放入 · ");
-        if (iff > 0) sb.append(iff).append(" 判断 · ");
-        if (other > 0) sb.append(other).append(" 其他 · ");
-        return sb.isEmpty() ? "空卡片" : sb.substring(0, sb.length() - 3);
+        String counts = "";
+        if (in > 0) counts += " " + in + "取出";
+        if (out > 0) counts += " " + out + "放入";
+        return head + labelStr + counts;
     }
 
     private void drawTriggerFooterButton(GuiGraphics g, int x, int y, String icon, int accent,
