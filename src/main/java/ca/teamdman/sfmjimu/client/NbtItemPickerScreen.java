@@ -22,11 +22,15 @@ import java.util.function.Consumer;
 public class NbtItemPickerScreen extends Screen {
     private static final int SLOT = 20, COLS = 12, GRID_W = COLS * SLOT;
     private static final int PANEL_W = GRID_W + 24, ROW_H = 18;
-    private static final int PANEL_TOP = 34, TAB_Y = 44, SEARCH_Y = 68, CONTENT_Y = 92;
+    // 行距大幅拉开，各层绝不重叠
+    private static final int PANEL_TOP = 40;
+    private static final int TAB_Y = 56;      // 页签（面板顶+16）
+    private static final int SEARCH_Y = 84;   // 搜索框（页签+28）
+    private static final int CONTENT_Y = 116; // 内容区（搜索+32）
 
     /** 可见行数跟着窗口高度走，大屏多显示、小屏也不至于挤没。 */
     private int maxRows() {
-        int byHeight = (this.height - CONTENT_Y - 40) / ROW_H;
+        int byHeight = (this.height - CONTENT_Y - 60) / Math.max(ROW_H, SLOT);
         return Math.max(6, Math.min(16, byHeight));
     }
 
@@ -173,8 +177,8 @@ public class NbtItemPickerScreen extends Screen {
         int px = panelX();
         int rows = Math.min(maxRows(), (shownItems.size() + COLS - 1) / COLS);
         int panelH = componentPage
-                ? CONTENT_Y - PANEL_TOP + pickRows.size() * ROW_H + 10
-                : CONTENT_Y - PANEL_TOP + rows * SLOT + 10;
+                ? CONTENT_Y - PANEL_TOP + pickRows.size() * ROW_H + 16
+                : CONTENT_Y - PANEL_TOP + rows * SLOT + 16;
         g.fill(px + 3, PANEL_TOP + 3, px + PANEL_W + 3, PANEL_TOP + panelH + 3, 0x30203A5A);
         g.fill(px, PANEL_TOP, px + PANEL_W, PANEL_TOP + panelH, 0xFFF6F8FC);
         g.fill(px, PANEL_TOP, px + PANEL_W, PANEL_TOP + 1, 0xFFC9D4E2);
@@ -186,6 +190,7 @@ public class NbtItemPickerScreen extends Screen {
             g.drawString(font, selected.getHoverName().getString() + " 的 NBT（" + pickRows.size() + " 项）",
                     px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
             g.drawString(font, "← 返回选物品", px + 10, TAB_Y, 0xFF2F6FED, false);
+            g.fill(px + 8, TAB_Y + 16, px + PANEL_W - 8, TAB_Y + 17, 0xFFE0E5EC); // 分隔线
             int visible = pickRows.size();
             compScroll = Math.min(compScroll, Math.max(0, pickRows.size() - visible));
             for (int i = 0; i < visible; i++) {
@@ -233,9 +238,13 @@ public class NbtItemPickerScreen extends Screen {
                         CONTENT_Y + 6, 0xFFB45309, false);
             }
         }
-        // 搜索框底板（EditBox 无边框后需要自己画底色才能看清位置）
+        // 搜索框底板（EditBox 无边框后需要自己画底色+边框才能看清位置）
         if (search != null) {
-            rounded(g, search.getX() - 2, search.getY() - 2, search.getWidth() + 4, 18, 4, 0xFFF1F4F9);
+            rounded(g, search.getX() - 4, search.getY() - 3, search.getWidth() + 8, search.getHeight() + 6, 4, 0xFFFFFFFF);
+            g.fill(search.getX() - 4, search.getY() - 3, search.getX() + search.getWidth() + 4, search.getY() - 2, 0xFFC9D4E2);
+            g.fill(search.getX() - 4, search.getY() + search.getHeight() + 2, search.getX() + search.getWidth() + 4, search.getY() + search.getHeight() + 3, 0xFFC9D4E2);
+            g.fill(search.getX() - 4, search.getY() - 3, search.getX() - 3, search.getY() + search.getHeight() + 3, 0xFFC9D4E2);
+            g.fill(search.getX() + search.getWidth() + 3, search.getY() - 3, search.getX() + search.getWidth() + 4, search.getY() + search.getHeight() + 3, 0xFFC9D4E2);
         }
         super.render(g, mx, my, partialTick);
     }
