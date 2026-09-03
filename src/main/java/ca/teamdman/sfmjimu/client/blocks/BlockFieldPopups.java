@@ -651,14 +651,23 @@ abstract class Popup {
                 finish();
                 return true;
             }
-            // EditBox.mouseClicked 不会自动释放另一框的焦点（popup 内不走 Screen
-            // 焦点管理），必须手动互斥：点谁谁聚焦、另一个取消。
-            boolean onSearch = my >= search.getY() && my < search.getY() + search.getHeight();
-            search.mouseClicked(mx, my, button);
-            newLabel.mouseClicked(mx, my, button);
-            if (newLabel.isFocused() && !onSearch) {
+            // 完全手动管理焦点：直接判断点击落在哪个输入框，只聚焦那个、释放另一个。
+            // 不依赖 EditBox.mouseClicked 的内部行为（1.21.1 中它不会自动释放别的框）。
+            boolean clickedSearch = mx >= search.getX() && mx < search.getX() + search.getWidth()
+                    && my >= search.getY() && my < search.getY() + search.getHeight();
+            boolean clickedNewLabel = mx >= newLabel.getX() && mx < newLabel.getX() + newLabel.getWidth()
+                    && my >= newLabel.getY() && my < newLabel.getY() + newLabel.getHeight();
+            if (clickedNewLabel) {
                 search.setFocused(false);
-            } else if (search.isFocused() && onSearch) {
+                newLabel.setFocused(true);
+                newLabel.mouseClicked(mx, my, button); // 让它定位光标
+            } else if (clickedSearch) {
+                newLabel.setFocused(false);
+                search.setFocused(true);
+                search.mouseClicked(mx, my, button); // 让它定位光标
+            } else {
+                // 点在标签行或其他空白处：两个都取消焦点
+                search.setFocused(false);
                 newLabel.setFocused(false);
             }
             int rows = Math.min(visibleRows, filtered.size() - scroll);
