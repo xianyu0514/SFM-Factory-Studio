@@ -233,7 +233,7 @@ public class BlockEditorScreen extends Screen {
     private final Set<Long> collapsedCards = new LinkedHashSet<>();
     private final Set<Long> collapsedIfs = new LinkedHashSet<>();
     /** LOD：低于该缩放只画卡片标题与摘要，不画正文行。 */
-    private static final float LOD_ZOOM = 0.55f;
+    private static final float LOD_ZOOM = 0.15f;
 
     // ---- 三色工作区 -------------------------------------------------------------
     // 内容坐标矩形 + 名称，纯客户端数据（存 layouts.json 的 ":zones" 键）。
@@ -1471,7 +1471,7 @@ public class BlockEditorScreen extends Screen {
     private void fitContent() {
         float zx = (canvasW - 16f) / Math.max(1, layout.contentW());
         float zy = (canvasH - 16f) / Math.max(1, layout.contentH());
-        zoom = Math.max(0.35f, Math.min(1.25f, Math.min(zx, zy)));
+        zoom = Math.max(0.05f, Math.min(1.25f, Math.min(zx, zy)));
         viewX = Math.round(layout.contentMinX() + layout.contentW() / 2f - canvasW / (2f * zoom));
         viewY = Math.round(layout.contentMinY() + layout.contentH() / 2f - canvasH / (2f * zoom));
     }
@@ -2678,7 +2678,7 @@ public class BlockEditorScreen extends Screen {
         if (mx >= canvasX && mx < canvasX + canvasW && my >= canvasY && my < canvasY + canvasH) {
             double cx = ctX(mx), cy = ctY(my);
             float factor = scrollY > 0 ? 1.15f : 1 / 1.15f;
-            zoom = Math.max(0.35f, Math.min(2.5f, zoom * factor));
+            zoom = Math.max(0.05f, Math.min(2.5f, zoom * factor));
             viewX = (int) Math.round(cx - (mx - canvasX - CANVAS_PAD) / zoom);
             viewY = (int) Math.round(cy - (my - canvasY - CANVAS_PAD) / zoom);
             return true;
@@ -3798,10 +3798,15 @@ public class BlockEditorScreen extends Screen {
         // 正文：折叠 = 一行摘要；LOD（缩太小）= 摘要 + 提示；否则正常渲染。
         // 两种省略形态都要整卡占位命中：否则卡内空白会穿透成"空白画布"起框选。
         if (collapsedCards.contains(t.id)) {
+            String cs = "▶ " + cardSummary(t);
+            float csScale = 2.0f;
+            int csW = (int)(this.font.width(cs) * csScale);
+            int csX = x + (w - csW) / 2;
+            if (csX < x + 4) csX = x + 4;
             g.pose().pushPose();
-            g.pose().translate(x + CARD_INNER, y + HEAD_H + 6, 0);
-            g.pose().scale(1.4f, 1.4f, 1);
-            g.drawString(this.font, "▶ " + cardSummary(t), 0, 0, C_TEXT, false);
+            g.pose().translate(csX, y + HEAD_H + 8, 0);
+            g.pose().scale(csScale, csScale, 1);
+            g.drawString(this.font, cs, 0, 0, C_TEXT, false);
             g.pose().popPose();
         } else if (zoom < LOD_ZOOM) {
             // LOD 极端缩小：点击卡片=缩放到该卡可编辑大小
@@ -3811,10 +3816,15 @@ public class BlockEditorScreen extends Screen {
                 viewY = Math.round(y + h / 2f - canvasH / (2f * zoom));
                 showStatus("已缩放到可编辑大小", C_SELECT);
             }));
+            String cs = cardSummary(t) + "  点击放大";
+            float csScale = 2.0f;
+            int csW = (int)(this.font.width(cs) * csScale);
+            int csX = x + (w - csW) / 2;
+            if (csX < x + 4) csX = x + 4;
             g.pose().pushPose();
-            g.pose().translate(x + CARD_INNER, y + HEAD_H + 6, 0);
-            g.pose().scale(1.4f, 1.4f, 1);
-            g.drawString(this.font, cardSummary(t) + "  点击放大", 0, 0, C_TEXT, false);
+            g.pose().translate(csX, y + HEAD_H + 8, 0);
+            g.pose().scale(csScale, csScale, 1);
+            g.drawString(this.font, cs, 0, 0, C_TEXT, false);
             g.pose().popPose();
         } else {
             int by = y + HEAD_H + 6;
