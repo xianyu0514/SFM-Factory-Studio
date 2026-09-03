@@ -101,19 +101,19 @@ public class NbtItemPickerScreen extends Screen {
                     for (var e : ench.entrySet()) {
                         var k = e.getKey().unwrapKey();
                         if (k.isEmpty()) continue;
-                        String loc = k.get().location().toString();
+                        String loc = k.get().location().getPath(); // 只取路径（如 sharpness），不带命名空间——标识符不允许点号
                         String name = Component.translatable(
                                 "enchantment." + loc.replace(':', '.')).getString();
                         pickRows.add(new PickRow(
                                 ComponentNames.display(id) + " · " + name + " " + e.getValue(),
-                                id + "/" + loc.replace(':', '.')));
+                                id + "/" + loc));
                     }
                 } else if (value instanceof net.minecraft.world.item.alchemy.PotionContents pc) {
                     pc.potion().ifPresent(h -> {
                         var k = BuiltInRegistries.POTION.getKey(h.value());
                         if (k != null) pickRows.add(new PickRow(
                                 ComponentNames.display(id) + " · " + k.getPath(),
-                                id + "/" + k.toString().replace(':', '.')));
+                                id + "/" + k.getPath()));
                     });
                 } else if (value instanceof net.minecraft.world.item.component.CustomData data) {
                     var tag = data.copyTag();
@@ -125,7 +125,7 @@ public class NbtItemPickerScreen extends Screen {
                         else if (t instanceof net.minecraft.nbt.StringTag st) leaf = " = " + st.getAsString();
                         else leaf = "";
                         pickRows.add(new PickRow(
-                                ComponentNames.display(id) + " · " + key + leaf, id + "/" + key));
+                                ComponentNames.display(id) + " · " + key + leaf, id + "/" + key.replace('.', '_')));
                     }
                 } else if (value instanceof Component text) {
                     String t = text.getString();

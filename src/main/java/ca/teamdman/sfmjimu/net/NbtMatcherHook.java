@@ -109,7 +109,7 @@ public final class NbtMatcherHook {
         String extra = selector.size() > 1 ? selector.get(1) : null;
         // 附魔类：selector=附魔 id（.→:），extra=等级
         if (value instanceof ItemEnchantments ench) {
-            String want = sel0.replace('.', ':');
+            String want = sel0.contains(":") ? sel0 : "minecraft:" + sel0;
             for (Map.Entry<Holder<net.minecraft.world.item.enchantment.Enchantment>, Integer> e
                     : ench.entrySet()) {
                 var k = e.getKey().unwrapKey();
@@ -126,7 +126,7 @@ public final class NbtMatcherHook {
         }
         // 药水：selector=药水 id
         if (value instanceof PotionContents pc) {
-            String want = sel0.replace('.', ':');
+            String want = sel0.contains(":") ? sel0 : "minecraft:" + sel0;
             return pc.potion().map(h -> {
                 var k = BuiltInRegistries.POTION.getKey(h.value());
                 return k != null && k.toString().equals(want);
@@ -139,7 +139,7 @@ public final class NbtMatcherHook {
         // custom_data：selector=点路径，extra=比较算子
         if (value instanceof net.minecraft.world.item.component.CustomData customData) {
             CompoundTag tag = customData.copyTag();
-            Tag leaf = walk(tag, sel0);
+            Tag leaf = walk(tag, sel0.replace('_', '.'));
             if (leaf == null) return false;
             if (extra == null) return true;
             return compare(leaf, extra);

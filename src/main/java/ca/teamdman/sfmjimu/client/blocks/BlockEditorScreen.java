@@ -5189,7 +5189,7 @@ public class BlockEditorScreen extends Screen {
             if (sel.startsWith("gt")) sb.append("·>").append(sel.substring(2));
             else if (sel.startsWith("lt")) sb.append("·<").append(sel.substring(2));
             else if (sel.startsWith("eq")) sb.append("·=").append(sel.substring(2));
-            else sb.append("·").append(sel.replace('.', ':'));
+            else sb.append("·").append(sel);
         }
         return sb.toString();
     }
