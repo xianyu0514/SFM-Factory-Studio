@@ -48,6 +48,15 @@ abstract class Popup {
         return mx >= x && mx < x + w && my >= y && my < y + h;
     }
 
+    /**
+     * 落位后按面板边界重算尺寸。坐标先被夹进面板，这里才能按剩余空间把
+     * 列表展开到"能显示多少就显示多少"。默认实现什么都不做（定高弹层）。
+     *
+     * @param maxY 面板内可用的下边界（已减去边距），不是 y+h 的上限
+     */
+    public void applyBounds(int minX, int maxX, int minY, int maxY) {
+    }
+
     // shared drawing helpers -------------------------------------------------
 
     protected static void panel(GuiGraphics g, int x, int y, int w, int h) {
@@ -90,8 +99,32 @@ abstract class Popup {
             this.values = values;
             this.labels = labels;
             this.onSelect = onSelect;
+            // 落位后由 applyBounds() 按剩余空间展开；这里只给一个安全初值
             int rows = Math.min(values.size(), 8);
             this.h = rows * rowH + 4;
+        }
+
+        /**
+         * 一屏内能放几条就显示几条：高度按面板剩余空间算，宽度按最长条目
+         * 自适应，长条目省略而不是画到面板外面。装不下时才保留滚轮。
+         */
+        @Override
+        public void applyBounds(int minX, int maxX, int minY, int maxY) {
+            int avail = Math.max(rowH, maxY - y - 6);
+            int rows = Math.max(1, Math.min(values.size(), avail / rowH));
+            this.h = rows * rowH + 4;
+            Font font = Minecraft.getInstance().font;
+            int want = w;
+            for (int i = 0; i < labels.size(); i++) {
+                want = Math.max(want, font.width(labels.get(i)) + 24);
+            }
+            this.w = Math.max(80, Math.min(want, maxX - minX));
+        }
+
+        private String fit(Font font, String text) {
+            int room = w - 12;
+            if (font.width(text) <= room) return text;
+            return font.plainSubstrByWidth(text, Math.max(8, room - 6)) + "…";
         }
 
         @Override
@@ -103,7 +136,7 @@ abstract class Popup {
                 int ry = y + 2 + i * rowH;
                 if (ry + rowH > y + h - 2) break;
                 boolean hover = mx >= x && mx < x + w && my >= ry && my < ry + rowH;
-                row(g, font, x + 2, ry, w - 4, rowH, labels.get(idx), hover, false);
+                row(g, font, x + 2, ry, w - 4, rowH, fit(font, labels.get(idx)), hover, false);
             }
         }
 
@@ -469,6 +502,8 @@ abstract class Popup {
         private final boolean showCounts;
         private int scroll = 0;
         private final int rowH = 16;
+        /** 可见行数：落位后按面板剩余空间放大，装不下 entire 列表时才滚轮。 */
+        private int visibleRows = 6;
         private static final Loc HINT = new Loc("gui.sfmjimu.blocks.popup.label_hint", "搜索标签...");
         private static final Loc NEW = new Loc("gui.sfmjimu.blocks.popup.new_label", "新建标签（还需用标签枪绑定）");
 
@@ -498,9 +533,21 @@ abstract class Popup {
             newLabel = new EditBox(mc.font, x + 4, 0, w - 8, 14, Component.literal(""));
             newLabel.setTextShadow(false);
             newLabel.setHint(Component.literal(NEW.getString()));
-            this.h = 36 + 6 * rowH + 22 + 4;
+            this.h = 36 + visibleRows * rowH + 22 + 4;
             refilter();
             search.setFocused(true); // 打开即聚焦：不依赖用户先点一下搜索框
+        }
+
+        /** 顶部搜索框 + 底部新建行的固定占用，列表高度之外都要留出来。 */
+        private static final int CHROME_H = 36 + 22 + 4;
+
+        /** 标签列表同样撑到一屏放得下为止，最少 3 行免得面板塌成一条。 */
+        @Override
+        public void applyBounds(int minX, int maxX, int minY, int maxY) {
+            int avail = Math.max(rowH, maxY - y - CHROME_H - 6);
+            int want = Math.max(3, Math.min(Math.max(1, filtered.size()), avail / rowH));
+            visibleRows = want;
+            this.h = CHROME_H + visibleRows * rowH;
         }
 
         private void refilter() {
@@ -531,12 +578,12 @@ abstract class Popup {
                 knownCounts.putIfAbsent(label, 0);
             }
             refilter();
-            scroll = Math.min(scroll, Math.max(0, filtered.size() - 6));
+            scroll = Math.min(scroll, Math.max(0, filtered.size() - visibleRows));
             search.setFocused(true);
         }
 
         private int listH() {
-            return Math.min(6, Math.max(1, filtered.size())) * rowH;
+            return Math.min(visibleRows, Math.max(1, filtered.size())) * rowH;
         }
 
         @Override
@@ -552,7 +599,7 @@ abstract class Popup {
             panel(g, x, y, w, h);
             g.drawString(font, "可用方块标签 · " + known.size() + " 个", x + 6, y + 6, 0xFF1B2432, false);
             search.render(g, mx, my, 0);
-            int rows = Math.min(6, filtered.size() - scroll);
+            int rows = Math.min(visibleRows, filtered.size() - scroll);
             for (int i = 0; i < rows; i++) {
                 String label = filtered.get(scroll + i);
                 int ry = y + 35 + i * rowH;
@@ -587,7 +634,7 @@ abstract class Popup {
             }
             search.mouseClicked(mx, my, button);
             newLabel.mouseClicked(mx, my, button);
-            int rows = Math.min(6, filtered.size() - scroll);
+            int rows = Math.min(visibleRows, filtered.size() - scroll);
             for (int i = 0; i < rows; i++) {
                 int ry = y + 35 + i * rowH;
                 if (my >= ry && my < ry + rowH && mx >= x + 2 && mx < x + w - 2) {
@@ -629,7 +676,7 @@ abstract class Popup {
         @Override
         public boolean mouseScrolled(double mx, double my, double scrollY) {
             if (!isOver(mx, my)) return false;
-            int max = Math.max(0, filtered.size() - 6);
+            int max = Math.max(0, filtered.size() - visibleRows);
             scroll = Math.max(0, Math.min(max, scroll - (int) Math.signum(scrollY)));
             return true;
         }

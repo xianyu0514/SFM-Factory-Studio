@@ -139,7 +139,8 @@ public final class NbtMatcherHook {
         // custom_data：selector=点路径，extra=比较算子
         if (value instanceof net.minecraft.world.item.component.CustomData customData) {
             CompoundTag tag = customData.copyTag();
-            Tag leaf = walk(tag, sel0.replace('_', '.'));
+            Tag leaf = walk(tag, sel0); // 先按字面量（下划线就是下划线）
+            if (leaf == null) leaf = walk(tag, sel0.replace('_', '.')); // 再按点号解码（energy_max → energy.max）
             if (leaf == null) return false;
             if (extra == null) return true;
             return compare(leaf, extra);

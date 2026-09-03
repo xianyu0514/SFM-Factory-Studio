@@ -4970,11 +4970,17 @@ public class BlockEditorScreen extends Screen {
     /** 弹层落位的唯一出口：换算后按面板边界收敛，绝不让弹层飞出编辑窗口。 */
     private void setPopup(Popup p) {
         int minX = panelX + 4;
-        int maxX = panelX + panelW - p.w - 4;
         int minY = panelY + 4;
-        int maxY = panelY + panelH - p.h - 4;
-        p.x = maxX < minX ? minX : Math.max(minX, Math.min(p.x, maxX));
-        p.y = maxY < minY ? minY : Math.max(minY, Math.min(p.y, maxY));
+        int rightEdge = panelX + panelW - 4;
+        int bottomEdge = panelY + panelH - 4;
+        // 1) 先夹住左上角：列表类弹层的可用高度取决于最终 y
+        p.x = Math.max(minX, Math.min(p.x, Math.max(minX, rightEdge - p.w)));
+        p.y = Math.max(minY, Math.min(p.y, Math.max(minY, bottomEdge - p.h)));
+        // 2) 按剩余空间展开（高度/宽度可能被改写）
+        p.applyBounds(minX, rightEdge, minY, bottomEdge);
+        // 3) 尺寸变了要再夹一次，宽度变大时尤其必要
+        p.x = Math.max(minX, Math.min(p.x, Math.max(minX, rightEdge - p.w)));
+        p.y = Math.max(minY, Math.min(p.y, Math.max(minY, bottomEdge - p.h)));
         popup = p;
     }
 
