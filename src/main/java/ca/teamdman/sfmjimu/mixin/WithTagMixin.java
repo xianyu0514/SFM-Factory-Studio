@@ -20,7 +20,6 @@ public abstract class WithTagMixin implements NbtMatcherHook.NbtAware {
                                             CallbackInfoReturnable<Boolean> cir) {
         String matcher = ((WithTag) (Object) this).tagMatcher().toString();
         if (!matcher.startsWith("nbt:")) return;
-        cir.setReturnValue(NbtMatcherHook.matchesComponent(
-                matcher.substring(4).replace('/', ':'), stack));
+        cir.setReturnValue(NbtMatcherHook.matchesComponent(matcher, stack));
     }
 }
