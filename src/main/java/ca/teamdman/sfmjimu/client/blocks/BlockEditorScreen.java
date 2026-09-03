@@ -3800,7 +3800,14 @@ public class BlockEditorScreen extends Screen {
         if (collapsedCards.contains(t.id)) {
             text(g, "▶ 已折叠 · " + cardSummary(t), x + CARD_INNER, y + HEAD_H + 12, C_TEXT_SUB);
         } else if (zoom < LOD_ZOOM) {
-            text(g, cardSummary(t) + " · 放大查看", x + CARD_INNER, y + HEAD_H + 12, C_TEXT_SUB);
+            // LOD 极端缩小：点击卡片=缩放到该卡可编辑大小
+            hits.add(hit(x, y, w, h, K_CLICK, t, () -> {
+                zoom = Math.max(0.6f, zoom);
+                viewX = Math.round(x + w / 2f - canvasW / (2f * zoom));
+                viewY = Math.round(y + h / 2f - canvasH / (2f * zoom));
+                showStatus("已缩放到可编辑大小", C_SELECT);
+            }));
+            text(g, cardSummary(t) + " · 点击放大编辑", x + CARD_INNER, y + HEAD_H + 12, C_TEXT_SUB);
         } else {
             int by = y + HEAD_H + 6;
             renderBody(g, t.body, x + CARD_INNER, by, mx, my);
