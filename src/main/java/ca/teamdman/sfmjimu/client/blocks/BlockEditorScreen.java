@@ -4317,23 +4317,31 @@ public class BlockEditorScreen extends Screen {
     /** 「＋ 且…」「＋ 或…」点开后的三条路径，和原先的入口完全一致。 */
     private void openWithAddMenu(int x, int y, BProgram.ResourceLimit limit, boolean useOr) {
         String prefix = useOr ? "或：" : "且：";
-        setPopup(new Popup.ChoicePopup(sX(x), sY(y) + OPT_H, 210,
-                List.of("item", "all", "manual"),
-                List.of(prefix + "从物品选择资源特征",
-                        prefix + "搜索全部资源特征",
-                        prefix + "手动输入原标签（高级）"), "", picked -> {
-                    if (limit.with == null) return;
-                    Consumer<String> add = matcher -> {
-                        pushUndo();
-                        limit.with.expr = appendWithTag(limit.with.expr, matcher, useOr);
-                        layoutDirty = true;
-                    };
-                    switch (picked) {
-                        case "item" -> openResourceTagPicker(false, add);
-                        case "all" -> openResourceTagPicker(true, add);
-                        default -> openManualNewTag(sX(x), sY(y) + OPT_H, add);
-                    }
-                }));
+        List<String> values = new ArrayList<>(List.of("item", "all", "manual"));
+        List<String> labels = new ArrayList<>(List.of(
+                prefix + "从物品选择资源特征",
+                prefix + "搜索全部资源特征",
+                prefix + "手动输入原标签（高级）"));
+        if (SfmCaps.withComponent()) {
+            values.add("nbt");
+            labels.add(prefix + "按物品组件(NBT)筛选…");
+        }
+        setPopup(new Popup.ChoicePopup(sX(x), sY(y) + OPT_H, 210, values, labels, "", picked -> {
+            if (limit.with == null) return;
+            Consumer<String> add = matcher -> {
+                pushUndo();
+                limit.with.expr = appendWithTag(limit.with.expr, matcher, useOr);
+                layoutDirty = true;
+            };
+            switch (picked) {
+                case "item" -> openResourceTagPicker(false, add);
+                case "all" -> openResourceTagPicker(true, add);
+                case "nbt" -> Minecraft.getInstance().setScreen(
+                        new ca.teamdman.sfmjimu.client.NbtItemPickerScreen(this, id ->
+                                add.accept(nbtMatcher(id))));
+                default -> openManualNewTag(sX(x), sY(y) + OPT_H, add);
+            }
+        }));
     }
 
     /** 点条件药丸本身：重选 / 手改 / 删除这一项。 */
@@ -4443,10 +4451,7 @@ public class BlockEditorScreen extends Screen {
         List<String> labels = new ArrayList<>();
         values.add("convert");
         labels.add(io instanceof BProgram.Statement.Input ? "⇄ 转为「放入方块」" : "⇄ 转为「从方块取出」");
-        if (SfmCaps.withComponent()) {
-            values.add("nbt");
-            labels.add("NBT 组件筛选…");
-        }
+
         for (int i = 0; i < limits.size(); i++) {
             BProgram.ResourceLimit limit = limits.get(i);
             String group = "第 " + (i + 1) + " 组：";
@@ -4508,40 +4513,7 @@ public class BlockEditorScreen extends Screen {
             }
             switch (action) {
                 case "convert" -> convertIO(io, list, index);
-                case "nbt" -> Minecraft.getInstance().setScreen(
-                        new ca.teamdman.sfmjimu.client.NbtItemPickerScreen(this, id -> {
-                            BProgram.ResourceLimit rl = primaryLimit(limits);
-                            BProgram.WithExpr addedTag = new BProgram.WithExpr.Tag(nbtMatcher(id));
-                            if (rl.with == null) {
-                                pushUndo();
-                                BProgram.WithFilter created = new BProgram.WithFilter();
-                                created.expr = addedTag;
-                                rl.with = created;
-                                layoutDirty = true;
-                            } else {
-                                // 已有条件：让用户选「且」还是「或」再组合
-                                setPopup(new Popup.ChoicePopup(
-                                        panelX + panelW / 2 - 100, panelY + panelH / 2 - 30, 200,
-                                        List.of("and", "or"),
-                                        List.of("且（都要满足）", "或（任一满足）"), "", choice -> {
-                                            pushUndo();
-                                            BProgram.WithExpr combined;
-                                            if ("or".equals(choice)) {
-                                                BProgram.WithExpr.Or or = new BProgram.WithExpr.Or();
-                                                or.parts.add(rl.with.expr);
-                                                or.parts.add(addedTag);
-                                                combined = or;
-                                            } else {
-                                                BProgram.WithExpr.And and = new BProgram.WithExpr.And();
-                                                and.parts.add(rl.with.expr);
-                                                and.parts.add(addedTag);
-                                                combined = and;
-                                            }
-                                            rl.with.expr = combined;
-                                            layoutDirty = true;
-                                        }));
-                            }
-                        }));
+
                 case "add_group" -> openNewResourceKindMenu(x, y, resource -> {
                     pushUndo();
                     BProgram.ResourceLimit added = new BProgram.ResourceLimit();
@@ -5205,6 +5177,10 @@ public class BlockEditorScreen extends Screen {
         if (current == null) {
             values.addAll(List.of("first_item", "first_all", "first_manual"));
             labels.addAll(List.of("从物品选择资源特征", "搜索全部资源特征", "手动输入原标签（高级）"));
+            if (SfmCaps.withComponent()) {
+                values.add("first_nbt");
+                labels.add("按物品组件(NBT)筛选…");
+            }
         } else {
             // 「且/或」已经搬到行内的小积木上，这里只留整体设置，菜单才不会长得要滚
             values.addAll(List.of("clear", "with", "without", "not", "preview_match"));
@@ -5215,6 +5191,17 @@ public class BlockEditorScreen extends Screen {
             if (picked.equals("preview_match")) {
                 BProgram.WithFilter f = getter.get();
                 if (f != null) openFilterPreview(f);
+                return;
+            }
+            if (picked.equals("first_nbt")) {
+                Minecraft.getInstance().setScreen(
+                        new ca.teamdman.sfmjimu.client.NbtItemPickerScreen(this, id -> {
+                            pushUndo();
+                            BProgram.WithFilter created = new BProgram.WithFilter();
+                            created.expr = new BProgram.WithExpr.Tag(nbtMatcher(id));
+                            setter.accept(created);
+                            layoutDirty = true;
+                        }));
                 return;
             }
             if (picked.equals("first_item") || picked.equals("first_all")) {
