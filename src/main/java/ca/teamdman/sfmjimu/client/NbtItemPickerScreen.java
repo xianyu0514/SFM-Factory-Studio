@@ -21,8 +21,14 @@ import java.util.function.Consumer;
  */
 public class NbtItemPickerScreen extends Screen {
     private static final int SLOT = 20, COLS = 12, GRID_W = COLS * SLOT;
-    private static final int PANEL_W = GRID_W + 24, ROW_H = 18, MAX_ROWS = 8;
+    private static final int PANEL_W = GRID_W + 24, ROW_H = 18;
     private static final int PANEL_TOP = 34, TAB_Y = 44, SEARCH_Y = 64, CONTENT_Y = 84;
+
+    /** 可见行数跟着窗口高度走，大屏多显示、小屏也不至于挤没。 */
+    private int maxRows() {
+        int byHeight = (this.height - CONTENT_Y - 40) / ROW_H;
+        return Math.max(6, Math.min(16, byHeight));
+    }
 
     private final Screen parent;
     private final Consumer<String> onPick;
@@ -101,20 +107,28 @@ public class NbtItemPickerScreen extends Screen {
                     for (var e : ench.entrySet()) {
                         var k = e.getKey().unwrapKey();
                         if (k.isEmpty()) continue;
-                        var fullLoc = k.get().location(); // 完整位置（如 minecraft:sharpness）
-                        String loc = fullLoc.getPath();     // 匹配目标只用路径（标识符不允许点号/冒号）
+                        var fullLoc = k.get().location();
+                        // minecraft 命名空间→纯路径；其他→ns__path（双下划线编码命名空间）
+                        String target = fullLoc.getNamespace().equals("minecraft")
+                                ? fullLoc.getPath()
+                                : fullLoc.getNamespace() + "__" + fullLoc.getPath();
                         String name = Component.translatable(
                                 "enchantment." + fullLoc.getNamespace() + "." + fullLoc.getPath()).getString();
                         pickRows.add(new PickRow(
                                 ComponentNames.display(id) + " · " + name + " " + e.getValue(),
-                                id + "/" + loc));
+                                id + "/" + target));
                     }
                 } else if (value instanceof net.minecraft.world.item.alchemy.PotionContents pc) {
                     pc.potion().ifPresent(h -> {
                         var k = BuiltInRegistries.POTION.getKey(h.value());
-                        if (k != null) pickRows.add(new PickRow(
-                                ComponentNames.display(id) + " · " + k.getPath(),
-                                id + "/" + k.getPath()));
+                        if (k != null) {
+                            String target = k.getNamespace().equals("minecraft")
+                                    ? k.getPath()
+                                    : k.getNamespace() + "__" + k.getPath();
+                            pickRows.add(new PickRow(
+                                    ComponentNames.display(id) + " · " + k.getPath(),
+                                    id + "/" + target));
+                        }
                     });
                 } else if (value instanceof net.minecraft.world.item.component.CustomData data) {
                     var tag = data.copyTag();
@@ -125,8 +139,10 @@ public class NbtItemPickerScreen extends Screen {
                         if (t instanceof net.minecraft.nbt.NumericTag n) leaf = " = " + n.getAsLong();
                         else if (t instanceof net.minecraft.nbt.StringTag st) leaf = " = " + st.getAsString();
                         else leaf = "";
+                        // 点号编码为 __（下划线保持原样，不再歧义）
                         pickRows.add(new PickRow(
-                                ComponentNames.display(id) + " · " + key + leaf, id + "/" + key.replace('.', '_')));
+                                ComponentNames.display(id) + " · " + key + leaf,
+                                id + "/" + key.replace(".", "__")));
                     }
                 } else if (value instanceof Component text) {
                     String t = text.getString();
@@ -147,9 +163,9 @@ public class NbtItemPickerScreen extends Screen {
     public void render(GuiGraphics g, int mx, int my, float partialTick) {
         g.fill(0, 0, width, height, 0x90000000);
         int px = panelX();
-        int rows = Math.min(MAX_ROWS, Math.max(1, (shownItems.size() + COLS - 1) / COLS));
+        int rows = Math.min(maxRows(), Math.max(1, (shownItems.size() + COLS - 1) / COLS));
         int panelH = componentPage
-                ? CONTENT_Y - PANEL_TOP + Math.min(MAX_ROWS, Math.max(1, pickRows.size())) * ROW_H + 10
+                ? CONTENT_Y - PANEL_TOP + Math.min(maxRows(), Math.max(1, pickRows.size())) * ROW_H + 10
                 : CONTENT_Y - PANEL_TOP + rows * SLOT + 10;
         g.fill(px + 3, PANEL_TOP + 3, px + PANEL_W + 3, PANEL_TOP + panelH + 3, 0x30203A5A);
         g.fill(px, PANEL_TOP, px + PANEL_W, PANEL_TOP + panelH, 0xFFF6F8FC);
@@ -162,7 +178,7 @@ public class NbtItemPickerScreen extends Screen {
             g.drawString(font, selected.getHoverName().getString() + " 的 NBT（" + pickRows.size() + " 项）",
                     px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
             g.drawString(font, "← 返回选物品", px + 10, TAB_Y, 0xFF2F6FED, false);
-            int visible = Math.min(MAX_ROWS, Math.max(1, pickRows.size()));
+            int visible = Math.min(maxRows(), Math.max(1, pickRows.size()));
             compScroll = Math.min(compScroll, Math.max(0, pickRows.size() - visible));
             for (int i = 0; i < visible; i++) {
                 PickRow row = pickRows.get(compScroll + i);
@@ -190,7 +206,7 @@ public class NbtItemPickerScreen extends Screen {
                 tx += tw + 4;
             }
             int gridRows = (shownItems.size() + COLS - 1) / COLS;
-            int visibleRows = Math.min(MAX_ROWS, Math.max(1, gridRows));
+            int visibleRows = Math.min(maxRows(), Math.max(1, gridRows));
             itemScroll = Math.min(itemScroll, Math.max(0, gridRows - visibleRows));
             for (int r = 0; r < visibleRows; r++) for (int c = 0; c < COLS; c++) {
                 int idx = (r + itemScroll) * COLS + c;
@@ -221,7 +237,7 @@ public class NbtItemPickerScreen extends Screen {
             if (my >= TAB_Y - 3 && my < TAB_Y + 14 && mx >= px + 8 && mx < px + 100) {
                 componentPage = false; return true;
             }
-            int visible = Math.min(MAX_ROWS, Math.max(1, pickRows.size()));
+            int visible = Math.min(maxRows(), Math.max(1, pickRows.size()));
             for (int i = 0; i < visible; i++) {
                 int ry = CONTENT_Y + i * ROW_H;
                 if (my >= ry && my < ry + ROW_H && mx >= px + 4 && mx < px + PANEL_W - 4) {
@@ -245,7 +261,7 @@ public class NbtItemPickerScreen extends Screen {
             tx += tw + 4;
         }
         int gridRows = (shownItems.size() + COLS - 1) / COLS;
-        int visibleRows = Math.min(MAX_ROWS, Math.max(1, gridRows));
+        int visibleRows = Math.min(maxRows(), Math.max(1, gridRows));
         for (int r = 0; r < visibleRows; r++) for (int c = 0; c < COLS; c++) {
             int idx = (r + itemScroll) * COLS + c;
             if (idx >= shownItems.size()) break;

@@ -402,7 +402,7 @@ public final class EditorLayout {
             rows += Math.max(0, limit.resources.size() - 1);
             if (limit.quantity != null) rows++;
             if (limit.retain != null) rows++;
-            if (limit.with != null) rows++;
+            if (limit.with != null) rows += withRows(limit.with);
         }
         rows += except.size();
         if (access.eachSide || !access.sides.isEmpty()) rows++;
@@ -411,6 +411,35 @@ public final class EditorLayout {
         if (each) rows++;
         if (emptySlots) rows++;
         return rows;
+    }
+
+    /**
+     * 资源特征占几行：条件被画成一串小积木（每个条件一颗药丸），每行放
+     * {@value #WITH_TAGS_PER_ROW} 颗，末尾那行还跟着「＋ 且…」「＋ 或…」。
+     * 纯模型计算，不碰字体，保证布局与渲染用的行数完全一致。
+     */
+    public static int withRows(BProgram.WithFilter filter) {
+        int tags = countWithTags(filter.expr);
+        return Math.max(1, (tags + WITH_TAGS_PER_ROW - 1) / WITH_TAGS_PER_ROW);
+    }
+
+    /** 条件药丸链每行放几颗：行宽固定，这个数不能靠字体测出来。 */
+    public static final int WITH_TAGS_PER_ROW = 2;
+
+    private static int countWithTags(BProgram.WithExpr expr) {
+        if (expr instanceof BProgram.WithExpr.Tag) return 1;
+        if (expr instanceof BProgram.WithExpr.Not not) return countWithTags(not.inner);
+        if (expr instanceof BProgram.WithExpr.And and) {
+            int n = 0;
+            for (BProgram.WithExpr part : and.parts) n += countWithTags(part);
+            return n;
+        }
+        if (expr instanceof BProgram.WithExpr.Or or) {
+            int n = 0;
+            for (BProgram.WithExpr part : or.parts) n += countWithTags(part);
+            return n;
+        }
+        return 0;
     }
 
     /** Height of a statement outside a layout pass (rare fallback path). */

@@ -107,9 +107,9 @@ public final class NbtMatcherHook {
     private static boolean matchValue(String componentId, Object value, List<String> selector) {
         String sel0 = selector.get(0);
         String extra = selector.size() > 1 ? selector.get(1) : null;
-        // 附魔类：selector=附魔 id（.→:），extra=等级
+        // 附魔类：selector=附魔路径，__编码命名空间（modid__enchant→modid:enchant）
         if (value instanceof ItemEnchantments ench) {
-            String want = sel0.contains(":") ? sel0 : "minecraft:" + sel0;
+            String want = decodeId(sel0);
             for (Map.Entry<Holder<net.minecraft.world.item.enchantment.Enchantment>, Integer> e
                     : ench.entrySet()) {
                 var k = e.getKey().unwrapKey();
@@ -124,33 +124,53 @@ public final class NbtMatcherHook {
             }
             return false;
         }
-        // 药水：selector=药水 id
+        // 药水：同 __ 编码
         if (value instanceof PotionContents pc) {
-            String want = sel0.contains(":") ? sel0 : "minecraft:" + sel0;
+            String want = decodeId(sel0);
             return pc.potion().map(h -> {
                 var k = BuiltInRegistries.POTION.getKey(h.value());
                 return k != null && k.toString().equals(want);
             }).orElse(false);
         }
-        // 名称类：*通配* 子串（大小写不敏感）
+        // 名称类：*通配* 子串
         if (value instanceof net.minecraft.network.chat.Component text) {
-            return wildcardMatches(sel0, text.getString());
+            return wildcardMatches(sel0.replace("__", " "), text.getString());
         }
-        // custom_data：selector=点路径，extra=比较算子
+        // custom_data：多级路径（/分隔），最后一段可为算子；__ 解码为点号
         if (value instanceof net.minecraft.world.item.component.CustomData customData) {
             CompoundTag tag = customData.copyTag();
-            Tag leaf = walk(tag, sel0); // 先按字面量（下划线就是下划线）
-            if (leaf == null) leaf = walk(tag, sel0.replace('_', '.')); // 再按点号解码（energy_max → energy.max）
+            // 收集路径段（非算子的选择器元素），__ 解码为 .
+            StringBuilder path = new StringBuilder();
+            String op = null;
+            for (int i = 0; i < selector.size(); i++) {
+                String seg = selector.get(i);
+                if (i > 0 && isOperator(seg)) { op = seg; break; }
+                if (i > 0) path.append(".");
+                path.append(seg.replace("__", "."));
+            }
+            Tag leaf = walk(tag, path.toString());
             if (leaf == null) return false;
-            if (extra == null) return true;
-            return compare(leaf, extra);
+            if (op == null) return true;
+            return compare(leaf, op);
         }
         // 数值型组件：selector 本身是比较算子
         if (value instanceof Number || value instanceof NumericTag) {
             return compareNumber(toDouble(value), sel0);
         }
-        // 其他类型：字符串形式通配匹配（尽力而为）
-        return wildcardMatches(sel0, String.valueOf(value));
+        // 其他类型：字符串形式通配匹配
+        return wildcardMatches(sel0.replace("__", " "), String.valueOf(value));
+    }
+
+    /** 选择器 id 解码：ns__path → ns:path；无 __ 时补 minecraft: 前缀。 */
+    private static String decodeId(String sel) {
+        int idx = sel.indexOf("__");
+        if (idx > 0) return sel.substring(0, idx) + ":" + sel.substring(idx + 2);
+        return "minecraft:" + sel;
+    }
+
+    private static boolean isOperator(String s) {
+        return s.startsWith("gt") || s.startsWith("ge") || s.startsWith("lt")
+                || s.startsWith("le") || s.startsWith("eq");
     }
 
     private static @Nullable Tag walk(CompoundTag root, String dotPath) {

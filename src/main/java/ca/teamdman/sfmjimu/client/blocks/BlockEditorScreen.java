@@ -98,6 +98,8 @@ public class BlockEditorScreen extends Screen {
     private int statusTicks = 0;
     private boolean dirty = false;
     private static final int DRAFT_DELAY_TICKS = 40;
+    /** 匹配预览最多列多少件物品；只防卡死，不再把结果切掉一截。 */
+    private static final int PREVIEW_LIMIT = 300;
     private int draftSaveDelay = -1;
     private String lastDraftText = "";
     private boolean draftPromptChecked = false;
@@ -3594,7 +3596,7 @@ public class BlockEditorScreen extends Screen {
             }
         }
         for (var item : net.minecraft.core.registries.BuiltInRegistries.ITEM) {
-            if (matched.size() >= 24) break;
+            if (matched.size() >= PREVIEW_LIMIT) break;
             var st = new net.minecraft.world.item.ItemStack(item);
             if (matchesFilter(filter.expr, st)
                     && !matched.stream().anyMatch(m -> m.getItem() == item)) {
@@ -3607,7 +3609,7 @@ public class BlockEditorScreen extends Screen {
         }
         List<String> values = new ArrayList<>();
         List<String> labels = new ArrayList<>();
-        for (int i = 0; i < Math.min(24, matched.size()); i++) {
+        for (int i = 0; i < Math.min(PREVIEW_LIMIT, matched.size()); i++) {
             values.add("m:" + i);
             labels.add(matched.get(i).getHoverName().getString());
         }
@@ -4134,16 +4136,7 @@ public class BlockEditorScreen extends Screen {
                 y += OPT_H;
             }
             if (limit.with != null) {
-                int fx = extensionRow(g, x, y, w, accent, groupPrefix + "资源特征");
-                String summary = shortUi(shortWith(limit.with), 22);
-                final int fieldX = fx, rowY = y;
-                fx = drawField(g, fx, y, summary, 100, () -> openWithEditor(fieldX, rowY, limit), mx, my, false);
-                drawIcon(g, x + w - 18, y, "✕", () -> {
-                    pushUndo();
-                    limit.with = null;
-                    layoutDirty = true;
-                }, mx, my, 0xFFC22B21);
-                y += OPT_H;
+                y = renderWithRow(g, x, y, w, accent, groupPrefix, limit, mx, my);
             }
         }
 
@@ -4221,6 +4214,145 @@ public class BlockEditorScreen extends Screen {
         final int addY = y;
         hits.add(hit(x, y, w, OPT_H - 2, K_CLICK, null,
                 () -> openIOExtensionMenu(x, addY, io, list, index)));
+    }
+
+    // ---- 资源特征：条件药丸链 + 「＋ 且…」「＋ 或…」小积木 --------------------
+
+    private static final int WITH_PILL_MAX = 76;   // 单颗条件药丸的宽度上限
+    private static final int WITH_BTN_W = 44;      // 小积木按钮宽度
+
+    /**
+     * 资源特征不再挤成一行摘要：每个条件是一颗可点的小积木，链尾永远跟着
+     * 「＋ 且…」「＋ 或…」，加完一颗就往后长一颗。行数由
+     * {@link EditorLayout#withRows} 用同一套规则算，渲染和布局不会打架。
+     */
+    private int renderWithRow(GuiGraphics g, int x, int y, int w, int accent,
+                              String groupPrefix, BProgram.ResourceLimit limit, int mx, int my) {
+        BProgram.WithFilter with = limit.with;
+        boolean negated = with.expr instanceof BProgram.WithExpr.Not;
+        String label = shortUi(with.mode == BProgram.WithFilter.Mode.WITHOUT
+                ? (negated ? "排除特征（反）" : "排除特征")
+                : (negated ? "资源特征（反）" : "资源特征"), 6);
+        int startX = extensionRow(g, x, y, w, accent, groupPrefix + label);
+        // 药丸链 + 两个小积木 + 行尾 ✕ 必须整行放得下：标签再长也只能挤到这里
+        int reserved = WITH_PILL_MAX * EditorLayout.WITH_TAGS_PER_ROW + 4 + WITH_BTN_W * 2 + 4 + 24;
+        startX = Math.min(startX, x + w - reserved);
+
+        List<BProgram.WithExpr.Tag> tags = new ArrayList<>();
+        collectWithTags(with.expr, tags);
+        int fx = startX;
+        int placed = 0;
+        for (int i = 0; i < tags.size(); i++) {
+            if (placed == EditorLayout.WITH_TAGS_PER_ROW) {
+                y += OPT_H;
+                extensionRow(g, x, y, w, accent, "");
+                fx = startX;
+                placed = 0;
+            }
+            fx = drawWithTagPill(g, fx, y, limit, tags.get(i), mx, my);
+            placed++;
+        }
+        final int addX = fx, addY = y;
+        drawWithAddBlock(g, fx, y, "＋ 且…", false,
+                () -> openWithAddMenu(addX, addY, limit, false), mx, my);
+        drawWithAddBlock(g, fx + WITH_BTN_W + 4, y, "＋ 或…", true,
+                () -> openWithAddMenu(addX + WITH_BTN_W + 4, addY, limit, true), mx, my);
+        // 标签本身是"整体设置"的入口：with/without/取反/预览都还在里面
+        hits.add(hit(x, y, Math.max(24, startX - x - 4), OPT_H - 2, K_CLICK, null,
+                () -> openWithEditor(x, y, limit)));
+        drawIcon(g, x + w - 18, y, "✕", () -> {
+            pushUndo();
+            limit.with = null;
+            layoutDirty = true;
+        }, mx, my, 0xFFC22B21);
+        return y + OPT_H;
+    }
+
+    /** 一颗条件药丸：点开重选 / 手动编辑 / 删除，右侧自带 ✕。 */
+    private int drawWithTagPill(GuiGraphics g, int x, int y, BProgram.ResourceLimit limit,
+                                BProgram.WithExpr.Tag tag, int mx, int my) {
+        String name = ResourceTagIndex.displayName(nbtComponentDisplay(tag.matcher));
+        int room = WITH_PILL_MAX - 24;
+        String shown = this.font.width(name) > room
+                ? this.font.plainSubstrByWidth(name, Math.max(8, room - 6)) + "…"
+                : name;
+        int pw = Math.max(48, this.font.width(shown) + 24);
+        boolean hover = overField(mx, my, x, y + 2, pw, OPT_H - 6);
+        rounded(g, x, y + 2, pw, OPT_H - 6, 4, hover ? 0xFFDCEAFB : 0xFFEFF4FB);
+        border(g, x, y + 2, pw, OPT_H - 6, 0xFFA9C6E8);
+        text(g, shown, x + 4, y + 6, 0xFF1B4FA0);
+        final int pillX = x, pillY = y;
+        hits.add(hit(x, y + 2, pw, OPT_H - 6, K_CLICK, null,
+                () -> openWithTagMenu(pillX, pillY + OPT_H, limit, tag)));
+        drawIcon(g, x + pw - 17, y - 1, "✕", () -> {
+            pushUndo();
+            BProgram.WithExpr remaining = removeWithTag(limit.with.expr, tag);
+            if (remaining == null) limit.with = null;
+            else limit.with.expr = remaining;
+            layoutDirty = true;
+        }, mx, my, 0xFFC22B21);
+        return x + pw + 4;
+    }
+
+    /** 链尾的小积木：且用蓝、或用橙，一眼分清两种组合方式。 */
+    private void drawWithAddBlock(GuiGraphics g, int x, int y, String label, boolean or,
+                                  Runnable onClick, int mx, int my) {
+        boolean hover = overField(mx, my, x, y + 2, WITH_BTN_W, OPT_H - 6);
+        rounded(g, x, y + 2, WITH_BTN_W, OPT_H - 6, 4,
+                hover ? (or ? 0xFFFFE3C2 : 0xFFCFE4FA) : (or ? 0xFFFFF4E6 : 0xFFF1F5FB));
+        border(g, x, y + 2, WITH_BTN_W, OPT_H - 6, or ? 0xFFD79A2B : 0xFF7FA8DD);
+        g.drawCenteredString(this.font, label, x + WITH_BTN_W / 2, y + 6,
+                or ? 0xFF8A5A00 : 0xFF1B4FA0);
+        hits.add(hit(x, y + 2, WITH_BTN_W, OPT_H - 6, K_CLICK, null, onClick));
+    }
+
+    /** 「＋ 且…」「＋ 或…」点开后的三条路径，和原先的入口完全一致。 */
+    private void openWithAddMenu(int x, int y, BProgram.ResourceLimit limit, boolean useOr) {
+        String prefix = useOr ? "或：" : "且：";
+        setPopup(new Popup.ChoicePopup(sX(x), sY(y) + OPT_H, 210,
+                List.of("item", "all", "manual"),
+                List.of(prefix + "从物品选择资源特征",
+                        prefix + "搜索全部资源特征",
+                        prefix + "手动输入原标签（高级）"), "", picked -> {
+                    if (limit.with == null) return;
+                    Consumer<String> add = matcher -> {
+                        pushUndo();
+                        limit.with.expr = appendWithTag(limit.with.expr, matcher, useOr);
+                        layoutDirty = true;
+                    };
+                    switch (picked) {
+                        case "item" -> openResourceTagPicker(false, add);
+                        case "all" -> openResourceTagPicker(true, add);
+                        default -> openManualNewTag(sX(x), sY(y) + OPT_H, add);
+                    }
+                }));
+    }
+
+    /** 点条件药丸本身：重选 / 手改 / 删除这一项。 */
+    private void openWithTagMenu(int x, int y, BProgram.ResourceLimit limit,
+                                 BProgram.WithExpr.Tag tag) {
+        String display = ResourceTagIndex.displayName(nbtComponentDisplay(tag.matcher));
+        setPopup(new Popup.ChoicePopup(sX(x), sY(y), 210,
+                List.of("pick", "manual", "remove"),
+                List.of("重新选择：" + display, "手动编辑原标签", "删除这一项"), "", picked -> {
+                    switch (picked) {
+                        case "pick" -> openResourceTagPicker(false, matcher -> {
+                            pushUndo();
+                            tag.matcher = matcher;
+                            layoutDirty = true;
+                        });
+                        case "manual" -> setPopup(new Popup.TextPopup(this, sX(x), sY(y), 190,
+                                tag.matcher, "原标签，例如 c:ingots/iron",
+                                value -> setWithTag(tag, value), null));
+                        default -> {
+                            pushUndo();
+                            BProgram.WithExpr remaining = removeWithTag(limit.with.expr, tag);
+                            if (remaining == null) limit.with = null;
+                            else limit.with.expr = remaining;
+                            layoutDirty = true;
+                        }
+                    }
+                }));
     }
 
     /** 输入⇄输出互转：原位翻转，保留限制组/排除/侧面/槽位/轮流全部配置。 */
@@ -5048,26 +5180,10 @@ public class BlockEditorScreen extends Screen {
             values.addAll(List.of("first_item", "first_all", "first_manual"));
             labels.addAll(List.of("从物品选择资源特征", "搜索全部资源特征", "手动输入原标签（高级）"));
         } else {
-            values.addAll(List.of("clear", "with", "without", "not",
-                    "and_item", "or_item", "and_all", "or_all", "and_manual", "or_manual"));
-            labels.addAll(List.of(
-                    "不限制资源特征", "只处理符合条件的资源", "排除符合条件的资源", "把整个条件取反",
-                    "＋ 从物品添加“且”特征", "＋ 从物品添加“或”特征",
-                    "＋ 搜索并添加“且”特征", "＋ 搜索并添加“或”特征",
-                    "＋ 手动添加“且”（高级）", "＋ 手动添加“或”（高级）"));
-            values.add("preview_match");
-            labels.add("预览匹配物品…");
-        }
-        List<BProgram.WithExpr.Tag> tags = new ArrayList<>();
-        if (current != null) collectWithTags(current.expr, tags);
-        for (int i = 0; i < tags.size(); i++) {
-            String display = ResourceTagIndex.displayName(nbtComponentDisplay(tags.get(i).matcher));
-            values.add("pick_tag:" + i);
-            labels.add("从物品重新选择第 " + (i + 1) + " 项：" + display);
-            values.add("tag:" + i);
-            labels.add("手动编辑第 " + (i + 1) + " 项：#" + tags.get(i).matcher);
-            values.add("remove_tag:" + i);
-            labels.add("删除第 " + (i + 1) + " 项：" + display);
+            // 「且/或」已经搬到行内的小积木上，这里只留整体设置，菜单才不会长得要滚
+            values.addAll(List.of("clear", "with", "without", "not", "preview_match"));
+            labels.addAll(List.of("不限制资源特征", "只处理符合条件的资源", "排除符合条件的资源",
+                    "把整个条件取反", "预览匹配物品…"));
         }
         setPopup(new Popup.ChoicePopup(screenX, screenY, 230, values, labels, "", picked -> {
             if (picked.equals("preview_match")) {
@@ -5103,20 +5219,6 @@ public class BlockEditorScreen extends Screen {
             BProgram.WithFilter filter = getter.get();
             if (filter == null) return;
 
-            if (picked.startsWith("and_") || picked.startsWith("or_")) {
-                boolean useOr = picked.startsWith("or_");
-                Consumer<String> add = matcher -> {
-                    BProgram.WithFilter live = getter.get();
-                    if (live == null) return;
-                    pushUndo();
-                    live.expr = appendWithTag(live.expr, matcher, useOr);
-                    layoutDirty = true;
-                };
-                if (picked.endsWith("_item")) openResourceTagPicker(false, add);
-                else if (picked.endsWith("_all")) openResourceTagPicker(true, add);
-                else openManualNewTag(screenX, screenY, add);
-                return;
-            }
             switch (picked) {
                 case "with" -> {
                     pushUndo();
@@ -5137,31 +5239,6 @@ public class BlockEditorScreen extends Screen {
                     }
                 }
                 default -> {
-                    if (picked.startsWith("pick_tag:")) {
-                        int index = Integer.parseInt(picked.substring("pick_tag:".length()));
-                        if (index >= 0 && index < tags.size()) {
-                            BProgram.WithExpr.Tag tag = tags.get(index);
-                            openResourceTagPicker(false, matcher -> {
-                                pushUndo();
-                                tag.matcher = matcher;
-                            });
-                        }
-                    } else if (picked.startsWith("tag:")) {
-                        int index = Integer.parseInt(picked.substring(4));
-                        if (index >= 0 && index < tags.size()) {
-                            BProgram.WithExpr.Tag tag = tags.get(index);
-                            setPopup(new Popup.TextPopup(this, screenX, screenY, 180, tag.matcher,
-                                    "原标签，例如 c:ingots/iron", value -> setWithTag(tag, value), null));
-                        }
-                    } else if (picked.startsWith("remove_tag:")) {
-                        int index = Integer.parseInt(picked.substring("remove_tag:".length()));
-                        if (index >= 0 && index < tags.size()) {
-                            pushUndo();
-                            BProgram.WithExpr remaining = removeWithTag(filter.expr, tags.get(index));
-                            if (remaining == null) setter.accept(null);
-                            else filter.expr = remaining;
-                        }
-                    }
                 }
             }
         }));
