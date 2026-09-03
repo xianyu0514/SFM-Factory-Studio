@@ -25,6 +25,14 @@ public final class BlockTexts {
     public static final Loc T_PULSE = new Loc("gui.sfmfactorystudio.blocks.pulse", "收到红石脉冲时");
     public static final Loc T_INPUT = new Loc("gui.sfmfactorystudio.blocks.input", "从方块取出");
     public static final Loc T_OUTPUT = new Loc("gui.sfmfactorystudio.blocks.output", "放入方块");
+    // 中文语序拆分：从 [标签] 方块取出 [数量] [资源] / 放入 [标签] 方块 [数量] [资源]
+    public static final Loc T_IO_FROM = new Loc("gui.sfmfactorystudio.blocks.io_from", "从");
+    public static final Loc T_IO_TAKE = new Loc("gui.sfmfactorystudio.blocks.io_take", "方块取出");
+    public static final Loc T_IO_PUT = new Loc("gui.sfmfactorystudio.blocks.io_put", "放入");
+    public static final Loc T_IO_BLOCK = new Loc("gui.sfmfactorystudio.blocks.io_block", "方块");
+    public static final Loc T_QTY_ALL = new Loc("gui.sfmfactorystudio.blocks.qty_all", "全部");
+    public static final Loc T_QTY_EACH_KIND = new Loc("gui.sfmfactorystudio.blocks.qty_each_kind", "每种");
+    public static final Loc T_QTY_TOTAL = new Loc("gui.sfmfactorystudio.blocks.qty_total", "合计");
     public static final Loc T_ENERGY_TRANSFER = new Loc("gui.sfmfactorystudio.blocks.energy_transfer", "高频传输能量");
     public static final Loc T_FORGET = new Loc("gui.sfmfactorystudio.blocks.forget", "清空本轮取出记录");
     public static final Loc T_IF = new Loc("gui.sfmfactorystudio.blocks.if", "如果");

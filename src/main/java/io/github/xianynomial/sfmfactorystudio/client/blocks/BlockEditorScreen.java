@@ -4039,12 +4039,15 @@ public class BlockEditorScreen extends Screen {
         barBase(g, x, y, w, BAR_H, accent, selected);
         registerBarGrip(list, index, stmt, x, y, w, verb, accent);
         final int sxx = x, syy = y;
+        // 中文语序：从 [标签] 方块取出 [数量] [资源]
         int fx = x + 12;
-        fx = drawText(g, fx, y, verb);
+        fx = drawText(g, fx, y, T_IO_FROM.getString());
         String labelDisp = in.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", in.access.labels);
         fx = drawField(g, fx, y, labelDisp, 32,
                 () -> openLabelEditor(sxx, syy, in.access.labels), mx, my, false);
+        fx = drawText(g, fx, y, T_IO_TAKE.getString());
         BProgram.ResourceLimit rl = primaryLimit(in.limits);
+        fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
         fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? "− 收起扩展" : "＋ 扩展积木", 54,
                 () -> toggleOptions(stmt), mx, my, true);
@@ -4065,12 +4068,15 @@ public class BlockEditorScreen extends Screen {
         barBase(g, x, y, w, BAR_H, accent, selected);
         registerBarGrip(list, index, stmt, x, y, w, verb, accent);
         final int sxx = x, syy = y;
+        // 中文语序：放入 [标签] 方块 [数量] [资源]
         int fx = x + 12;
-        fx = drawText(g, fx, y, verb);
+        fx = drawText(g, fx, y, T_IO_PUT.getString());
         String labelDisp = out.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", out.access.labels);
         fx = drawField(g, fx, y, labelDisp, 32,
                 () -> openLabelEditor(sxx, syy, out.access.labels), mx, my, false);
+        fx = drawText(g, fx, y, T_IO_BLOCK.getString());
         BProgram.ResourceLimit rl = primaryLimit(out.limits);
+        fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
         fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? "− 收起扩展" : "＋ 扩展积木", 54,
                 () -> toggleOptions(stmt), mx, my, true);
@@ -4082,6 +4088,30 @@ public class BlockEditorScreen extends Screen {
         if (expandedIds.contains(stmt.id)) {
             renderOutputOptions(g, x + INDENT, y + BAR_H, mx, my, out, list, index);
         }
+    }
+
+    /**
+     * 数量内联字段：默认「全部」（=不限制），点开输入数字；输 0 或清空恢复全部。
+     * 设置数量后旁边出现「每种/合计」切换（quantityEach）。
+     */
+    private int drawInlineQuantity(GuiGraphics g, int x, int y, BProgram.ResourceLimit rl, int mx, int my) {
+        if (rl == null) return x;
+        String qtyDisp = rl.quantity == null ? T_QTY_ALL.getString() : String.valueOf(rl.quantity);
+        final int px = x, py = y;
+        int fx = drawField(g, x, y, qtyDisp, rl.quantity == null ? 30 : Math.max(26, font.width(qtyDisp) + 12),
+                () -> openNumber(px, py + BAR_H, 40, rl.quantity == null ? 0 : rl.quantity, v -> {
+                    rl.quantity = v <= 0 ? null : v;   // openNumber 已推撤销；0/清空 = 全部（不限制）
+                    if (rl.quantity == null) rl.quantityEach = false;
+                    layoutDirty = true;
+                }), mx, my, false);
+        if (rl.quantity != null) {
+            fx = drawField(g, fx, y, rl.quantityEach ? T_QTY_EACH_KIND.getString() : T_QTY_TOTAL.getString(),
+                    34, () -> {
+                        pushUndo();
+                        rl.quantityEach = !rl.quantityEach;
+                    }, mx, my, false);
+        }
+        return fx;
     }
 
     private void renderIOOptions(GuiGraphics g, int x, int y, int mx, int my,
@@ -4149,7 +4179,8 @@ public class BlockEditorScreen extends Screen {
                 }, mx, my, 0xFFC22B21);
                 y += OPT_H;
             }
-            if (limit.quantity != null) {
+            if (limit.quantity != null && i > 0) {
+                // 主组的数量已内联到语句行（默认「全部」）；这里只服务"另外搬运"的多余组
                 int fx = extensionRow(g, x, y, w, accent, groupPrefix + "最多搬运");
                 fx = drawNum(g, fx, y, limit.quantity, 28, value -> {
                     pushUndo();
@@ -4521,7 +4552,7 @@ public class BlockEditorScreen extends Screen {
         for (int i = 0; i < limits.size(); i++) {
             BProgram.ResourceLimit limit = limits.get(i);
             String group = "第 " + (i + 1) + " 组：";
-            if (limit.quantity == null) addChoice(values, labels, "quantity:" + i, group + "限制搬运数量");
+            if (limit.quantity == null && i > 0) addChoice(values, labels, "quantity:" + i, group + "限制搬运数量");
             if (limit.retain == null) addChoice(values, labels, "retain:" + i, group + "至少留下指定数量");
             addChoice(values, labels, "add_or:" + i, group + "或者再选一种资源");
             if (limit.with == null && supportsResourceFeatures(limit)) {
