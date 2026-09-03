@@ -2780,6 +2780,13 @@ public class BlockEditorScreen extends Screen {
 
     @Override
     public boolean charTyped(char ch, int modifiers) {
+        // '/' 字符触发搜索（比 keyCode 53 更可靠——中文输入法/不同键盘布局都能触发）
+        if (ch == '/' && popup == null
+                && (nameBox == null || !nameBox.isFocused())
+                && (codeEditor == null || !codeEditor.isFocused())) {
+            openCardSearch();
+            return true;
+        }
         if (popup != null && popup.charTyped(ch, modifiers)) return true;
         return super.charTyped(ch, modifiers);
     }
@@ -3431,11 +3438,11 @@ public class BlockEditorScreen extends Screen {
         if (titleX + this.font.width(T_TITLE.getString()) + 10 < (status != null ? statusX : groupLeft)) {
             text(g, T_TITLE.getString(), titleX, panelY + 10, C_TEXT);
         }
-        if (!program.triggers.isEmpty() && !dirty) {
+        if (!program.triggers.isEmpty()) {
             String hint = "  / 搜索卡片";
             int hintX = groupLeft - 8 - this.font.width(hint);
             if (hintX > titleX) {
-                text(g, hint, hintX, panelY + 10, 0xFF7C8798);
+                text(g, hint, hintX, panelY + 10, 0xFF5C6779);
             }
         }
     }
@@ -4231,8 +4238,8 @@ public class BlockEditorScreen extends Screen {
         BProgram.WithFilter with = limit.with;
         boolean negated = with.expr instanceof BProgram.WithExpr.Not;
         String label = shortUi(with.mode == BProgram.WithFilter.Mode.WITHOUT
-                ? (negated ? "排除特征（反）" : "排除特征")
-                : (negated ? "资源特征（反）" : "资源特征"), 6);
+                ? (negated ? "排除特征·反" : "排除特征")
+                : (negated ? "资源特征·反" : "资源特征"), 6);
         final int labelY = y;   // 标签只在第一行，下面的循环会推进 y
         int startX = extensionRow(g, x, y, w, accent, groupPrefix + label);
         // 药丸链 + 两个小积木 + 行尾 ✕ 必须整行放得下：标签再长也只能挤到这里

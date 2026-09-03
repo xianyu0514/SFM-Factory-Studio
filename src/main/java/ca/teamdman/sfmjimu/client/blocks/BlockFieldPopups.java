@@ -88,8 +88,12 @@ abstract class Popup {
         private final List<String> values;
         private final List<String> labels;
         private final Consumer<String> onSelect;
+        private final String current;
         private int scroll = 0;
         private final int rowH = 14;
+        private int visibleRows;
+        private boolean clipped;
+        private static final int HINT_H = 12;
 
         public ChoicePopup(int x, int y, int w, List<String> values, List<String> labels,
                            String current, Consumer<String> onSelect) {
@@ -98,10 +102,11 @@ abstract class Popup {
             this.w = w;
             this.values = values;
             this.labels = labels;
+            this.current = current;
             this.onSelect = onSelect;
             // 落位后由 applyBounds() 按剩余空间展开；这里只给一个安全初值
-            int rows = Math.min(values.size(), 8);
-            this.h = rows * rowH + 4;
+            this.visibleRows = Math.max(1, Math.min(values.size(), 8));
+            this.h = visibleRows * rowH + 4;
         }
 
         /**
@@ -111,8 +116,10 @@ abstract class Popup {
         @Override
         public void applyBounds(int minX, int maxX, int minY, int maxY) {
             int avail = Math.max(rowH, maxY - y - 6);
-            int rows = Math.max(1, Math.min(values.size(), avail / rowH));
-            this.h = rows * rowH + 4;
+            clipped = values.size() * rowH + 4 > avail;
+            if (clipped) avail -= HINT_H; // 装不下时留一条底栏说明还有几项
+            visibleRows = Math.max(1, Math.min(values.size(), avail / rowH));
+            this.h = visibleRows * rowH + 4 + (clipped ? HINT_H : 0);
             Font font = Minecraft.getInstance().font;
             int want = w;
             for (int i = 0; i < labels.size(); i++) {
@@ -130,13 +137,23 @@ abstract class Popup {
         @Override
         public void render(GuiGraphics g, Font font, int mx, int my) {
             panel(g, x, y, w, h);
-            int rows = Math.min(values.size() - scroll, (h - 4) / rowH);
+            int listBottom = y + h - 2 - (clipped ? HINT_H : 0);
+            int rows = Math.min(values.size() - scroll, visibleRows);
             for (int i = 0; i < rows; i++) {
                 int idx = scroll + i;
                 int ry = y + 2 + i * rowH;
-                if (ry + rowH > y + h - 2) break;
+                if (ry + rowH > listBottom) break;
                 boolean hover = mx >= x && mx < x + w && my >= ry && my < ry + rowH;
-                row(g, font, x + 2, ry, w - 4, rowH, fit(font, labels.get(idx)), hover, false);
+                // 当前生效的那一项高亮，打开下拉就知道自己选的是哪个
+                boolean sel = values.get(idx).equals(current) || labels.get(idx).equals(current);
+                row(g, font, x + 2, ry, w - 4, rowH, fit(font, labels.get(idx)), hover, sel);
+            }
+            if (clipped) {
+                int left = Math.max(0, values.size() - scroll - visibleRows);
+                g.fill(x + 1, listBottom, x + w - 1, listBottom + HINT_H, 0xFFF6F8FC);
+                g.fill(x + 1, listBottom, x + w - 1, listBottom + 1, 0xFFE1E7F0);
+                g.drawString(font, "↓ 还有 " + left + " 项 · 滚轮查看",
+                        x + 5, listBottom + 2, 0xFF6B7688, false);
             }
         }
 
@@ -146,8 +163,10 @@ abstract class Popup {
                 keepOpen = false;
                 return true; // close without clicking through into the canvas
             }
+            // 底栏不算条目：点到它只是关掉提示，不能选中看不见的那一项
+            if (clipped && my >= y + h - 2 - HINT_H) return true;
             int i = (int) ((my - y - 2) / rowH) + scroll;
-            if (i >= 0 && i < values.size()) {
+            if (i >= scroll && i < scroll + visibleRows && i < values.size()) {
                 onSelect.accept(values.get(i));
                 keepOpen = false;
                 return true;
@@ -158,7 +177,7 @@ abstract class Popup {
         @Override
         public boolean mouseScrolled(double mx, double my, double scrollY) {
             if (!isOver(mx, my)) return false;
-            int max = Math.max(0, values.size() - (h - 4) / rowH);
+            int max = Math.max(0, values.size() - visibleRows);
             scroll = Math.max(0, Math.min(max, scroll - (int) Math.signum(scrollY)));
             return true;
         }
