@@ -20,7 +20,7 @@
    `FluidStack.getComponents()`（1.21 两者都有组件），键解析走
    `BuiltInRegistries.DATA_COMPONENT_TYPE`，未知键在编译期报错（不静默）。
 3. **往返与补全**：toString 输出新语法（往返无损红线）；intellisense 后置。
-4. **能力宣告**：新 optional payload `sfmjimu:sfm_capabilities`
+4. **能力宣告**：新 optional payload `sfmfactorystudio:sfm_capabilities`
    （codec=字符串列表，如 `["with_component"]`），玩家登录时服务端推送。
    约 20 行，注册为 optional 不影响未装编辑器的客户端。
 5. **测试**：往返无损 + 真实传输测试（附魔书/药水分流各一）+ 未知组件键报错。
@@ -28,7 +28,7 @@
    保持 fork 改动最小化（一条语法规则+一个类+一个 payload），降低追上游成本。
 
 ## 阶段 2：编辑器（纯客户端，约 1 天）
-1. **能力接收**：注册 `sfmjimu:sfm_capabilities` 的 playToClient 接收器
+1. **能力接收**：注册 `sfmfactorystudio:sfm_capabilities` 的 playToClient 接收器
    （optional，沿用现有 optional 基建）；静态 `SfmCaps.withComponent` 标志，
    断线/换服时重置。
 2. **模型与往返**：`BProgram.WithExpr` 新增 `Component(String componentId)`

@@ -41,7 +41,7 @@
 
 ## 二、目标架构
 
-包 `ca.teamdman.sfmjimu.client.blocks`（布局与空间索引放 `model` 子包，保持 MC-free 可单测）：
+包 `io.github.xianynomial.sfmfactorystudio.client.blocks`（布局与空间索引放 `model` 子包，保持 MC-free 可单测）：
 
 ```
 BlockEditorScreen          薄壳：Screen 生命周期、init/tick/render 委派、super.render 调控件
@@ -148,7 +148,7 @@ BlockEditorScreen          薄壳：Screen 生命周期、init/tick/render 委�
 
 1. `JAVA_TOOL_OPTIONS="-Djava.net.preferIPv6Addresses=true" ./gradlew build`（编译即打包）；
 2. `./gradlew test`——现有 78 项 + 本计划新增（布局等价、空间索引、折行缓存、基准护栏）全绿；
-3. 产物拷到 `D:\youxi\chaojigui\sfmjimu-1.21.1-0.1.0-all.jar`，旧包备份 `*.before-<阶段>.bak`；
+3. 产物拷到 `D:\youxi\chaojigui\sfmfactorystudio-1.21.1-0.1.0-all.jar`，旧包备份 `*.before-<阶段>.bak`；
 4. 游戏内手测清单：拖卡/拖积木/框选/组拖/撤销/代码双向同步/问题面板定位与修复/JEI 拖放/存模板。
 
 ## 六、预期收益汇总
