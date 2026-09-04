@@ -4093,7 +4093,8 @@ public class BlockEditorScreen extends Screen {
 
     /** Renders a body using layout positions; returns end y. */
     private int renderBody(GuiGraphics g, List<BProgram.Statement> list, int x, int y, int mx, int my) {
-        int w = CARD_W - CARD_INNER * 2;
+        // 卡片可能因备选资源被加宽：用布局的真实宽度，保证命中框与可见性裁剪正确
+        int w = layout.bodyWidthOf(list);
         // body background click target (lowest priority: registered first)
         int[] pos = layout.addRowPosOf(list);
         if (pos != null) {
@@ -4412,7 +4413,7 @@ public class BlockEditorScreen extends Screen {
             access = output.access;
             accent = A_OUTPUT;
         }
-        int w = CARD_W - CARD_INNER * 2 - INDENT - 8;
+        int w = layout.bodyWidthOf(list) - INDENT - 8;
         rounded(g, x - 4, y, w + 8, EditorLayout.ioOptionsHeight(io), 5, 0x44F0F4FA);
         if (limits.isEmpty()) limits.add(new BProgram.ResourceLimit());
 

@@ -610,6 +610,17 @@ public final class EditorLayout {
         return measured != null ? measured : statementHeight(s);
     }
 
+    /** 指定正文所在卡片的语句区可用宽度（卡宽 − 两侧内边距）。渲染器必须用
+     * 它而不是常量 CARD_W 推导：备选资源较多时卡片会加宽，用常量会把命中
+     * 框/可见性裁剪算小，出现"内容画出但点不到/看不见"的错位。
+     */
+    public int bodyWidthOf(List<BProgram.Statement> body) {
+        for (CardL c : cards) {
+            if (ownsBody(c.trigger().body, body)) return c.w() - CARD_INNER * 2;
+        }
+        return CARD_W - CARD_INNER * 2;
+    }
+
     public int @Nullable [] cardRectOf(long triggerId) {
         for (CardL c : cards) {
             if (c.trigger().id == triggerId) return new int[]{c.x(), c.y(), c.w(), c.h()};
