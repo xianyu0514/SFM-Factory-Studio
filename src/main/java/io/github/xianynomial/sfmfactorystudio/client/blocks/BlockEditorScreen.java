@@ -6042,11 +6042,10 @@ public class BlockEditorScreen extends Screen {
 
     private void openAddConditionMenu(int x, int y, BProgram.Branch branch) {
         List<String> values = List.of(
-                "and_has", "and_redstone", "and_true", "and_false",
+                "and_has", "and_redstone",
                 "or_has", "or_redstone", "not");
         List<String> labels = List.of(
                 "＋ 同时满足：方块里有资源", "＋ 同时满足：红石信号",
-                "＋ 同时满足：总是成立", "＋ 同时满足：永不成立",
                 "＋ 任一满足：方块里有资源", "＋ 任一满足：红石信号",
                 branch.cond instanceof BProgram.Bool.Not ? "取消现有判断的整体取反" : "把现有判断整体取反");
         setPopup(new Popup.ChoicePopup(sX(x), sY(y) + BAR_H + 2, 190,
@@ -6064,8 +6063,6 @@ public class BlockEditorScreen extends Screen {
             }
             BProgram.Bool added = switch (action) {
                 case "and_redstone", "or_redstone" -> new BProgram.Bool.Redstone();
-                case "and_true" -> new BProgram.Bool.Const(true);
-                case "and_false" -> new BProgram.Bool.Const(false);
                 default -> newConditionHas();
             };
             boolean useOr = action.startsWith("or_");
@@ -6169,8 +6166,8 @@ public class BlockEditorScreen extends Screen {
                 case "false" -> "永不成立";
                 default -> "原样";
             }, 40, () -> setPopup(new Popup.ChoicePopup(x + 6, popY, 120,
-                    List.of("has", "redstone", "true", "false"),
-                    List.of(T_COND.getString(), "红石信号", "总是成立", "永不成立"), kind(),
+                    List.of("has", "redstone"),
+                    List.of(T_COND.getString(), "红石信号"), kind(),
                     this::switchKind)), mx, my);
             rx = drawP(g, fnt, rx, cond instanceof BProgram.Bool.Not ? "◉ 已取反" : "○ 取反", 56,
                     () -> {
@@ -6457,8 +6454,6 @@ public class BlockEditorScreen extends Screen {
             pushUndo();
             BProgram.Bool replacement = switch (k) {
                 case "redstone" -> new BProgram.Bool.Redstone();
-                case "true" -> new BProgram.Bool.Const(true);
-                case "false" -> new BProgram.Bool.Const(false);
                 default -> newConditionHas();
             };
             replaceSelf(replacement);
