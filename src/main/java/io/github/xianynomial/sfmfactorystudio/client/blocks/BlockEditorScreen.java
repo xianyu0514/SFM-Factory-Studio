@@ -1484,6 +1484,39 @@ public class BlockEditorScreen extends Screen {
         return (screenY - canvasY - CANVAS_PAD) / zoom + viewY;
     }
 
+    /**
+     * 注册一个 JEI ghost-drag 落点区域（入参是 content 坐标）。
+     *
+     * 两处关键处理，缺一个就会出现"JEI 物品图层浮在最上面、盖住别的东西"：
+     * 1) 尺寸要乘 zoom —— 资源框在屏幕上的实际大小是 size*zoom。此前直接把
+     *    content 尺寸当屏幕尺寸传给 JEI，落点判定区跟资源框不重合：缩小画布
+     *    时判定区比资源框大一圈，吸附高亮框就压在旁边的元素上；放大时又比
+     *    资源框小，拖到框边缘反而吸不上。
+     * 2) 区域裁进画布可视矩形 —— 卡片折叠、平移出视野、缩到 LOD 以下时资源
+     *    框并不在屏幕上，此时不该留落点，否则 overlay 会盖住折叠后的卡片摘要。
+     */
+    private void addGhostZone(int contentX, int contentY, int contentW, int contentH,
+                              String current, Consumer<String> setter) {
+        int sw = Math.max(1, Math.round(contentW * zoom));
+        int sh = Math.max(1, Math.round(contentH * zoom));
+        addGhostZoneScreen(sX(contentX), sY(contentY), sw, sh, current, setter);
+    }
+
+    /**
+     * 屏幕坐标版：弹窗内的 pill 用（它们本来就在屏幕坐标系里，没有 zoom 变换）。
+     * 同样裁进画布，并且被裁到几乎不可见时直接不注册——折叠/收起后不留残影。
+     */
+    private void addGhostZoneScreen(int sx, int sy, int sw, int sh,
+                                    String current, Consumer<String> setter) {
+        if (canvasW <= 0 || canvasH <= 0) return;
+        int x0 = Math.max(sx, canvasX);
+        int y0 = Math.max(sy, canvasY);
+        int x1 = Math.min(sx + sw, canvasX + canvasW);
+        int y1 = Math.min(sy + sh, canvasY + canvasH);
+        if (x1 - x0 < 4 || y1 - y0 < 4) return; // 看不见就不占落点
+        JeiGhostDrops.add(new Rect2i(x0, y0, x1 - x0, y1 - y0), current, setter);
+    }
+
     private void fitContent() {
         float zx = (canvasW - 16f) / Math.max(1, layout.contentW());
         float zy = (canvasH - 16f) / Math.max(1, layout.contentH());
@@ -3829,6 +3862,11 @@ public class BlockEditorScreen extends Screen {
         ix = linkX;
         ix = drawIcon(g, ix - 22, y + 4, collapsedCards.contains(t.id) ? "▶" : "▼",
                 () -> toggleCardCollapse(t), mx, my, C_TEXT_SUB);
+        // 定时/红石切换：保留全部正文，只换触发方式
+        drawField(g, ix - 38, y + 4,
+                t instanceof BProgram.TimerTrigger ? "定时" : "红石",
+                30, () -> convertTrigger(t), mx, my, false);
+        ix -= 40;
         ix = drawIcon(g, ix - 22, y + 4, "▶", () -> {
             pushUndo();
             moveTrigger(t, 1);
@@ -3998,6 +4036,42 @@ public class BlockEditorScreen extends Screen {
         selectedTriggers.clear();
         selectedTriggers.add(copy);
         showStatus("已复制完整运行积木，紧贴排列在正下方", C_SELECT);
+    }
+
+    /**
+     * 定时 ↔ 红石脉冲 互转：正文/注释原样迁移，卡片位置/折叠/展开/选中/连线
+     * 全部跟着换到新触发器上；定时参数（周期/全局/偏移）在转红石时丢弃，
+     * 转回定时恢复默认 20 刻。
+     */
+    private void convertTrigger(BProgram.Trigger old) {
+        int idx = program.triggers.indexOf(old);
+        if (idx < 0) return;
+        pushUndo();
+        BProgram.Trigger next;
+        if (old instanceof BProgram.TimerTrigger) {
+            next = new BProgram.PulseTrigger();
+        } else {
+            BProgram.TimerTrigger timer = new BProgram.TimerTrigger();
+            timer.count = Math.max(TimerRules.minimumCount(timer), timer.count);
+            next = timer;
+        }
+        next.body.addAll(old.body);
+        next.leadingComments.addAll(old.leadingComments);
+        program.triggers.set(idx, next);
+
+        // 位置/折叠/展开/选中/连线随 id 迁移
+        int[] pos = layout.cardPosOf(old.id);
+        if (pos != null) layout.setCardPos(next.id, pos[0], pos[1]);
+        if (expandedIds.remove(old.id)) expandedIds.add(next.id);
+        if (collapsedCards.remove(old.id)) collapsedCards.add(next.id);
+        if (selectedTriggers.remove(old)) selectedTriggers.add(next);
+        for (int i = 0; i < links.size(); i++) {
+            BlockLink l = links.get(i);
+            if (l.a() == old.id) links.set(i, new BlockLink(next.id, l.b()));
+            else if (l.b() == old.id) links.set(i, new BlockLink(l.a(), next.id));
+        }
+        layoutDirty = true;
+        showStatus(next instanceof BProgram.TimerTrigger ? "已切换为定时触发" : "已切换为红石脉冲触发", C_SELECT);
     }
 
     private void moveTrigger(BProgram.Trigger t, int dir) {
@@ -4178,7 +4252,7 @@ public class BlockEditorScreen extends Screen {
             rl.resources.add(res);
             layoutDirty = true;
         })));
-        JeiGhostDrops.add(new Rect2i(sX(fx), sY(y), size, size), "*", dropped -> {
+        addGhostZone(fx, y, size, size, "*", dropped -> {
             try {
                 BProgram.ResourceRef incoming = BProgram.ResourceRef.parse(dropped);
                 pushUndo();
@@ -4192,36 +4266,30 @@ public class BlockEditorScreen extends Screen {
     }
 
     /**
-     * 主组备选资源续行：每行「或」前缀 + 最多 4 个芯片（类别+槽+✕），尾行带「＋」。
-     * 高度由 EditorLayout.altResourceRows 按同一规则预留，加再多也不会超出卡片。
+     * 主组「或者也搬运」备选资源：**单行横向铺开**，不再按 4 个/行换行。
+     *
+     * 放不下时由 {@link EditorLayout#cardWidth} 把整张卡片横向加长（布局阶段已按
+     * 同样的估算预留宽度），所以这里只管一路往右排——不会溢出卡片，也就不会和
+     * 下面的积木、页脚按钮重叠。
      */
     private void drawAltResourceRows(GuiGraphics g, int x, int y, BProgram.ResourceLimit rl, int mx, int my) {
         if (rl == null || rl.resources.size() <= 1) return;
-        int alts = rl.resources.size() - 1;
-        int rows = (alts + EditorLayout.RES_ALT_PER_ROW - 1) / EditorLayout.RES_ALT_PER_ROW;
-        for (int r = 0; r < rows; r++) {
-            int fx = x + 12;
-            fx = drawText(g, fx, y, "和");
-            int start = 1 + r * EditorLayout.RES_ALT_PER_ROW;
-            int end = Math.min(rl.resources.size(), start + EditorLayout.RES_ALT_PER_ROW);
-            for (int idx = start; idx < end; idx++) {
-                final int i2 = idx;
-                fx = drawResourceSelector(g, fx, y, rl.resources.get(idx), picked -> {
-                    pushUndo();
-                    rl.resources.set(i2, picked);
-                }, mx, my);
-                fx = drawIcon(g, fx - 2, y, "✕", () -> {
-                    pushUndo();
-                    rl.resources.remove(i2);
-                    layoutDirty = true;
-                }, mx, my, 0xFFC22B21);
-                fx += 6;
-            }
-            if (r == rows - 1) {
-                drawAndAddSlot(g, fx, y, rl, mx, my);
-            }
-            y += BAR_H;
+        int fx = x + 12;
+        fx = drawText(g, fx, y, "和");
+        for (int idx = 1; idx < rl.resources.size(); idx++) {
+            final int i2 = idx;
+            fx = drawResourceSelector(g, fx, y, rl.resources.get(idx), picked -> {
+                pushUndo();
+                rl.resources.set(i2, picked);
+            }, mx, my);
+            fx = drawIcon(g, fx - 2, y, "✕", () -> {
+                pushUndo();
+                rl.resources.remove(i2);
+                layoutDirty = true;
+            }, mx, my, 0xFFC22B21);
+            fx += 6;
         }
+        drawAndAddSlot(g, fx, y, rl, mx, my);
     }
 
     /**
@@ -5241,7 +5309,7 @@ public class BlockEditorScreen extends Screen {
         if (hover) border(g, x, y, size, size, C_SELECT);
         hits.add(hit(x, y, size, size, K_CLICK, null,
                 () -> openResourceValueMenu(x, y, current, setter)));
-        JeiGhostDrops.add(new Rect2i(sX(x), sY(y), size, size), current.toString(), dropped -> {
+        addGhostZone(x, y, size, size, current.toString(), dropped -> {
             try {
                 BProgram.ResourceRef incoming = BProgram.ResourceRef.parse(dropped);
                 if (!sameResourceCategory(current, incoming)) {
@@ -6158,7 +6226,9 @@ public class BlockEditorScreen extends Screen {
                         }), mx, my);
                 // 资源按钮 ghost drop：注册矩形改用 lastPill*——资源按钮 pill 自身
                 // 的真实矩形（覆盖换行后落到新行的情况，不再跨越两行）。
-                JeiGhostDrops.add(new Rect2i(lastPillX, lastPillY, lastPillW, 16), resource.toString(), dropped -> {
+                // 走 addGhostZoneScreen：弹窗是屏幕坐标系，但要裁进画布，折叠/收起
+                // 后不留落点。
+                addGhostZoneScreen(lastPillX, lastPillY, lastPillW, 16, resource.toString(), dropped -> {
                     try {
                         BProgram.ResourceRef incoming = BProgram.ResourceRef.parse(dropped);
                         if (!sameResourceCategory(resource, incoming)) {
