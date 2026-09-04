@@ -376,6 +376,8 @@ public class BlockEditorScreen extends Screen {
     private static String clipboardSfml = null;
     /** 资源槽右键复制的资源（跨卡片可用，会话内保留）。 */
     private BProgram.ResourceRef copiedResource = null;
+    /** 标签药丸右键复制的标签组（跨卡片可用）。 */
+    private List<String> copiedLabels = null;
     private boolean clipboardTriggers = false; // last copy was whole triggers
 
     public BlockEditorScreen(ManagerContainerMenu menu, String programText,
@@ -4148,6 +4150,24 @@ public class BlockEditorScreen extends Screen {
 
     private void registerBarGrip(List<BProgram.Statement> list, int index, BProgram.Statement s, int x, int y, int w, String label, int accent) {
         hits.add(hit(x, y, w, BAR_H, K_GRIP, new DragRef(list, s, index, label, accent), null));
+        // 右键任意积木行：复制这一条（SFML 往返深拷贝，Ctrl+V 或右键空白处粘贴）
+        hits.add(hit(x, y, w, BAR_H, K_RCLICK, null, () -> copySingleStatement(s)));
+    }
+
+    /** 右键复制的单积木深拷贝：先拷贝模型，再用 SFML 往返验证可转换。 */
+    private void copySingleStatement(BProgram.Statement s) {
+        BProgram tmp = new BProgram();
+        tmp.triggers.add(new BProgram.TimerTrigger());
+        tmp.triggers.get(0).body.add(s.copy());
+        String sfml = BlocksToSfml.toSfml(tmp);
+        SfmlToBlocks.Result check = SfmlToBlocks.parse("every 20 ticks do\n" + sfml + "\nend");
+        if (!check.ok()) {
+            showStatus("复制失败：这条积木无法转换为代码", 0xFFD13438);
+            return;
+        }
+        clipboardSfml = sfml;
+        clipboardTriggers = false;
+        showStatus("已复制 1 个积木（Ctrl+V 粘贴）", C_SELECT);
     }
 
     private void renderIO(GuiGraphics g, List<BProgram.Statement> list, int index,
@@ -4161,6 +4181,7 @@ public class BlockEditorScreen extends Screen {
         int fx = x + 12;
         fx = drawText(g, fx, y, T_IO_FROM.getString());
         String labelDisp = in.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", in.access.labels);
+        hits.add(hit(fx, y, 32, BAR_H, K_RCLICK, null, () -> openLabelContext(sxx, syy, in.access.labels)));
         fx = drawField(g, fx, y, labelDisp, 32,
                 () -> openLabelEditor(sxx, syy, in.access.labels), mx, my, false);
         fx = drawText(g, fx, y, T_IO_TAKE.getString());
@@ -4195,6 +4216,7 @@ public class BlockEditorScreen extends Screen {
         int fx = x + 12;
         fx = drawText(g, fx, y, T_IO_PUT.getString());
         String labelDisp = out.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", out.access.labels);
+        hits.add(hit(fx, y, 32, BAR_H, K_RCLICK, null, () -> openLabelContext(sxx, syy, out.access.labels)));
         fx = drawField(g, fx, y, labelDisp, 32,
                 () -> openLabelEditor(sxx, syy, out.access.labels), mx, my, false);
         fx = drawText(g, fx, y, T_IO_BLOCK.getString());
@@ -5027,6 +5049,7 @@ public class BlockEditorScreen extends Screen {
         int fx = x + 12;
         fx = drawText(g, fx, y, T_FORGET.getString());
         String labelDisp = f.labels.isEmpty() ? T_ALL.getString() : String.join("+", f.labels);
+        hits.add(hit(fx, y, 32, BAR_H, K_RCLICK, null, () -> openLabelContext(sxx, syy, f.labels)));
         fx = drawField(g, fx, y, labelDisp, 32, () -> openLabelEditor(sxx, syy, f.labels, true), mx, my, false);
         drawDelete(g, x + w - 16, y + 3, () -> {
             pushUndo();
@@ -5797,6 +5820,56 @@ public class BlockEditorScreen extends Screen {
         if (matcher == null) return;
         pushUndo();
         tag.matcher = matcher;
+    }
+
+    /**
+     * 标签药丸右键菜单：复制标签组 / 粘贴标签组（覆盖）/ 编辑 / 清空。
+     * 空药丸 + 剪贴板有标签时直接粘贴，免菜单。
+     */
+    private void openLabelContext(int x, int y, List<String> target) {
+        if (copiedLabels != null && target.isEmpty()) {
+            pushUndo();
+            target.addAll(copiedLabels);
+            layoutDirty = true;
+            showStatus("已粘贴标签 " + String.join("+", copiedLabels), C_SELECT);
+            return;
+        }
+        List<String> values = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        if (!target.isEmpty()) {
+            values.add("copy");
+            labels.add("复制标签组");
+        }
+        if (copiedLabels != null) {
+            values.add("paste");
+            labels.add("粘贴：" + String.join("+", copiedLabels));
+        }
+        values.add("edit");
+        labels.add("编辑标签…");
+        if (!target.isEmpty()) {
+            values.add("clear");
+            labels.add("清空标签");
+        }
+        setPopup(new Popup.ChoicePopup(sX(x), sY(y) + BAR_H, 170, values, labels, "", action -> {
+            switch (action) {
+                case "copy" -> {
+                    copiedLabels = new ArrayList<>(target);
+                    showStatus("已复制标签 " + String.join("+", target), C_SELECT);
+                }
+                case "paste" -> {
+                    pushUndo();
+                    target.clear();
+                    target.addAll(copiedLabels);
+                    layoutDirty = true;
+                }
+                case "edit" -> openLabelEditor(x, y, target);
+                case "clear" -> {
+                    pushUndo();
+                    target.clear();
+                    layoutDirty = true;
+                }
+            }
+        }));
     }
 
     private void openLabelEditor(int x, int y, List<String> target) {
