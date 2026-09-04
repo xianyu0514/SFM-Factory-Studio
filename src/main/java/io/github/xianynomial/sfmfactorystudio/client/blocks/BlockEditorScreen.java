@@ -4269,13 +4269,16 @@ public class BlockEditorScreen extends Screen {
      * 同样的估算预留宽度），所以这里只管一路往右排——不会溢出卡片，也就不会和
      * 下面的积木、页脚按钮重叠。
      */
+    /**
+     * 主组备选资源续行：紧凑芯片（物品槽+✕，固定 30px 步进），排完后「和」
+     * 空位收尾。不换行——卡片宽度由 EditorLayout 按内容计算（不重叠）。
+     */
     private void drawAltResourceRows(GuiGraphics g, int x, int y, BProgram.ResourceLimit rl, int mx, int my) {
         if (rl == null || rl.resources.size() <= 1) return;
         int fx = x + 12;
-        fx = drawText(g, fx, y, "和");
         for (int idx = 1; idx < rl.resources.size(); idx++) {
             final int i2 = idx;
-            fx = drawResourceSelector(g, fx, y, rl.resources.get(idx), picked -> {
+            fx = drawResourceValueSlot(g, fx, y, rl.resources.get(idx), picked -> {
                 pushUndo();
                 rl.resources.set(i2, picked);
             }, mx, my);
@@ -4284,7 +4287,6 @@ public class BlockEditorScreen extends Screen {
                 rl.resources.remove(i2);
                 layoutDirty = true;
             }, mx, my, 0xFFC22B21);
-            fx += 6;
         }
         drawAndAddSlot(g, fx, y, rl, mx, my);
     }

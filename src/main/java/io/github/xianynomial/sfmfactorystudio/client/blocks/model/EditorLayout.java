@@ -375,7 +375,7 @@ public final class EditorLayout {
      * 类别 pill max(32, 最长类别名「全部化学品」约 40+10=50) + 间距 4
      * + 资源槽 20 + 间距 4 + ✕ 图标 20 - 2 + 芯片间距 6 ≈ 102，取 104 留余量。
      */
-    private static final int ALT_CHIP_W = 104;
+    private static final int ALT_CHIP_W = 40;
     /** 行尾「＋」添加槽：加号槽 20 + 间距 + 呼吸位。 */
     private static final int ALT_ROW_TAIL = 40;
 
