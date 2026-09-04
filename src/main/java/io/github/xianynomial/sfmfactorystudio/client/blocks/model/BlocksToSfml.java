@@ -185,7 +185,8 @@ public final class BlocksToSfml {
                 wrote = true;
             }
             if (rl.with != null) {
-                sb.append(wrote ? " " : "").append(writeWith(rl.with));
+                String withText = writeWith(rl.with);
+                if (!withText.isEmpty()) sb.append(wrote ? " " : "").append(withText);
             }
         }
     }
@@ -276,7 +277,7 @@ public final class BlocksToSfml {
                     sb.append(i == 0 ? ' ' : " or ").append(resources.get(i).sfml());
                 }
             }
-            if (h.with != null) sb.append(' ').append(writeWith(h.with));
+            if (h.with != null && !writeWith(h.with).isEmpty()) sb.append(' ').append(writeWith(h.with));
             writeExcept(sb, h.except);
             return sb.toString();
         } else if (b instanceof Bool.Redstone r) {
@@ -309,8 +310,10 @@ public final class BlocksToSfml {
     }
 
     public static String writeWith(WithFilter filter) {
+        String expr = writeWithExpr(filter.expr);
+        if (expr.equals("#*")) return "";  // 通配=不过滤，纯 #* 只是无意义噪音
         String prefix = filter.mode == WithFilter.Mode.WITHOUT ? "without " : "with ";
-        return prefix + writeWithExpr(filter.expr);
+        return prefix + expr;
     }
 
     private static String writeWithExpr(WithExpr expr) {
@@ -330,7 +333,9 @@ public final class BlocksToSfml {
     }
 
     private static String joinWith(List<WithExpr> parts, String separator) {
-        List<WithExpr> valid = parts.stream().filter(java.util.Objects::nonNull).toList();
+        // 降级成 #* 的部件（原 id 含 - 或 .）直接剔除：#* 在 and 链里是无意义噪音
+        List<WithExpr> valid = parts.stream().filter(java.util.Objects::nonNull)
+                .filter(p -> !writeWithExpr(p).equals("#*")).toList();
         if (valid.isEmpty()) return "#*";
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < valid.size(); i++) {

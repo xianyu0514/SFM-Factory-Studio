@@ -34,6 +34,9 @@ public final class ResourceTagPickerScreen extends Screen {
     private static final String[] FILTER_LABELS = {"推荐", "全部", "通用", "原版", "模组"};
     private static final int[] FILTER_WIDTHS = {44, 44, 50, 50, 50};
     private static final int FILTER_GAP = 4;
+    /** SFML 标签语法可编码的 id 形态（与序列化 normalizeTagMatcher 同规则）。 */
+    private static final java.util.regex.Pattern SFML_TAG = java.util.regex.Pattern.compile(
+            "[a-zA-Z_*][a-zA-Z0-9_*]*(?::[a-zA-Z_*][a-zA-Z0-9_*]*)?(?:/[a-zA-Z_*][a-zA-Z0-9_*]*)*");
 
     private final Screen previousScreen;
     private final Consumer<String> onPick;
@@ -128,6 +131,9 @@ public final class ResourceTagPickerScreen extends Screen {
                     ? ResourceTagIndex.all()
                     : selectedItem == null ? List.of() : ResourceTagIndex.forItem(selectedItem.sfmlId());
             for (ResourceTagIndex.TagEntry entry : source) {
+                // SFML 标签语法只允许 [a-zA-Z0-9_*/:]——含 - 或 . 的标签选了也
+                // 无法写进程序（会被降级成 #* 且保存被拦），直接不列出
+                if (!SFML_TAG.matcher(entry.id().toString()).matches()) continue;
                 if (matchesTagFilter(entry)
                         && (query.isEmpty() || entry.searchText().contains(query)
                         || PinyinSearch.matchesNormalized(entry.displayName(), query))) {

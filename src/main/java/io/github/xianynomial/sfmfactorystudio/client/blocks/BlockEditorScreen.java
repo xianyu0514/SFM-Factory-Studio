@@ -434,7 +434,7 @@ public class BlockEditorScreen extends Screen {
         SFMGuiNetwork.sendToServerBestEffort(
                 new io.github.xianynomial.sfmfactorystudio.net.RequestLabelsPayload(menu.MANAGER_POSITION));
         layoutDirty = true;
-        fitted = false;
+        // 注意不要重置 fitted：选择器切屏返回会重跑 init()，重置会导致视角被抢去自动适配
         computePanel();
         nameBox = new EditBox(this.font, namePillX() + 6, panelY + 7, 108, 15, Component.empty());
         nameBox.setMaxLength(64);
@@ -790,7 +790,6 @@ public class BlockEditorScreen extends Screen {
         modelVersion++;
         generatedCache = "";
         layoutDirty = true;
-        fitted = false;
         lastModelSfml = generated();
         if (nameBox != null) nameBox.setValue(program.name);
         dirty = !Objects.equals(source, savedProgramText);
@@ -2684,7 +2683,6 @@ public class BlockEditorScreen extends Screen {
         actionBarVisible = false;
         generatedCache = "";
         layoutDirty = true;
-        fitted = false;
         dirty = true;
         draftSaveDelay = -1;
         lastDraftText = draft.sfml();
@@ -3572,7 +3570,6 @@ public class BlockEditorScreen extends Screen {
 
     private void toggleCodeEditor() {
         previewMode = !previewMode;
-        fitted = false;
         if (codeEditor != null) {
             codeEditor.visible = previewMode;
             if (previewMode) {
