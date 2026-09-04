@@ -151,9 +151,13 @@ public class NbtItemPickerScreen extends Screen {
                                 id + "/" + key.replace(".", "__")));
                     }
                 } else if (value instanceof Component text) {
-                    String t = text.getString();
-                    if (t.length() > 18) t = t.substring(0, 18) + "…";
-                    pickRows.add(new PickRow(ComponentNames.display(id) + " · " + t, id));
+                    String raw = text.getString();
+                    // 名称可编码（纯字母数字）→ 精确匹配该名称；含中文/符号 → 存在性
+                    String encoded = io.github.xianynomial.sfmfactorystudio.net.NbtMatcherHook.encodeNameMatcher(raw);
+                    String target = encoded == null ? id : id + "/" + encoded;
+                    String t = raw.length() > 18 ? raw.substring(0, 18) + "…" : raw;
+                    String mark = encoded == null ? "" : "（按此名称）";
+                    pickRows.add(new PickRow(ComponentNames.display(id) + " · " + t + mark, target));
                 } else {
                     String pv = ComponentNames.preview(type, stack);
                     pickRows.add(new PickRow(

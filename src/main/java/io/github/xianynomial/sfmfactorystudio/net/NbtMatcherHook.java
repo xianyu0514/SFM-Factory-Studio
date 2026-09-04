@@ -72,6 +72,24 @@ public final class NbtMatcherHook {
     }
 
     /** 入口：匹配伪标签（含值选择器）。 */
+    /**
+     * 自定义名称 → 可编码匹配段：空格转 __，仅 [a-zA-Z0-9_]；
+     * 含中文/符号/星号返回 null（调用方退回存在性匹配）。
+     */
+    public static String encodeNameMatcher(String name) {
+        if (name == null) return null;
+        String s = name.trim();
+        if (s.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder();
+        for (char c : s.toCharArray()) {
+            if (c == ' ') sb.append("__");
+            else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9') || c == '_') sb.append(c);
+            else return null;
+        }
+        return sb.toString();
+    }
+
     public static boolean matchesComponent(String matcher, Object stack) {
         Parsed p = parse(matcher);
         if (p == null || stack == null) return false;
