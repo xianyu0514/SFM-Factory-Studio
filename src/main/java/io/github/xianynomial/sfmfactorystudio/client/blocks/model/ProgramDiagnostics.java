@@ -93,6 +93,31 @@ public final class ProgramDiagnostics {
                             () -> timer.count = finalMinimum);
                 }
                 if (timer.plus < 0) error(issues, path, "计时偏移不能是负数", timer, null, null);
+
+                // 写法体检（TPS 友好度，吞吐量不变的前提）：
+                // ① 高频 + 全部槽位扫描（input * / 无资源种类）——最大的隐性成本
+                boolean wildcardScan = timer.body.stream().anyMatch(s -> {
+                    List<BProgram.ResourceLimit> limits = s instanceof BProgram.Statement.Input in ? in.limits
+                            : s instanceof BProgram.Statement.Output out ? out.limits : List.of();
+                    return limits.stream().anyMatch(rl -> rl.resources.isEmpty()
+                            || rl.resources.stream().anyMatch(r -> r != null && r.isWildcard()));
+                });
+                if (wildcardScan && minimum < 20 && timer.count <= minimum) {
+                    warning(issues, path, "高频 + 全部槽位扫描：TPS 代价大。建议加资源标签缩小范围，或拉长间隔（物品会攒批，每秒搬运量不变）",
+                            timer, null, null);
+                }
+                // ② 多卡同刻：多个定时触发器都没有错峰偏移时提示相位均衡
+                if (timer.plus == 0) {
+                    long samePhase = program.triggers.stream()
+                            .filter(o -> o instanceof BProgram.TimerTrigger o2
+                                    && o2.plus == 0
+                                    && Math.max(TimerRules.minimumCount(o2), o2.count) == Math.max(TimerRules.minimumCount(timer), timer.count))
+                            .count();
+                    if (samePhase > 1) {
+                        warning(issues, path, "有 " + samePhase + " 个触发器会在同一刻执行（可用工具栏「均衡相位」一键错峰，吞吐量不变）",
+                                timer, null, null);
+                    }
+                }
             }
             if (trigger.body.isEmpty()) {
                 // 空触发器体在 SFM 里合法（官方 timer_triggers 示例即是），

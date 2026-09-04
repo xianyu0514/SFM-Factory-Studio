@@ -17,6 +17,7 @@ import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.C
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.Gap;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.ProgramDiagnostics;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlToBlocks;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.ProgramCost;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlSyntax;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlValidate;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.TimerRules;
@@ -3491,6 +3492,64 @@ public class BlockEditorScreen extends Screen {
         return panelX + 10 + this.font.width(T_NAME.getString()) + 8;
     }
 
+    /**
+     * 一键相位均衡：把全部定时触发器对齐到全局时钟并按序错开偏移，
+     * 摊平"多卡同一刻集中执行"造成的 MSPT 尖刺。每秒搬运量不变——
+     * 吞吐量只取决于搬运量×频率，与触发落在周期内哪一刻无关。
+     * 步长按最短周期均分（避免偏移 ≥ 周期导致重叠回聚）。
+     */
+    private void balanceTriggerPhases() {
+        List<BProgram.TimerTrigger> timers = new ArrayList<>();
+        for (BProgram.Trigger t : program.triggers) {
+            if (t instanceof BProgram.TimerTrigger tt) timers.add(tt);
+        }
+        if (timers.size() < 2) {
+            showStatus("只有一个定时触发器，无需均衡相位", C_TEXT_SUB);
+            return;
+        }
+        pushUndo();
+        long minTicks = Long.MAX_VALUE;
+        for (BProgram.TimerTrigger tt : timers) {
+            tt.global = true;
+            minTicks = Math.min(minTicks, Math.max(TimerRules.minimumCount(tt), tt.count));
+        }
+        long step = Math.max(1, minTicks / timers.size());
+        long offset = 0;
+        for (BProgram.TimerTrigger tt : timers) {
+            tt.plus = offset;
+            offset = (offset + step) % Math.max(TimerRules.minimumCount(tt), tt.count);
+        }
+        layoutDirty = true;
+        showStatus("已均衡 " + timers.size() + " 个定时触发器的相位（全局时钟 + 错峰偏移），吞吐量不变", C_SELECT);
+    }
+
+    /** 成本模型的数据源：服务器推送的标签绑定计数（未知按保守值估算）。 */
+    private ProgramCost.LabelSizeLookup labelSizeLookup() {
+        return label -> knownLabelCounts.getOrDefault(label, 4);
+    }
+
+    /** 卡头成本角标：绿/黄/红点，悬停显示成本明细与优化建议。 */
+    private void renderCostBadge(GuiGraphics g, BProgram.Trigger t, int x, int y, int mx, int my) {
+        if (!(t instanceof BProgram.TimerTrigger) && !(t instanceof BProgram.PulseTrigger)) return;
+        ProgramCost.Cost cost = ProgramCost.of(t, labelSizeLookup());
+        int color = switch (cost.level()) {
+            case LOW -> 0xFF2FA84F;
+            case MEDIUM -> 0xFFE8A213;
+            case HIGH -> 0xFFD13438;
+        };
+        g.fill(x, y, x + 6, y + 6, color);
+        boolean hover = mx >= x - 2 && mx < x + 8 && my >= y - 2 && my < y + 8;
+        if (hover) {
+            List<Component> tip = new ArrayList<>();
+            tip.add(Component.literal("§e执行成本：" + cost.score() + " 等效试探/秒"));
+            tip.add(Component.literal(cost.detail()));
+            if (cost.level() != ProgramCost.Cost.Level.LOW) {
+                tip.add(Component.literal("§7优化：绑精确标签/指定槽位/拉长间隔/均衡相位（吞吐量不变）"));
+            }
+            g.renderTooltip(this.font, tip, java.util.Optional.empty(), mx, my);
+        }
+    }
+
     private void renderToolbar(GuiGraphics g, int mx, int my) {
         rounded(g, panelX, panelY, panelW, TOOLBAR_H, 10, 0xFAFFFFFF);
         g.fill(panelX, panelY + TOOLBAR_H - 1, panelX + panelW, panelY + TOOLBAR_H, G_BORDER_SOFT);
@@ -3524,6 +3583,11 @@ public class BlockEditorScreen extends Screen {
                     zoneDrawing = !zoneDrawing;
                     if (zoneDrawing) showStatus("在画布空白处拖出一个矩形即可创建分区（再点「分区」取消）", C_SELECT);
                 }, mx, my);
+        // 相位均衡：多台管理器/多个定时触发器在同一刻集中执行会造成 MSPT
+        // 尖刺（吞吐量不变，只挪触发时刻）。按序分配 plus 偏移摊平负载。
+        button(g, bx - 4 - 48, panelY + 4, 48, bh, "均衡相位", 0xCC5B6472, 0xCC49525E,
+                this::balanceTriggerPhases, mx, my);
+        bx -= 4 + 48;
         // 问题按钮：文案固定两字（错误/提醒）或四字（问题检查），宽度按文字
         // 实际宽度 + 余量计算，任何缩放下都不会超出按钮；数量在面板里看。
         long errCount = issueErrCount;
@@ -3818,6 +3882,9 @@ public class BlockEditorScreen extends Screen {
         g.fill(x, y + HEAD_H / 2, x + w, y + HEAD_H, headBg);
         rounded(g, x, y, 6, HEAD_H, 3, accent);
         border(g, x, y, w, h - 3, G_BORDER);
+
+        // 成本角标：抓手左侧的 6px 色点（绿/黄/红），悬停看明细
+        renderCostBadge(g, t, x + 6, y + HEAD_H - 9, mx, my);
 
         // 头部抓手：3×2 点阵，提示"这里可以拖"。画在 accent 条右侧，不占额外宽度。
         int gripC = mix(accent, 0xFFFFFFFF, 120);
