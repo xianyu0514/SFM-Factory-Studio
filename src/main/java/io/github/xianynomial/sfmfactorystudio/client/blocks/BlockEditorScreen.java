@@ -291,7 +291,8 @@ public class BlockEditorScreen extends Screen {
         }
     }
 
-    private static final int K_CLICK = 0, K_GRIP = 1, K_PALETTE = 2, K_BODY_SEL = 3, K_AB = 4, K_HEAD = 5;
+    private static final int K_CLICK = 0, K_GRIP = 1, K_PALETTE = 2, K_BODY_SEL = 3, K_AB = 4, K_HEAD = 5,
+            K_RCLICK = 6;   // 仅响应右键的命中（资源槽复制/粘贴等）
     /** 命中框可视化配色（Ctrl+Shift+D）：按下标对应上面的 K_* 常量。 */
     private static final int[] DBG = {0xFFFF3B30, 0xFF34C759, 0xFFFF9500, 0xFF5859D6, 0xFFAF52DE, 0xFF007AFF};
 
@@ -373,6 +374,8 @@ public class BlockEditorScreen extends Screen {
     private long perfLayoutNanos = 0;
 
     private static String clipboardSfml = null;
+    /** 资源槽右键复制的资源（跨卡片可用，会话内保留）。 */
+    private BProgram.ResourceRef copiedResource = null;
     private boolean clipboardTriggers = false; // last copy was whole triggers
 
     public BlockEditorScreen(ManagerContainerMenu menu, String programText,
@@ -1608,6 +1611,13 @@ public class BlockEditorScreen extends Screen {
         for (int i = hits.size() - 1; i >= 0; i--) {
             Hit h = hits.get(i);
             if (in(h, cx, cy)) {
+                if (h.kind == K_RCLICK) {
+                    if (button == 2) {
+                        h.onClick.run();
+                        return true;
+                    }
+                    continue; // 左键/中键穿透到普通命中
+                }
                 if (h.kind == K_GRIP && button == 0) {
                     if (hasShiftDown()) {
                         // Shift+点击行：加选/减选，不进入拖动
@@ -4244,6 +4254,12 @@ public class BlockEditorScreen extends Screen {
         g.fill(fx + 1, y + size - 2, fx + size - 1, y + size - 1, 0x8CFFFFFF);
         g.fill(fx + size - 2, y + 1, fx + size - 1, y + size - 1, 0x8CFFFFFF);
         g.drawString(this.font, "＋", fx + 6, y + 6, 0xFF8A94A6, false);
+        hits.add(hit(fx, y, size, size, K_RCLICK, null, () -> openResourceSlotContext(px, py,
+                BProgram.ResourceRef.forKind(BProgram.ResourceKind.ITEM), picked -> {
+                    pushUndo();
+                    rl.resources.add(picked);
+                    layoutDirty = true;
+                })));
         hits.add(hit(fx, y, size, size, K_CLICK, null, () -> openNewResourceKindMenu(px, py, res -> {
             pushUndo();
             rl.resources.add(res);
@@ -5306,6 +5322,8 @@ public class BlockEditorScreen extends Screen {
             }
         }
         if (hover) border(g, x, y, size, size, C_SELECT);
+        hits.add(hit(x, y, size, size, K_RCLICK, null,
+                () -> openResourceSlotContext(x, y, current, setter)));
         hits.add(hit(x, y, size, size, K_CLICK, null,
                 () -> openResourceValueMenu(x, y, current, setter)));
         addGhostZone(x, y, size, size, current.toString(), dropped -> {
@@ -5845,6 +5863,52 @@ public class BlockEditorScreen extends Screen {
     private void openResourceValueMenu(int contentX, int contentY, BProgram.ResourceRef current,
                                        Consumer<BProgram.ResourceRef> setter) {
         showResourceValueMenu(sX(contentX), sY(contentY) + BAR_H + 2, current, setter);
+    }
+
+    /**
+     * 资源槽右键：复制/粘贴/清空。复制把资源存进会话剪贴板；粘贴把剪贴板
+     * 资源填进本槽（跨卡片可用）。有剪贴板时空槽右键直接粘贴，免菜单。
+     */
+    private void openResourceSlotContext(int contentX, int contentY,
+                                         BProgram.ResourceRef current, Consumer<BProgram.ResourceRef> setter) {
+        if (copiedResource != null && current.isWildcard()) {
+            // 空槽 + 剪贴板有货：直接粘贴（最常见意图，免一次菜单）
+            pushUndo();
+            setter.accept(copiedResource);
+            showStatus("已粘贴资源 " + copiedResource.resourcePart(), C_SELECT);
+            return;
+        }
+        List<String> values = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        if (!current.isWildcard()) {
+            values.add("copy");
+            labels.add("复制资源");
+        }
+        if (copiedResource != null) {
+            values.add("paste");
+            labels.add("粘贴：" + copiedResource.resourcePart());
+            values.add("clear");
+            labels.add("清空此槽");
+        }
+        values.add("browse");
+        labels.add("浏览选择…");
+        setPopup(new Popup.ChoicePopup(sX(contentX), sY(contentY) + BAR_H, 170, values, labels, "", action -> {
+            switch (action) {
+                case "copy" -> {
+                    copiedResource = current;
+                    showStatus("已复制资源 " + current.resourcePart() + "，右键任意空槽粘贴", C_SELECT);
+                }
+                case "paste" -> {
+                    pushUndo();
+                    setter.accept(copiedResource);
+                }
+                case "clear" -> {
+                    pushUndo();
+                    setter.accept(BProgram.ResourceRef.forKind(current.kind()));
+                }
+                case "browse" -> openResourceValueMenu(contentX, contentY, current, setter);
+            }
+        }));
     }
 
     private void showResourceValueMenu(int screenX, int screenY, BProgram.ResourceRef current,
