@@ -17,6 +17,7 @@ import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.C
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.Gap;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.ProgramDiagnostics;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlToBlocks;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlSyntax;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlValidate;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.TimerRules;
 import io.github.xianynomial.sfmfactorystudio.net.SFMGuiNetwork;
@@ -109,6 +110,14 @@ public class BlockEditorScreen extends Screen {
     private float zoom = 1.0f;
     private int viewX = 0, viewY = 0;
     private boolean fitted = false;
+
+    /**
+     * 状态机调试断言（见 docs/editor-state-machine.md）。排查"积木/代码
+     * 不同步""保存后内容回退""视角被抢"时改 true 重编译，日志过滤
+     * [sfmjimu-state]；发布版保持 false 零开销。
+     */
+    private static final boolean DEBUG_STATE = false;
+    private int awaitingValidationTicks = 0; // DEBUG_STATE：防抖悬停计时
 
     // ---- 诊断面板（问题检查）--------------------------------------------------
     // 每 5 tick 重算一次（含未绑定标签、类别不符等运行期静默失败项），
@@ -512,6 +521,7 @@ public class BlockEditorScreen extends Screen {
             // 5 tick 只是“变化后多久刷新”的延迟上限；程序与标签都没变就不重算
             if (modelVersion != issuesVersion) refreshIssues();
         }
+        if (DEBUG_STATE) debugAssertState();
         if (draftSaveDelay > 0 && --draftSaveDelay == 0 && dirty) {
             saveDraft();
         }
@@ -697,6 +707,28 @@ public class BlockEditorScreen extends Screen {
     /** The source pane is canonical after a text edit; otherwise blocks are. */
     private String currentSource() {
         return codeTextEdited && codeEditor != null ? codeEditor.value() : generated();
+    }
+
+    /**
+     * 状态机断言（DEBUG_STATE 开启时每 tick 跑）。三条断言对应三类历史
+     * 事故，逐条语义见 docs/editor-state-machine.md 第三节。
+     */
+    private void debugAssertState() {
+        if (codeTextEdited && blocksNewerThanCode) {
+            io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.warn("[sfmjimu-state] codeAuthoritative but blocksNewer —— 代码权威期间积木侧又编辑了，确认同步链是否覆盖");
+        }
+        if (codeAwaitingValidation) {
+            awaitingValidationTicks++;
+            if (awaitingValidationTicks == 40) {
+                io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.warn("[sfmjimu-state] awaitingValidation > 40 ticks —— 代码校验防抖悬停过久，校验链可能卡死");
+            }
+        } else {
+            awaitingValidationTicks = 0;
+        }
+        if (codeTextEdited && codeEditor != null && !codeAwaitingValidation
+                && codeEditor.value().equals(generated())) {
+            io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.warn("[sfmjimu-state] stale codeText but model unchanged —— 代码权威但两侧内容相等，权威切换可能丢失");
+        }
     }
 
     private void onCodeTextChanged(String ignored) {
@@ -5763,7 +5795,12 @@ public class BlockEditorScreen extends Screen {
     }
 
     private @Nullable String validTagMatcher(String value) {
-        String matcher = value == null ? "" : value.trim().replaceFirst("^#+", "");
+        // 与选择器/序列化/诊断共用 SfmlSyntax 白名单：先过语法，再走真编译器兜底
+        String matcher = SfmlSyntax.sanitizeTagMatcher(value);
+        if (matcher == null) {
+            showStatus("✖ 资源标签格式不正确（只允许字母数字下划线和 * / :）", 0xFFD13438);
+            return null;
+        }
         SfmlToBlocks.ResultWithFilter parsed = SfmlToBlocks.parseWithFilter("with #" + matcher);
         if (!parsed.ok()) {
             showStatus("✖ 资源标签原标签格式不正确", 0xFFD13438);

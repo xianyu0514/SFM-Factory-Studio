@@ -560,9 +560,10 @@ public final class ProgramDiagnostics {
         if (expr == null) {
             error(issues, path, "缺少资源标签条件", null, null, null);
         } else if (expr instanceof BProgram.WithExpr.Tag tag) {
+            // 与序列化共用 SfmlSyntax 白名单：拦截的与报错的永远一致
             String matcher = tag.matcher == null ? "" : tag.matcher.trim().replaceFirst("^#+", "");
-            if (!matcher.matches("[a-zA-Z_*][a-zA-Z0-9_*]*(?::[a-zA-Z_*][a-zA-Z0-9_*]*)?(?:/[a-zA-Z_*][a-zA-Z0-9_*]*)*")) {
-                error(issues, path, "资源标签标签格式不正确", null, null, null);
+            if (!SfmlSyntax.isEncodableTag(matcher)) {
+                error(issues, path, "资源标签格式不正确", null, null, null);
             }
         } else if (expr instanceof BProgram.WithExpr.Not not) {
             checkWith(not.inner, path, issues);

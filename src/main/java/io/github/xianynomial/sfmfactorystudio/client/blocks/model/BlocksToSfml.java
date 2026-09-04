@@ -353,9 +353,8 @@ public final class BlocksToSfml {
     private static String normalizeTagMatcher(String matcher) {
         String text = matcher == null ? "*" : matcher.trim();
         while (text.startsWith("#")) text = text.substring(1);
-        return text.matches("[a-zA-Z_*][a-zA-Z0-9_*]*(?::[a-zA-Z_*][a-zA-Z0-9_*]*)?(?:/[a-zA-Z_*][a-zA-Z0-9_*]*)*")
-                ? text
-                : "*";
+        // 语法白名单唯一裁决点（含 - 或 . 的 id 写不进 SFML，降级成通配）
+        return SfmlSyntax.isEncodableTag(text) ? text : "*";
     }
 
     private static boolean validStatementFragment(String text) {
