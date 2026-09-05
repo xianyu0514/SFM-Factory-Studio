@@ -304,7 +304,9 @@ abstract class Popup {
             this.openPicker = openPicker;
             this.confirmLabel = confirmLabel;
             this.livePreview = livePreview;
-            this.h = confirmLabel == null ? 20 + (openPicker != null ? 22 : 0) : 44;
+            // 面板高度含预览行（有预览函数时 +14），预览画在面板内部不压游戏画面
+            this.h = (confirmLabel == null ? 20 + (openPicker != null ? 22 : 0) : 44)
+                    + (livePreview != null ? 14 : 0);
             var mc = Minecraft.getInstance();
             int boxW = w - 8 - (openPicker != null ? 50 : 0);
             box = new EditBox(mc.font, x + 4, y + 4, boxW, 16, Component.literal(hint));
@@ -326,7 +328,9 @@ abstract class Popup {
             if (livePreview != null) {
                 String preview = livePreview.apply(box.getValue());
                 if (preview != null && !preview.isEmpty()) {
-                    g.drawString(font, preview, x + 5, y + h + 3, 0xFF5C6779, false);
+                    int py2 = y + h - (confirmLabel != null ? 22 : 0) - 13;
+                    g.fill(x + 3, py2 - 2, x + w - 3, py2 + 10, 0xFFF6F8FC); // 白底防重叠
+                    g.drawString(font, preview, x + 5, py2, 0xFF5C6779, false);
                 }
             }
             if (openPicker != null) {

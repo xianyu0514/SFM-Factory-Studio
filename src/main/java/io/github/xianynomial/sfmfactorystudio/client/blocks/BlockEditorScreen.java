@@ -1680,12 +1680,13 @@ public class BlockEditorScreen extends Screen {
         // Ctrl+左键：在任意位置（包括积木上）起框，不被命中区抢走
         boolean overCanvas = mx >= canvasX && mx < canvasX + canvasW
                 && my >= canvasY && my < canvasY + canvasH;
-        // 右键优先命中 K_RCLICK（积木行复制/标签/资源槽）——平移只在没有
-        // 右键目标时才开始。左键不走这里（左键有自己的命中分发）。
-        if (overCanvas && button == 2) {
+        // 右键优先命中 K_RCLICK：在 super/uiHits 之前判定（右键语义=命中
+        // 什么就复制什么；未命中任何 K_RCLICK 才轮到平移/卡片菜单）。
+        if (button == 2) {
+            double rcx = ctX(mx), rcy = ctY(my);
             for (int i = hits.size() - 1; i >= 0; i--) {
                 Hit h = hits.get(i);
-                if (h.kind == K_RCLICK && in(h, cx, cy)) {
+                if (h.kind == K_RCLICK && in(h, rcx, rcy)) {
                     h.onClick.run();
                     return true;
                 }
@@ -5174,7 +5175,28 @@ public class BlockEditorScreen extends Screen {
                     layoutDirty = true;
                 });
                 case "sides" -> openSideEditor(x, y, access);
-                case "slots" -> openTextEditor(x, y, "", value -> setSlotsFromText(access.slots, value), null, 150);
+                case "slots" -> openTextEditor(x, y, "", value -> setSlotsFromText(access.slots, value), null, 150,
+                        input -> {
+                            String v = input == null ? "" : input.trim();
+                            if (v.isEmpty()) return "清空 = 不限制（全部槽位）";
+                            if (v.equalsIgnoreCase("all") || v.equals("全部")) return "不限制（全部槽位）";
+                            List<BProgram.SlotRange> parsed = new ArrayList<>();
+                            try {
+                                for (String part : v.split("[,，;；+\s]+")) {
+                                    if (part.isBlank()) continue;
+                                    parsed.add(BProgram.SlotRange.parseLenient(part, slotTotalHint()));
+                                }
+                            } catch (IllegalArgumentException ex) {
+                                return "✖ " + ex.getMessage();
+                            }
+                            int n = 0;
+                            for (BProgram.SlotRange r : parsed) n += (int) (r.last() - r.first() + 1);
+                            String joined = parsed.stream().map(BProgram.SlotRange::sfml)
+                                    .collect(java.util.stream.Collectors.joining("、"));
+                            String over = slotLayoutTotal >= 0 && parsed.stream().anyMatch(r -> r.last() >= slotLayoutTotal)
+                                    ? "（超出容器 " + slotLayoutTotal + " 格！）" : "";
+                            return "将指定 " + n + " 个槽位：" + joined + over;
+                        });
                 case "round_robin" -> openChoice(x, y, "none",
                         List.of("label", "block"), List.of("按标签轮流", "按方块轮流"), value -> {
                             pushUndo();
