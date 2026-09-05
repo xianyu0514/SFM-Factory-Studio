@@ -3504,7 +3504,7 @@ public class BlockEditorScreen extends Screen {
             if (t instanceof BProgram.TimerTrigger tt) timers.add(tt);
         }
         if (timers.size() < 2) {
-            showStatus("只有一个定时触发器，无需均衡相位", C_TEXT_SUB);
+            showStatus("只有一个定时触发器，无需平衡优化", C_TEXT_SUB);
             return;
         }
         pushUndo();
@@ -3528,7 +3528,7 @@ public class BlockEditorScreen extends Screen {
         return label -> knownLabelCounts.getOrDefault(label, 4);
     }
 
-    /** 卡头成本角标：绿/黄/红点，悬停显示成本明细与优化建议。 */
+    /** 卡头右上角成本角标：绿/黄/红点，悬停显示成本明细与优化建议。 */
     private void renderCostBadge(GuiGraphics g, BProgram.Trigger t, int x, int y, int mx, int my) {
         if (!(t instanceof BProgram.TimerTrigger) && !(t instanceof BProgram.PulseTrigger)) return;
         ProgramCost.Cost cost = ProgramCost.of(t, labelSizeLookup());
@@ -3538,15 +3538,17 @@ public class BlockEditorScreen extends Screen {
             case HIGH -> 0xFFD13438;
         };
         g.fill(x, y, x + 6, y + 6, color);
+        // mx/my 是内容坐标（缩放+平移后），renderTooltip 需要屏幕坐标
+        int smx = sX(x), smy = sY(y);
         boolean hover = mx >= x - 2 && mx < x + 8 && my >= y - 2 && my < y + 8;
         if (hover) {
             List<Component> tip = new ArrayList<>();
             tip.add(Component.literal("§e执行成本：" + cost.score() + " 等效试探/秒"));
             tip.add(Component.literal(cost.detail()));
             if (cost.level() != ProgramCost.Cost.Level.LOW) {
-                tip.add(Component.literal("§7优化：绑精确标签/指定槽位/拉长间隔/均衡相位（吞吐量不变）"));
+                tip.add(Component.literal("§7优化：绑精确标签/指定槽位/拉长间隔/平衡优化（吞吐量不变）"));
             }
-            g.renderTooltip(this.font, tip, java.util.Optional.empty(), mx, my);
+            g.renderTooltip(this.font, tip, java.util.Optional.empty(), smx + 8, smy);
         }
     }
 
@@ -3585,7 +3587,7 @@ public class BlockEditorScreen extends Screen {
                 }, mx, my);
         // 相位均衡：多台管理器/多个定时触发器在同一刻集中执行会造成 MSPT
         // 尖刺（吞吐量不变，只挪触发时刻）。按序分配 plus 偏移摊平负载。
-        button(g, bx - 4 - 48, panelY + 4, 48, bh, "均衡相位", 0xCC5B6472, 0xCC49525E,
+        button(g, bx - 4 - 48, panelY + 4, 48, bh, "平衡优化", 0xCC5B6472, 0xCC49525E,
                 this::balanceTriggerPhases, mx, my);
         bx -= 4 + 48;
         // 问题按钮：文案固定两字（错误/提醒）或四字（问题检查），宽度按文字
@@ -3884,7 +3886,7 @@ public class BlockEditorScreen extends Screen {
         border(g, x, y, w, h - 3, G_BORDER);
 
         // 成本角标：抓手左侧的 6px 色点（绿/黄/红），悬停看明细
-        renderCostBadge(g, t, x + 6, y + HEAD_H - 9, mx, my);
+        renderCostBadge(g, t, x + w - 30, y + 9, mx, my);
 
         // 头部抓手：3×2 点阵，提示"这里可以拖"。画在 accent 条右侧，不占额外宽度。
         int gripC = mix(accent, 0xFFFFFFFF, 120);
