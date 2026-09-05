@@ -434,6 +434,8 @@ public class BlockEditorScreen extends Screen {
     private static volatile boolean slotLayoutServerSeen = false;
     /** 标签药丸右键复制的标签组（跨卡片可用）。 */
     private List<String> copiedLabels = null;
+    /** 资源标签药丸右键复制的匹配串。 */
+    private String copiedTagMatcher = null;
     private boolean clipboardTriggers = false; // last copy was whole triggers
 
     public BlockEditorScreen(ManagerContainerMenu menu, String programText,
@@ -3278,14 +3280,16 @@ public class BlockEditorScreen extends Screen {
         // ---- end content transform ----
         // 成本角标 tooltip：屏幕坐标空间、scissor 之外绘制（内容空间里会被
         // 缩放矩阵扭曲+裁剪，这就是此前"悬停无提示"的根因）
+        } finally {
+            g.disableScissor(); // never leak the clip: it would cut the whole game to this rect
+        }
+        // 成本角标 tooltip：必须在 disableScissor 之后画——角标在卡片右缘，
+        // tooltip 向右展开会超出画布矩形，scissor 内绘制必然被裁没
         if (pendingCostTooltip != null && pendingCostTooltipAt != null) {
             g.renderTooltip(this.font, pendingCostTooltip, java.util.Optional.empty(),
                     pendingCostTooltipAt[0] + 8, pendingCostTooltipAt[1]);
             pendingCostTooltip = null;
             pendingCostTooltipAt = null;
-        }
-        } finally {
-            g.disableScissor(); // never leak the clip: it would cut the whole game to this rect
         }
 
         if (debugHits) {
@@ -3963,7 +3967,7 @@ public class BlockEditorScreen extends Screen {
         border(g, x, y, w, h - 3, G_BORDER);
 
         // 成本角标：抓手左侧的 6px 色点（绿/黄/红），悬停看明细
-        renderCostBadge(g, t, x + w - 30, y + 9, mx, my);
+        renderCostBadge(g, t, x + w - 13, y + HEAD_H / 2 - 3, mx, my);
 
         // 头部抓手：3×2 点阵，提示"这里可以拖"。画在 accent 条右侧，不占额外宽度。
         int gripC = mix(accent, 0xFFFFFFFF, 120);
@@ -4367,9 +4371,22 @@ public class BlockEditorScreen extends Screen {
         BProgram.ResourceLimit rl = primaryLimit(in.limits);
         fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
-        if (rl == null || rl.resources.size() <= 1) {
-            fx = drawAndAddSlot(g, fx, y, rl, mx, my);
+        // 备选资源延主行显示（用户多次强调不换行）：主槽后直接续排
+        if (rl != null && rl.resources.size() > 1) {
+            for (int ai = 1; ai < rl.resources.size(); ai++) {
+                final int idx = ai;
+                fx = drawResourceValueSlot(g, fx, y, rl.resources.get(ai), picked -> {
+                    pushUndo();
+                    rl.resources.set(idx, picked);
+                }, mx, my);
+                fx = drawIcon(g, fx - 2, y, "✕", () -> {
+                    pushUndo();
+                    rl.resources.remove(idx);
+                    layoutDirty = true;
+                }, mx, my, 0xFFC22B21);
+            }
         }
+        fx = drawAndAddSlot(g, fx, y, rl, mx, my);
         fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? "收起" : "展开", 34,
                 () -> expandOrMenu(stmt, in, x, y, list, index), mx, my, true);
         drawDelete(g, x + w - 16, y + 3, () -> {
@@ -4377,10 +4394,8 @@ public class BlockEditorScreen extends Screen {
             list.remove(index);
         }, mx, my);
 
-        drawAltResourceRows(g, x, y + BAR_H, rl, mx, my);
-
         if (expandedIds.contains(stmt.id)) {
-            renderIOOptions(g, x + INDENT, y + BAR_H + (rl != null && rl.resources.size() > 1 ? BAR_H : 0), mx, my, in, list, index);
+            renderIOOptions(g, x + INDENT, y + BAR_H, mx, my, in, list, index);
         }
     }
 
@@ -4402,9 +4417,21 @@ public class BlockEditorScreen extends Screen {
         BProgram.ResourceLimit rl = primaryLimit(out.limits);
         fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
-        if (rl == null || rl.resources.size() <= 1) {
-            fx = drawAndAddSlot(g, fx, y, rl, mx, my);
+        if (rl != null && rl.resources.size() > 1) {
+            for (int ai = 1; ai < rl.resources.size(); ai++) {
+                final int idx = ai;
+                fx = drawResourceValueSlot(g, fx, y, rl.resources.get(ai), picked -> {
+                    pushUndo();
+                    rl.resources.set(idx, picked);
+                }, mx, my);
+                fx = drawIcon(g, fx - 2, y, "✕", () -> {
+                    pushUndo();
+                    rl.resources.remove(idx);
+                    layoutDirty = true;
+                }, mx, my, 0xFFC22B21);
+            }
         }
+        fx = drawAndAddSlot(g, fx, y, rl, mx, my);
         fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? "收起" : "展开", 34,
                 () -> expandOrMenu(stmt, out, x, y, list, index), mx, my, true);
         drawDelete(g, x + w - 16, y + 3, () -> {
@@ -4412,10 +4439,9 @@ public class BlockEditorScreen extends Screen {
             list.remove(index);
         }, mx, my);
 
-        drawAltResourceRows(g, x, y + BAR_H, rl, mx, my);
 
         if (expandedIds.contains(stmt.id)) {
-            renderOutputOptions(g, x + INDENT, y + BAR_H + (rl != null && rl.resources.size() > 1 ? BAR_H : 0), mx, my, out, list, index);
+            renderOutputOptions(g, x + INDENT, y + BAR_H, mx, my, out, list, index);
         }
     }
 
@@ -4490,23 +4516,6 @@ public class BlockEditorScreen extends Screen {
      * 主组备选资源续行：紧凑芯片（物品槽+✕，固定 30px 步进），排完后「和」
      * 空位收尾。不换行——卡片宽度由 EditorLayout 按内容计算（不重叠）。
      */
-    private void drawAltResourceRows(GuiGraphics g, int x, int y, BProgram.ResourceLimit rl, int mx, int my) {
-        if (rl == null || rl.resources.size() <= 1) return;
-        int fx = x + 12;
-        for (int idx = 1; idx < rl.resources.size(); idx++) {
-            final int i2 = idx;
-            fx = drawResourceValueSlot(g, fx, y, rl.resources.get(idx), picked -> {
-                pushUndo();
-                rl.resources.set(i2, picked);
-            }, mx, my);
-            fx = drawIcon(g, fx - 2, y, "✕", () -> {
-                pushUndo();
-                rl.resources.remove(i2);
-                layoutDirty = true;
-            }, mx, my, 0xFFC22B21);
-        }
-        drawAndAddSlot(g, fx, y, rl, mx, my);
-    }
 
     /**
      * 展开按钮：已展开→收起；已有扩展内容→展开；还什么都没有→展开并直接弹
@@ -4751,6 +4760,7 @@ public class BlockEditorScreen extends Screen {
                                     SlotPickerScreen.unavailable());
                             return;
                         }
+                        slotLayoutTotal = total;   // 输入校验的超界提示依赖它
                         List<Integer> initialSel = new ArrayList<>();
                         for (BProgram.SlotRange r : access.slots) {
                             for (long v = r.first(); v <= r.last() && v < (total < 0 ? Long.MAX_VALUE : total); v++) {
@@ -4891,6 +4901,10 @@ public class BlockEditorScreen extends Screen {
         }
         g.drawString(this.font, shown, x + 4 + connW, y + 8, 0xFF1B4FA0, false);
         final int px2 = x, py2 = y;
+        hits.add(hit(x, y + 2, pw - 18, OPT_H - 6, K_RCLICK, null, () -> {
+            copiedTagMatcher = tag.matcher;
+            showStatus("已复制资源标签 " + tag.matcher + "（＋ 且…/或… 后可粘贴）", C_SELECT);
+        }));
         hits.add(hit(x, y + 2, pw - 18, OPT_H - 6, K_CLICK, null,
                 () -> openWithTagMenu(px2, py2 + OPT_H, limit, tag)));
         drawIcon(g, x + pw - 17, y - 1, "✕", () -> {
@@ -4918,8 +4932,14 @@ public class BlockEditorScreen extends Screen {
     /** 「＋ 且…」「＋ 或…」点开后的三条路径，和原先的入口完全一致。 */
     private void openWithAddMenu(int x, int y, BProgram.ResourceLimit limit, boolean useOr) {
         String prefix = useOr ? "或：" : "且：";
-        List<String> values = new ArrayList<>(List.of("item", "all", "manual"));
-        List<String> labels = new ArrayList<>(List.of(
+        List<String> values = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        if (copiedTagMatcher != null) {
+            values.add("paste_tag");
+            labels.add(prefix + "粘贴：" + copiedTagMatcher);
+        }
+        values.addAll(List.of("item", "all", "manual"));
+        labels.addAll(List.of(
                 prefix + "从物品选择资源标签",
                 prefix + "搜索全部资源标签",
                 prefix + "手动输入原标签（高级）"));
@@ -4935,6 +4955,7 @@ public class BlockEditorScreen extends Screen {
                 layoutDirty = true;
             };
             switch (picked) {
+                case "paste_tag" -> add.accept(copiedTagMatcher);
                 case "item" -> openResourceTagPicker(false, add);
                 case "all" -> openResourceTagPicker(true, add);
                 case "nbt" -> Minecraft.getInstance().setScreen(
