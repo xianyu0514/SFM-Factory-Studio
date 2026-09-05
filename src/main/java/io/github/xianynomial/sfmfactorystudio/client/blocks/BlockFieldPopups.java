@@ -276,7 +276,7 @@ abstract class Popup {
 
         public TextPopup(Screen host, int x, int y, int w, String initial, String hint,
                          Consumer<String> onDone, Runnable openPicker) {
-            this(host, x, y, w, initial, hint, onDone, openPicker, null);
+            this(host, x, y, w, initial, hint, onDone, openPicker, null, null);
         }
 
         /** Text input with visible cancel/confirm actions for consequential edits. */
@@ -285,8 +285,17 @@ abstract class Popup {
             return new TextPopup(host, x, y, w, initial, hint, onDone, openPicker, confirmLabel);
         }
 
+        private final java.util.function.Function<String, String> livePreview;
+
         private TextPopup(Screen host, int x, int y, int w, String initial, String hint,
                           Consumer<String> onDone, Runnable openPicker, String confirmLabel) {
+            this(host, x, y, w, initial, hint, onDone, openPicker, confirmLabel, null);
+        }
+
+        /** 带实时预览的文本输入：每帧把当前输入交给 preview 生成提示行。 */
+        public TextPopup(Screen host, int x, int y, int w, String initial, String hint,
+                         Consumer<String> onDone, Runnable openPicker, String confirmLabel,
+                         java.util.function.Function<String, String> livePreview) {
             this.host = host;
             this.x = x;
             this.y = y;
@@ -294,6 +303,7 @@ abstract class Popup {
             this.onDone = onDone;
             this.openPicker = openPicker;
             this.confirmLabel = confirmLabel;
+            this.livePreview = livePreview;
             this.h = confirmLabel == null ? 20 + (openPicker != null ? 22 : 0) : 44;
             var mc = Minecraft.getInstance();
             int boxW = w - 8 - (openPicker != null ? 50 : 0);
@@ -313,6 +323,12 @@ abstract class Popup {
         public void render(GuiGraphics g, Font font, int mx, int my) {
             panel(g, x, y, w, h);
             box.render(g, mx, my, 0);
+            if (livePreview != null) {
+                String preview = livePreview.apply(box.getValue());
+                if (preview != null && !preview.isEmpty()) {
+                    g.drawString(font, preview, x + 5, y + h + 3, 0xFF5C6779, false);
+                }
+            }
             if (openPicker != null) {
                 int bx = x + w - 54, by = y + 4;
                 boolean hover = mx >= bx && mx < bx + 50 && my >= by && my < by + 16;

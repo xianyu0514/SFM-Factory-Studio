@@ -4703,7 +4703,28 @@ public class BlockEditorScreen extends Screen {
             final int fieldX = fx, rowY = y;
             fx = drawField(g, fx, y, slotText(access.slots), 70,
                     () -> openTextEditor(fieldX, rowY, slotText(access.slots),
-                            value -> setSlotsFromText(access.slots, value), null, 150), mx, my, false);
+                            value -> setSlotsFromText(access.slots, value), null, 150,
+                            input -> {
+                                String v = input == null ? "" : input.trim();
+                                if (v.isEmpty()) return "清空 = 不限制（全部槽位）";
+                                if (v.equalsIgnoreCase("all") || v.equals("全部")) return "不限制（全部槽位）";
+                                List<BProgram.SlotRange> parsed = new ArrayList<>();
+                                try {
+                                    for (String part : v.split("[,，;；+\s]+")) {
+                                        if (part.isBlank()) continue;
+                                        parsed.add(BProgram.SlotRange.parseLenient(part, slotTotalHint()));
+                                    }
+                                } catch (IllegalArgumentException ex) {
+                                    return "✖ " + ex.getMessage();
+                                }
+                                int n = 0;
+                                for (BProgram.SlotRange r : parsed) n += (int) (r.last() - r.first() + 1);
+                                String joined = parsed.stream().map(BProgram.SlotRange::sfml)
+                                        .collect(java.util.stream.Collectors.joining("、"));
+                                String over = slotLayoutTotal >= 0 && parsed.stream().anyMatch(r -> r.last() >= slotLayoutTotal)
+                                        ? "（超出容器 " + slotLayoutTotal + " 格！）" : "";
+                                return "将指定 " + n + " 个槽位：" + joined + over;
+                            }), mx, my, false);
             // 槽位可视化（beta）：仅双端安装时显示（服务端未装直接隐藏）
             // 槽位可视化（beta）：双端安装且该语句至少有一个标签可定位时显示
             var visualPos = firstBoundBlockPos(access.labels);
@@ -5226,12 +5247,21 @@ public class BlockEditorScreen extends Screen {
         pushUndo();
         target.clear();
         target.addAll(parsed);
-        if (slotLayoutTotal >= 0) {
-            for (BProgram.SlotRange r : parsed) {
-                if (r.last() >= slotLayoutTotal) {
-                    showStatus("⚠ 该容器只有 " + slotLayoutTotal + " 格（0-" + (slotLayoutTotal - 1) + "），超出部分可能无效", 0xFFB45309);
-                    break;
-                }
+        // 成功反馈：用大白话告诉玩家最终生效了哪些槽位（含成功后的提醒）
+        if (parsed.isEmpty()) {
+            showStatus("✔ 已取消槽位限制：现在搬运该容器的全部槽位", 0xFF18794E);
+        } else {
+            int slots = 0;
+            for (BProgram.SlotRange r : parsed) slots += (int) (r.last() - r.first() + 1);
+            String detail = parsed.stream().map(BProgram.SlotRange::sfml)
+                    .collect(java.util.stream.Collectors.joining("、"));
+            String known = slotLayoutTotal >= 0 ? "（容器共 " + slotLayoutTotal + " 格）" : "";
+            boolean over = slotLayoutTotal >= 0 && parsed.stream().anyMatch(r -> r.last() >= slotLayoutTotal);
+            if (over) {
+                showStatus("⚠ 已设置槽位 " + detail + "，但该容器只有 " + slotLayoutTotal
+                        + " 格（0-" + (slotLayoutTotal - 1) + "），超出的部分不会生效", 0xFFB45309);
+            } else {
+                showStatus("✔ 成功指定 " + slots + " 个槽位：" + detail + known, 0xFF18794E);
             }
         }
     }
@@ -5803,7 +5833,15 @@ public class BlockEditorScreen extends Screen {
 
     private void openTextEditor(int x, int y, String initial, Consumer<String> onDone,
                                 Runnable unused, int width) {
-        setPopup(new Popup.TextPopup(this, sX(x), sY(y) + BAR_H - 3, width, initial, "", onDone, null));
+        openTextEditor(x, y, initial, onDone, unused, width, null);
+    }
+
+    /** 带实时预览行的文本编辑（预览函数可为 null）。 */
+    private void openTextEditor(int x, int y, String initial, Consumer<String> onDone,
+                                Runnable unused, int width,
+                                java.util.function.Function<String, String> livePreview) {
+        setPopup(new Popup.TextPopup(this, sX(x), sY(y) + BAR_H - 3, width, initial, "", onDone, null,
+                null, livePreview));
     }
 
     /** Fully structured Chinese editor for `with/without` tag expressions. */
