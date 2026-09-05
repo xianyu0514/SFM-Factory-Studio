@@ -32,14 +32,14 @@ public final class SlotLayoutRequestHandler {
             if (!(ctx.player() instanceof ServerPlayer player)) return;
             BlockEntity be = player.level().getBlockEntity(msg.pos());
             if (be == null) {
-                send(player, msg.pos(), -1, List.of());
+                send(player, msg.pos(), -1, List.of(), "");
                 return;
             }
 
             // 1) 已有缓存直接回
             SlotLayoutCache.Entry cached = SlotLayoutCache.get(be.getBlockPos(), be.getBlockState());
             if (cached != null) {
-                send(player, msg.pos(), cached.total(), cached.slots());
+                send(player, msg.pos(), cached.total(), cached.slots(), cached.menuClass());
                 return;
             }
 
@@ -66,8 +66,9 @@ public final class SlotLayoutRequestHandler {
                 if (cap != null) total = cap.getSlots();
             }
 
-            SlotLayoutCache.put(be.getBlockPos(), be.getBlockState(), total, coords);
-            send(player, msg.pos(), total, coords);
+            String menuClass = probe != null ? probe.getClass().getSimpleName() : "";
+            SlotLayoutCache.put(be.getBlockPos(), be.getBlockState(), total, coords, menuClass);
+            send(player, msg.pos(), total, coords, menuClass);
         });
     }
 
@@ -83,7 +84,7 @@ public final class SlotLayoutRequestHandler {
     }
 
     private static void send(ServerPlayer player, net.minecraft.core.BlockPos pos,
-                             int total, List<int[]> coords) {
-        PacketDistributor.sendToPlayer(player, new SlotLayoutPayload(pos, total, coords));
+                             int total, List<int[]> coords, String menuClass) {
+        PacketDistributor.sendToPlayer(player, new SlotLayoutPayload(pos, total, coords, menuClass));
     }
 }

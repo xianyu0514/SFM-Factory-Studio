@@ -13,7 +13,7 @@ import java.util.List;
  * 服务端 → 客户端：槽位布局快照。total=-1 表示目标不是容器；
  * slots 为空且 total>0 表示只知道槽数（客户端走自适应网格）。
  */
-public record SlotLayoutPayload(BlockPos pos, int total, List<int[]> slots) implements CustomPacketPayload {
+public record SlotLayoutPayload(BlockPos pos, int total, List<int[]> slots, String menuClass) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<SlotLayoutPayload> TYPE =
             new CustomPacketPayload.Type<>(net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(
                     "sfmfactorystudio", "slot_layout"));
@@ -28,7 +28,8 @@ public record SlotLayoutPayload(BlockPos pos, int total, List<int[]> slots) impl
         int n = buf.readVarInt();
         List<int[]> slots = new ArrayList<>(Math.max(0, n));
         for (int i = 0; i < n; i++) slots.add(new int[]{buf.readVarInt(), buf.readVarInt()});
-        return new SlotLayoutPayload(pos, total, slots);
+        String menuClass = buf.readUtf();
+        return new SlotLayoutPayload(pos, total, slots, menuClass);
     }
 
     private void write(FriendlyByteBuf buf) {
@@ -39,12 +40,13 @@ public record SlotLayoutPayload(BlockPos pos, int total, List<int[]> slots) impl
             buf.writeVarInt(c[0]);
             buf.writeVarInt(c[1]);
         }
+        buf.writeUtf(menuClass == null ? "" : menuClass);
     }
 
     public static void registerClient(PayloadRegistrar registrar) {
         registrar.playToClient(TYPE, CODEC, (msg, ctx) -> ctx.enqueueWork(() ->
                 io.github.xianynomial.sfmfactorystudio.client.blocks.BlockEditorScreen
-                        .acceptSlotLayout(msg.pos(), msg.total(), msg.slots())));
+                        .acceptSlotLayout(msg.pos(), msg.total(), msg.slots(), msg.menuClass())));
     }
 
     @Override

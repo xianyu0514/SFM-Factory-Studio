@@ -174,7 +174,11 @@ public class BlockEditorScreen extends Screen {
     // ---- 槽位可视化（beta）：布局快照接收 --------------------------------
 
     /** 当前正在可视化选槽的容器位置（null = 没在选）。 */
-    private static final java.util.concurrent.ConcurrentHashMap<net.minecraft.core.BlockPos, java.util.function.BiConsumer<Integer, List<int[]>>> SLOT_LAYOUT_WAITERS =
+    public interface SlotLayoutCallback {
+        void accept(int total, List<int[]> slots, String menuClass);
+    }
+
+    private static final java.util.concurrent.ConcurrentHashMap<net.minecraft.core.BlockPos, SlotLayoutCallback> SLOT_LAYOUT_WAITERS =
             new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.ConcurrentHashMap<net.minecraft.core.BlockPos, int[]> SLOT_LAYOUT_CACHE =
             new java.util.concurrent.ConcurrentHashMap<>();   // pos -> [total, hasLayout]
@@ -182,12 +186,12 @@ public class BlockEditorScreen extends Screen {
     /** 服务端布局回包入口（SlotLayoutPayload）。 */
     private static volatile boolean SLOT_LAYOUT_PROBED = false;
 
-    public static void acceptSlotLayout(net.minecraft.core.BlockPos pos, int total, List<int[]> slots) {
+    public static void acceptSlotLayout(net.minecraft.core.BlockPos pos, int total, List<int[]> slots, String menuClass) {
         SLOT_LAYOUT_PROBED = true;   // 能收到回包 = 服务端装了附属 → β 入口解锁
         slotLayoutServerSeen = true;
         SLOT_LAYOUT_CACHE.put(pos, new int[]{total, slots.isEmpty() ? 0 : 1});
         var waiter = SLOT_LAYOUT_WAITERS.remove(pos);
-        if (waiter != null) waiter.accept(total, slots);
+        if (waiter != null) waiter.accept(total, slots, menuClass);
     }
 
     /**
@@ -195,19 +199,19 @@ public class BlockEditorScreen extends Screen {
      * 回调 total=-1）。回调线程 = 主线程。
      */
     public static void requestSlotLayout(net.minecraft.core.BlockPos pos,
-                                         java.util.function.BiConsumer<Integer, List<int[]>> onResult) {
+                                         SlotLayoutCallback onResult) {
         SLOT_LAYOUT_WAITERS.put(pos, onResult);
         boolean sent = SFMGuiNetwork.sendToServerBestEffortChecked(new io.github.xianynomial.sfmfactorystudio.net.SlotLayoutRequestPayload(pos));
         if (!sent) {
             SLOT_LAYOUT_WAITERS.remove(pos);
-            onResult.accept(-1, List.of());
+            onResult.accept(-1, List.of(), "");
             return;
         }
         // 1 秒超时：optional 通道下原版 SFM 服务端会静默丢弃请求
         new Thread(() -> {
             try { Thread.sleep(1000); } catch (InterruptedException ignored) { }
             var waiter = SLOT_LAYOUT_WAITERS.remove(pos);
-            if (waiter != null) Minecraft.getInstance().execute(() -> waiter.accept(-1, List.of()));
+            if (waiter != null) Minecraft.getInstance().execute(() -> waiter.accept(-1, List.of(), ""));
         }, "sfmjimu-slot-layout-timeout").start();
     }
 
@@ -4755,7 +4759,7 @@ public class BlockEditorScreen extends Screen {
                 g.drawString(this.font, "beta", 0, 0, 0xFFFFFFFF, false);
                 g.pose().popPose();
                 hits.add(hit(fx, y + 2, 18, BAR_H - 6, K_CLICK, null, () -> {
-                    requestSlotLayout(vpos, (total, slots) -> {
+                    requestSlotLayout(vpos, (total, slots, menuClass) -> {
                         if (total < 0) {
                             Minecraft.getInstance().setScreen(
                                     SlotPickerScreen.unavailable());
@@ -4769,7 +4773,7 @@ public class BlockEditorScreen extends Screen {
                             }
                         }
                         Minecraft.getInstance().setScreen(new SlotPickerScreen(
-                                this, total, slots, initialSel, apply));
+                                this, total, slots, initialSel, apply, menuClass));
                     });
                 }));
                 fx += 22;

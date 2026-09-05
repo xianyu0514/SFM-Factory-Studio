@@ -15,7 +15,7 @@ public final class SlotLayoutCache {
     private SlotLayoutCache() {
     }
 
-    public record Entry(int total, List<int[]> slots) {
+    public record Entry(int total, List<int[]> slots, String menuClass) {
     }
 
     private record Cached(Entry entry, BlockState state, long at) {
@@ -34,8 +34,8 @@ public final class SlotLayoutCache {
         return c.entry();
     }
 
-    public static void put(BlockPos pos, BlockState state, int total, List<int[]> slots) {
-        CACHE.put(pos, new Cached(new Entry(total, List.copyOf(slots)), state, System.currentTimeMillis()));
+    public static void put(BlockPos pos, BlockState state, int total, List<int[]> slots, String menuClass) {
+        CACHE.put(pos, new Cached(new Entry(total, List.copyOf(slots), menuClass), state, System.currentTimeMillis()));
     }
 
     public static void clear() {

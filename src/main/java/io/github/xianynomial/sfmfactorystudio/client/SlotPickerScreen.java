@@ -38,15 +38,29 @@ public final class SlotPickerScreen extends Screen {
 
     public SlotPickerScreen(Screen parent, int total, List<int[]> coords, List<Integer> initial,
                             Consumer<List<Integer>> onResult) {
-        this(parent, total, coords, initial, onResult, false);
+        this(parent, total, coords, initial, onResult, false, "");
+    }
+
+    public SlotPickerScreen(Screen parent, int total, List<int[]> coords, List<Integer> initial,
+                            Consumer<List<Integer>> onResult, String menuClass) {
+        this(parent, total, coords, initial, onResult, false, menuClass);
     }
 
     private SlotPickerScreen(Screen parent, int total, List<int[]> coords, List<Integer> initial,
-                             Consumer<List<Integer>> onResult, boolean unavailableMode) {
+                             Consumer<List<Integer>> onResult, boolean unavailableMode, String menuClass) {
         super(Component.literal("选择槽位（beta）"));
         this.parent = parent;
         this.total = total;
         this.unavailableMode = unavailableMode;
+        // 真实 GUI 布局优先：玩家打开过该容器界面时，捕获缓存里存着像素级
+        // 坐标（含异形布局），比服务端探针更可靠
+        if (menuClass != null && !menuClass.isEmpty()) {
+            ClientGuiLayoutCache.Layout captured = ClientGuiLayoutCache.get(menuClass);
+            if (captured != null && !captured.slots().isEmpty()) {
+                coords = captured.slots();
+                if (total < 0 || total < captured.slots().size()) total = captured.slots().size();
+            }
+        }
         if (coords.isEmpty()) buildGridCoords(total);
         else this.coords.addAll(coords);
         this.selected.addAll(initial);
@@ -57,7 +71,7 @@ public final class SlotPickerScreen extends Screen {
 
     /** 服务端未回应（未装附属）：短暂提示后自动关闭。 */
     public static SlotPickerScreen unavailable() {
-        return new SlotPickerScreen(null, 0, List.of(), List.of(), null, true);
+        return new SlotPickerScreen(null, 0, List.of(), List.of(), null, true, "");
     }
 
     public static void showUnavailable(Screen parent) {
@@ -87,12 +101,24 @@ public final class SlotPickerScreen extends Screen {
         gridH = rows * CELL;
     }
 
+    private float viewScale = 1.0f;
+
     private void relayoutGrid() {
-        int rows = Math.max(1, (total + COLS - 1) / COLS);
-        gridW = COLS * CELL;
-        gridH = rows * CELL;
+        // 计算布局包围盒（真实 GUI 坐标可能远超 9 列网格）
+        int maxX = 0, maxY = 0;
+        for (int[] c : coords) {
+            maxX = Math.max(maxX, c[0] + CELL);
+            maxY = Math.max(maxY, c[1] + CELL);
+        }
+        int rawW = Math.max(maxX, COLS * CELL);
+        int rawH = Math.max(maxY, CELL);
+        // 缩放适配：布局超出屏宽/屏高（留出标题和按钮空间）时整体缩小
+        float availW = width - 40, availH = height - 150;
+        viewScale = Math.min(1.0f, Math.min(availW / rawW, availH / rawH));
+        gridW = Math.round(rawW * viewScale);
+        gridH = Math.round(rawH * viewScale);
         gridX = (width - gridW) / 2;
-        gridY = Math.max(60, height / 2 - gridH / 2);
+        gridY = Math.max(56, height / 2 - gridH / 2);
     }
 
     @Override
@@ -101,11 +127,12 @@ public final class SlotPickerScreen extends Screen {
     }
 
     private int slotAt(double mx, double my) {
-        for (int i = 0; i < coords.size(); i++) {
-            int x = gridX + coords.get(i)[0];
-            int y = gridY + coords.get(i)[1];
-            if (mx >= x && mx < x + CELL && my >= y && my < y + CELL) {
-                return i < total ? i : -1;
+        int sz = Math.max(8, Math.round(CELL * viewScale));
+        for (int i = 0; i < Math.min(coords.size(), total); i++) {
+            int x = gridX + Math.round(coords.get(i)[0] * viewScale);
+            int y = gridY + Math.round(coords.get(i)[1] * viewScale);
+            if (mx >= x && mx < x + sz && my >= y && my < y + sz) {
+                return i;
             }
         }
         return -1;
@@ -176,13 +203,17 @@ public final class SlotPickerScreen extends Screen {
         // 坐标数可能少于 total（快照缺失/退化网格）：按实际有的坐标渲染
         int drawable = Math.min(total, coords.size());
         for (int i = 0; i < drawable; i++) {
-            int x = gridX + coords.get(i)[0];
-            int y = gridY + coords.get(i)[1];
+            int x = gridX + Math.round(coords.get(i)[0] * viewScale);
+            int y = gridY + Math.round(coords.get(i)[1] * viewScale);
+            int cw = Math.max(8, Math.round(CELL * viewScale));
+            int ch = cw;
             boolean sel = selected.contains(i);
-            g.fill(x + 1, y + 1, x + CELL - 1, y + CELL - 1, sel ? 0xFF3A6FD8 : 0xFF1B1B1E);
-            border(g, x, y, CELL, CELL, sel ? 0xFF7FA8FF : 0xFF55555C);
-            g.drawCenteredString(this.font, String.valueOf(i), x + CELL / 2, y + CELL / 2 - 4,
-                    sel ? 0xFFEAF2FF : 0xFF8A8A92);
+            g.fill(x + 1, y + 1, x + cw - 1, y + ch - 1, sel ? 0xFF3A6FD8 : 0xFF1B1B1E);
+            border(g, x, y, cw, ch, sel ? 0xFF7FA8FF : 0xFF55555C);
+            if (cw >= 14) {
+                g.drawCenteredString(this.font, String.valueOf(i), x + cw / 2, y + ch / 2 - 4,
+                        sel ? 0xFFEAF2FF : 0xFF8A8A92);
+            }
         }
 
         // 底部：结果 + 按钮
