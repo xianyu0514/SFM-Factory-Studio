@@ -111,9 +111,20 @@ public final class SlotPickerScreen extends Screen {
         return -1;
     }
 
-    @Override
+    /** 底部三个按钮：[矩形 x,y,w] + 动作，render 与 mouseClicked 共用同一数据。 */
+    private final List<int[]> buttonRects = new ArrayList<>();
+    private final List<Runnable> buttonActions = new ArrayList<>();
+
     public boolean mouseClicked(double mx, double my, int button) {
         if (button == 0) {
+            // 按钮优先（渲染层与命中层共用 buttonRects，永不漂移）
+            for (int i = 0; i < buttonRects.size(); i++) {
+                int[] b = buttonRects.get(i);
+                if (mx >= b[0] && mx < b[0] + b[2] && my >= b[1] && my < b[1] + 18) {
+                    buttonActions.get(i).run();
+                    return true;
+                }
+            }
             int slot = slotAt(mx, my);
             if (slot >= 0) {
                 if (hasShiftDown() && !selected.isEmpty()) {
@@ -179,21 +190,24 @@ public final class SlotPickerScreen extends Screen {
         g.drawCenteredString(this.font, result.isEmpty() ? "未选择（=全部槽位）" : "slots " + result,
                 width / 2, gridY + gridH + 12, selected.isEmpty() ? 0xFF909090 : 0xFF7FA8FF);
         int by = gridY + gridH + 26;
-        button(g, width / 2 - 110, by, 70, "确认", 0xFF2FA84F, () -> {
+        buttonRects.clear();
+        buttonActions.clear();
+        addButton(g, width / 2 - 110, by, 70, "确认", 0xFF2FA84F, () -> {
             if (onResult != null) onResult.accept(new ArrayList<>(selected));
             onClose();
-        }, over(width / 2 - 110, by, 70, mx, my));
-        button(g, width / 2 - 35, by, 70, "清空", 0xFF5B6472, () -> selected.clear(), over(width / 2 - 35, by, 70, mx, my));
-        button(g, width / 2 + 40, by, 70, "关闭", 0xFF5B6472, this::onClose, over(width / 2 + 40, by, 70, mx, my));
+        }, mx, my);
+        addButton(g, width / 2 - 35, by, 70, "清空", 0xFF5B6472, () -> selected.clear(), mx, my);
+        addButton(g, width / 2 + 40, by, 70, "关闭", 0xFF5B6472, this::onClose, mx, my);
     }
 
-    private void button(GuiGraphics g, int x, int y, int w, String label, int color, Runnable onClick, boolean hover) {
+    /** 画按钮并注册命中矩形（render 与 mouseClicked 共用，保证可点）。 */
+    private void addButton(GuiGraphics g, int x, int y, int w, String label, int color, Runnable onClick, double mx, double my) {
+        boolean hover = mx >= x && mx < x + w && my >= y && my < y + 18;
         g.fill(x, y, x + w, y + 18, hover ? mix(color, 0xFFFFFFFF, 40) : color);
         g.drawCenteredString(this.font, label, x + w / 2, y + 5, 0xFFFFFFFF);
-        if (hover) pendingAction = onClick;
+        buttonRects.add(new int[]{x, y, w});
+        buttonActions.add(onClick);
     }
-
-    private Runnable pendingAction;
 
     private static boolean over(int x, int y, int w, double mx, double my) {
         return mx >= x && mx < x + w && my >= y && my < y + 18;

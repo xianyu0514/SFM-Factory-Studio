@@ -4739,7 +4739,11 @@ public class BlockEditorScreen extends Screen {
                 boolean vbHover = overField(mx, my, fx, y + 2, 18, BAR_H - 6);
                 g.fill(fx + 1, y + 3, fx + 17, y + 19, vbHover ? 0xFF3A6FD8 : 0xFF6B7688);
                 border(g, fx, y + 2, 18, BAR_H - 6, vbHover ? C_SELECT : 0xFFC9D4E2);
-                g.drawString(this.font, "β", fx + 5, y + 7, 0xFFFFFFFF, false);
+                g.pose().pushPose();
+                g.pose().translate(fx + 2, y + 8, 0);
+                g.pose().scale(0.7f, 0.7f, 1);
+                g.drawString(this.font, "beta", 0, 0, 0xFFFFFFFF, false);
+                g.pose().popPose();
                 hits.add(hit(fx, y + 2, 18, BAR_H - 6, K_CLICK, null, () -> {
                     requestSlotLayout(vpos, (total, slots) -> {
                         if (total < 0) {
