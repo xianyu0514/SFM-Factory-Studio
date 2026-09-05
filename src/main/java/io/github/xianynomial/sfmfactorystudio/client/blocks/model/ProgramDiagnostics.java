@@ -97,16 +97,20 @@ public final class ProgramDiagnostics {
                 // 写法体检（TPS 友好度，吞吐量不变的前提）。
                 // 高频不做提醒（用户拍板：负载大小看卡片角标即可）。
                 // 多卡同刻：多个定时触发器都没有错峰偏移时提示平衡优化
-                if (timer.plus == 0) {
-                    long samePhase = program.triggers.stream()
-                            .filter(o -> o instanceof BProgram.TimerTrigger o2
-                                    && o2.plus == 0
-                                    && Math.max(TimerRules.minimumCount(o2), o2.count) == Math.max(TimerRules.minimumCount(timer), timer.count))
-                            .count();
-                    if (samePhase > 1) {
-                        warning(issues, path, "有 " + samePhase + " 个触发器会在同一刻执行（可用工具栏「均衡相位」一键错峰，吞吐量不变）",
-                                timer, null, null);
+                long period = Math.max(TimerRules.minimumCount(timer), timer.count);
+                java.util.Set<Long> phases = new java.util.HashSet<>();
+                int samePeriod = 0;
+                for (BProgram.Trigger o : program.triggers) {
+                    if (o instanceof BProgram.TimerTrigger o2
+                            && Math.max(TimerRules.minimumCount(o2), o2.count) == period) {
+                        samePeriod++;
+                        phases.add(o2.plus);
                     }
+                }
+                // 全部挤在同一相位（都是 plus 0）才提醒；平衡后相位各不相同 → 不再提醒
+                if (samePeriod > 1 && phases.size() == 1) {
+                    warning(issues, path, "有 " + samePeriod + " 个触发器会在同一刻执行（可用工具栏「平衡优化」一键错峰，吞吐量不变）",
+                            timer, null, null);
                 }
             }
             if (trigger.body.isEmpty()) {

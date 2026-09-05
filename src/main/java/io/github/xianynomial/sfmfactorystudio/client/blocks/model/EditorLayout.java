@@ -380,14 +380,27 @@ public final class EditorLayout {
     private static final int ALT_ROW_TAIL = 40;
 
     /** 备选资源横向铺开后超出默认卡片宽度的部分（0 = 放得下，不必加长）。 */
-    private static int altExtraWidth(java.util.List<BProgram.ResourceLimit> limits) {
+    /**
+     * 备选资源需要的额外卡宽。公式与渲染端步进严格同源：
+     * 主行固定部分（从[标签32+4][方块取出约44+4][数量30+4][类别32+4][槽20+4]
+     * [和字13+5][空槽20+4] ≈ 236）+ 标签文本超宽部分按 6px/字符估 +
+     * alts×40 芯片 + 尾部「和」空位 68。need 超出默认可用宽度的部分就是
+     * 卡片要加长的量——放第 1 个备选时立刻加宽，杜绝"放上就换行/看不见"。
+     */
+    private static int altExtraWidth(java.util.List<BProgram.ResourceLimit> limits, java.util.List<String> labels) {
         if (limits == null || limits.isEmpty()) return 0;
         int alts = Math.max(0, limits.get(0).resources.size() - 1);
         if (alts <= 0) return 0;
         int usable = CARD_W - CARD_INNER * 2;   // 语句在卡片内的可用宽度
-        int need = ALT_ROW_LEAD + alts * ALT_CHIP_W + ALT_ROW_TAIL;
+        int mainRowFixed = 236;                  // 与渲染端步进同源（见注释）
+        int chars = 0;
+        for (String label : labels) chars += label == null ? 0 : label.length();
+        int labelExtra = Math.max(0, chars * 6 + 10 - 32);
+        int need = mainRowFixed + labelExtra + alts * ALT_CHIP_W + ALT_ROW_TAIL;
         return Math.max(0, need - usable);
     }
+
+
 
     /** 一张卡片正文横向铺开后需要的宽度（含嵌套 If 内的语句）。 */
     public static int cardWidth(BProgram.Trigger t) {
@@ -405,10 +418,10 @@ public final class EditorLayout {
 
     private static int measureStatementWidth(BProgram.Statement s) {
         if (s instanceof BProgram.Statement.Input in) {
-            return CARD_W + altExtraWidth(in.limits);
+            return CARD_W + altExtraWidth(in.limits, in.access.labels);
         }
         if (s instanceof BProgram.Statement.Output out) {
-            return CARD_W + altExtraWidth(out.limits);
+            return CARD_W + altExtraWidth(out.limits, out.access.labels);
         }
         if (s instanceof BProgram.Statement.If iff) {
             // 嵌套体有 INDENT 缩进，加长需求要一起算进去

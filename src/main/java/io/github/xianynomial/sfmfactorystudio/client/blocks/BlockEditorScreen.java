@@ -821,7 +821,8 @@ public class BlockEditorScreen extends Screen {
         resourceEntryCache.clear();
         selection.clear();
         selectedTriggers.clear();
-        expandedIds.clear();
+        // 不清 expandedIds：这里清空会让全部卡片瞬间收起（卡高骤变），视觉上
+        // 像刚放的积木"消失"。集合里的旧 id 对新模型无效但不造成任何伤害。
         layout.setExpandedIds(expandedIds);
         selectedBody = null;
         actionBarVisible = false;
@@ -1625,7 +1626,18 @@ public class BlockEditorScreen extends Screen {
         // Ctrl+左键：在任意位置（包括积木上）起框，不被命中区抢走
         boolean overCanvas = mx >= canvasX && mx < canvasX + canvasW
                 && my >= canvasY && my < canvasY + canvasH;
-        // 中键或右键可从画布任意位置开始平移，即使光标正位于积木上。
+        // 右键优先命中 K_RCLICK（积木行复制/标签/资源槽）——平移只在没有
+        // 右键目标时才开始。左键不走这里（左键有自己的命中分发）。
+        if (overCanvas && button == 2) {
+            for (int i = hits.size() - 1; i >= 0; i--) {
+                Hit h = hits.get(i);
+                if (h.kind == K_RCLICK && in(h, cx, cy)) {
+                    h.onClick.run();
+                    return true;
+                }
+            }
+        }
+        // 中键或右键（无右键目标时）从画布任意位置开始平移，即使光标正位于积木上。
         if (overCanvas && button != 0) {
             startPanning(mx, my);
             return true;
@@ -2719,7 +2731,8 @@ public class BlockEditorScreen extends Screen {
         resourceEntryCache.clear();
         selection.clear();
         selectedTriggers.clear();
-        expandedIds.clear();
+        // 不清 expandedIds：这里清空会让全部卡片瞬间收起（卡高骤变），视觉上
+        // 像刚放的积木"消失"。集合里的旧 id 对新模型无效但不造成任何伤害。
         layout.setExpandedIds(expandedIds);
         selectedBody = null;
         modelVersion++;
@@ -3520,7 +3533,8 @@ public class BlockEditorScreen extends Screen {
             offset = (offset + step) % Math.max(TimerRules.minimumCount(tt), tt.count);
         }
         layoutDirty = true;
-        showStatus("已均衡 " + timers.size() + " 个定时触发器的相位（全局时钟 + 错峰偏移），吞吐量不变", C_SELECT);
+        refreshIssues();      // 立即重算：同刻提醒在点完按钮后马上消失，不等 5 tick
+        showStatus("已平衡 " + timers.size() + " 个定时触发器的相位（全局时钟 + 错峰偏移），吞吐量不变", C_SELECT);
     }
 
     /** 成本模型的数据源：服务器推送的标签绑定计数（未知按保守值估算）。 */
@@ -3540,7 +3554,7 @@ public class BlockEditorScreen extends Screen {
         g.fill(x, y, x + 6, y + 6, color);
         // mx/my 是内容坐标（缩放+平移后），renderTooltip 需要屏幕坐标
         int smx = sX(x), smy = sY(y);
-        boolean hover = mx >= x - 2 && mx < x + 8 && my >= y - 2 && my < y + 8;
+        boolean hover = mx >= x - 3 && mx < x + 9 && my >= y - 3 && my < y + 9;
         if (hover) {
             List<Component> tip = new ArrayList<>();
             tip.add(Component.literal("§e执行成本：" + cost.score() + " 等效试探/秒"));
@@ -5391,7 +5405,8 @@ public class BlockEditorScreen extends Screen {
         List<String> labels = List.of(T_INPUT.getString(), T_OUTPUT.getString(), T_FORGET.getString(),
                 T_IF.getString() + "…", T_COMMENT.getString());
         setPopup(new Popup.ChoicePopup(sX(x), sY(y) + ADD_H + 2, 110, values, labels, null, kind -> {
-            selectedBody = body;
+            // 直接闭包捕获 body：不依赖 selectedBody 全局态（applyCodeText
+            // 成功会清 selectedBody 并重建模型，期间弹窗回调可能晚到）
             pushUndo();
             body.add(buildBlock(kind));
             layoutDirty = true;
