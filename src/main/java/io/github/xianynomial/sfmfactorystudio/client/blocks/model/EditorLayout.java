@@ -392,7 +392,7 @@ public final class EditorLayout {
         int alts = Math.max(0, limits.get(0).resources.size() - 1);
         if (alts <= 0) return 0;
         int usable = CARD_W - CARD_INNER * 2;   // 语句在卡片内的可用宽度
-        int mainRowFixed = 236;                  // 与渲染端步进同源（见注释）
+        int mainRowFixed = 246;                  // 与渲染端步进同源（见注释）
         int chars = 0;
         for (String label : labels) chars += label == null ? 0 : label.length();
         int labelExtra = Math.max(0, chars * 6 + 10 - 32);
@@ -524,7 +524,9 @@ public final class EditorLayout {
         for (int i = 0; i < limits.size(); i++) {
             BProgram.ResourceLimit limit = limits.get(i);
             if (i > 0) rows++;
-            rows += Math.max(0, limit.resources.size() - 1);
+            // 主组备选横向铺在语句行下（渲染端固定 1 行，且在展开面板外），
+            // 这里不再计入扩展面板高度；第 2 组起的备选仍按旧行计。
+            if (i > 0) rows += Math.max(0, limit.resources.size() - 1);
             if (limit.quantity != null) rows++;
             if (limit.retain != null) rows++;
             if (limit.with != null) rows += withRows(limit.with);

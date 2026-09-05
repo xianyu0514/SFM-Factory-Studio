@@ -180,7 +180,11 @@ public class BlockEditorScreen extends Screen {
             new java.util.concurrent.ConcurrentHashMap<>();   // pos -> [total, hasLayout]
 
     /** 服务端布局回包入口（SlotLayoutPayload）。 */
+    private static volatile boolean SLOT_LAYOUT_PROBED = false;
+
     public static void acceptSlotLayout(net.minecraft.core.BlockPos pos, int total, List<int[]> slots) {
+        SLOT_LAYOUT_PROBED = true;   // 能收到回包 = 服务端装了附属 → β 入口解锁
+        slotLayoutServerSeen = true;
         SLOT_LAYOUT_CACHE.put(pos, new int[]{total, slots.isEmpty() ? 0 : 1});
         var waiter = SLOT_LAYOUT_WAITERS.remove(pos);
         if (waiter != null) waiter.accept(total, slots);
@@ -427,6 +431,7 @@ public class BlockEditorScreen extends Screen {
     private int slotLayoutTotal = -1;
     /** 槽位可视化：服务端是否具备布局推送能力（双端安装探测）。 */
     private boolean slotLayoutAvailable = false;
+    private static volatile boolean slotLayoutServerSeen = false;
     /** 标签药丸右键复制的标签组（跨卡片可用）。 */
     private List<String> copiedLabels = null;
     private boolean clipboardTriggers = false; // last copy was whole triggers
@@ -489,6 +494,12 @@ public class BlockEditorScreen extends Screen {
         knownLabelCounts.putAll(SERVER_LABEL_COUNTS);
         SFMGuiNetwork.sendToServerBestEffort(
                 new io.github.xianynomial.sfmfactorystudio.net.RequestLabelsPayload(menu.MANAGER_POSITION));
+        // 槽位可视化探测：开机即向管理器自身发一次（管理器非容器，回 total=-1，
+        // 但只要收到回包就证明服务端装了 → β 入口解锁）
+        if (!SLOT_LAYOUT_PROBED) {
+            SFMGuiNetwork.sendToServerBestEffortChecked(
+                    new io.github.xianynomial.sfmfactorystudio.net.SlotLayoutRequestPayload(menu.MANAGER_POSITION));
+        }
         layoutDirty = true;
         // 注意不要重置 fitted：选择器切屏返回会重跑 init()，重置会导致视角被抢去自动适配
         computePanel();
@@ -3265,6 +3276,14 @@ public class BlockEditorScreen extends Screen {
 
         g.pose().popPose();
         // ---- end content transform ----
+        // 成本角标 tooltip：屏幕坐标空间、scissor 之外绘制（内容空间里会被
+        // 缩放矩阵扭曲+裁剪，这就是此前"悬停无提示"的根因）
+        if (pendingCostTooltip != null && pendingCostTooltipAt != null) {
+            g.renderTooltip(this.font, pendingCostTooltip, java.util.Optional.empty(),
+                    pendingCostTooltipAt[0] + 8, pendingCostTooltipAt[1]);
+            pendingCostTooltip = null;
+            pendingCostTooltipAt = null;
+        }
         } finally {
             g.disableScissor(); // never leak the clip: it would cut the whole game to this rect
         }
@@ -3593,19 +3612,22 @@ public class BlockEditorScreen extends Screen {
             case HIGH -> 0xFFD13438;
         };
         g.fill(x, y, x + 6, y + 6, color);
-        // mx/my 是内容坐标（缩放+平移后），renderTooltip 需要屏幕坐标
-        int smx = sX(x), smy = sY(y);
-        boolean hover = mx >= x - 3 && mx < x + 9 && my >= y - 3 && my < y + 9;
+        boolean hover = mx >= x - 2 && mx < x + 8 && my >= y - 2 && my < y + 8;
         if (hover) {
+            // tooltip 延迟到内容矩阵 pop 后统一画（renderCostTooltip 字段桥）
             List<Component> tip = new ArrayList<>();
             tip.add(Component.literal("§e执行成本：" + cost.score() + " 等效试探/秒"));
             tip.add(Component.literal(cost.detail()));
             if (cost.level() != ProgramCost.Cost.Level.LOW) {
                 tip.add(Component.literal("§7优化：绑精确标签/指定槽位/拉长间隔/平衡优化（吞吐量不变）"));
             }
-            g.renderTooltip(this.font, tip, java.util.Optional.empty(), smx + 8, smy);
+            pendingCostTooltip = tip;
+            pendingCostTooltipAt = new int[]{sX(x + 3), sY(y)};
         }
     }
+
+    private @Nullable List<Component> pendingCostTooltip;
+    private int @Nullable [] pendingCostTooltipAt;
 
     private void renderToolbar(GuiGraphics g, int mx, int my) {
         rounded(g, panelX, panelY, panelW, TOOLBAR_H, 10, 0xFAFFFFFF);
@@ -4358,7 +4380,7 @@ public class BlockEditorScreen extends Screen {
         drawAltResourceRows(g, x, y + BAR_H, rl, mx, my);
 
         if (expandedIds.contains(stmt.id)) {
-            renderIOOptions(g, x + INDENT, y + BAR_H + EditorLayout.altResourceRows(in.limits) * BAR_H, mx, my, in, list, index);
+            renderIOOptions(g, x + INDENT, y + BAR_H + (rl != null && rl.resources.size() > 1 ? BAR_H : 0), mx, my, in, list, index);
         }
     }
 
@@ -4393,7 +4415,7 @@ public class BlockEditorScreen extends Screen {
         drawAltResourceRows(g, x, y + BAR_H, rl, mx, my);
 
         if (expandedIds.contains(stmt.id)) {
-            renderOutputOptions(g, x + INDENT, y + BAR_H + EditorLayout.altResourceRows(out.limits) * BAR_H, mx, my, out, list, index);
+            renderOutputOptions(g, x + INDENT, y + BAR_H + (rl != null && rl.resources.size() > 1 ? BAR_H : 0), mx, my, out, list, index);
         }
     }
 
@@ -4685,7 +4707,7 @@ public class BlockEditorScreen extends Screen {
             // 槽位可视化（beta）：仅双端安装时显示（服务端未装直接隐藏）
             // 槽位可视化（beta）：双端安装且该语句至少有一个标签可定位时显示
             var visualPos = firstBoundBlockPos(access.labels);
-            if (slotLayoutAvailable && visualPos != null) {
+            if ((slotLayoutAvailable || slotLayoutServerSeen) && visualPos != null) {
                 final net.minecraft.core.BlockPos vpos = visualPos;
                 final java.util.function.Consumer<List<Integer>> apply = sel -> {
                     setSlotsFromText(access.slots, sel.stream().map(String::valueOf)
