@@ -55,7 +55,13 @@ public final class SFMGuiNetwork {
     /** 换服/断线时能力集清空：所有服务端门控功能回到默认隐藏。 */
     @SubscribeEvent
     public static void onLogout(ClientPlayerNetworkEvent.LoggingOut event) {
-        SfmCaps.reset();
+        try {
+            SfmCaps.reset();
+        } catch (Throwable t) {
+            // 防御：类加载异常（如 jar 被运行中替换）不能炸掉登出事件链，
+            // 否则后续所有模组的登出监听都被跳过
+            SFMGui.LOGGER.warn("[sfmjimu] SfmCaps reset skipped: {}", t.toString());
+        }
     }
 
     /**
