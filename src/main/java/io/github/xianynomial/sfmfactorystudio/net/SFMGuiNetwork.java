@@ -46,6 +46,10 @@ public final class SFMGuiNetwork {
         );
         // SFM fork 的能力宣告（原版 SFM 服不会发，收到才解锁 NBT 区分等功能）
         SfmCapabilitiesPayload.registerClient(registrar);
+        // 槽位可视化（beta）：双端安装才有数据；只装客户端时请求无回应，
+        // 编辑器据超时隐藏可视化入口
+        SlotLayoutRequestPayload.registerServer(registrar);
+        SlotLayoutPayload.registerClient(registrar);
     }
 
     /** 换服/断线时能力集清空：所有服务端门控功能回到默认隐藏。 */
@@ -59,11 +63,18 @@ public final class SFMGuiNetwork {
      * The first failure latches {@link #serverUnsupported} for the session.
      */
     public static void sendToServerBestEffort(CustomPacketPayload payload) {
-        if (serverUnsupported) return;
+        sendToServerBestEffortChecked(payload);
+    }
+
+    /** 同上，但返回是否真的发出去了（未装服务端时 false）。 */
+    public static boolean sendToServerBestEffortChecked(CustomPacketPayload payload) {
+        if (serverUnsupported) return false;
         try {
             PacketDistributor.sendToServer(payload);
+            return true;
         } catch (Throwable t) {
             serverUnsupported = true;
+            return false;
         }
     }
 

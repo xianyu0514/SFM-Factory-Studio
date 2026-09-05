@@ -569,6 +569,33 @@ public final class BProgram {
             }
         }
 
+        /**
+         * 宽松解析：`3`、`3-10`、`-10`（从头到 10）、`40-`（40 到末尾，需容器总槽数）、
+         * `10-3` 自动交换顺序。total=-1 表示容器槽数未知（开区间终点无法补全）。
+         */
+        public static SlotRange parseLenient(String text, int total) {
+            String value = text == null ? "" : text.trim();
+            if (value.matches("[0-9]+")) {
+                long n = Long.parseLong(value);
+                return new SlotRange(n, n);
+            }
+            if (value.matches("[0-9]+-[0-9]+")) {
+                int dash = value.indexOf('-');
+                long a = Long.parseLong(value.substring(0, dash));
+                long b = Long.parseLong(value.substring(dash + 1));
+                return a <= b ? new SlotRange(a, b) : new SlotRange(b, a); // 自动交换
+            }
+            if (value.matches("-[0-9]+")) {          // -10 = 0..10
+                long end = Long.parseLong(value.substring(1));
+                return new SlotRange(0, end);
+            }
+            if (value.matches("[0-9]+-")) {          // 40- = 40..末尾（需 total）
+                long start = Long.parseLong(value.substring(0, value.length() - 1));
+                long end = total >= 0 ? Math.max(total - 1, start) : start;
+                return new SlotRange(start, end);
+            }
+            throw new IllegalArgumentException("槽位请输入数字，如 3 或 3-10");
+        }
         public static SlotRange parse(String text) {
             String value = text == null ? "" : text.trim();
             if (!value.matches("[0-9]+(?:-[0-9]+)?")) {

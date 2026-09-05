@@ -18,6 +18,7 @@ import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.G
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.ProgramDiagnostics;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlToBlocks;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.ProgramCost;
+import io.github.xianynomial.sfmfactorystudio.client.SlotPickerScreen;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlSyntax;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlValidate;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.TimerRules;
@@ -169,6 +170,42 @@ public class BlockEditorScreen extends Screen {
 
     private static final List<String> SERVER_LABELS = new ArrayList<>();
     private static final Map<String, Integer> SERVER_LABEL_COUNTS = new LinkedHashMap<>();
+
+    // ---- 槽位可视化（beta）：布局快照接收 --------------------------------
+
+    /** 当前正在可视化选槽的容器位置（null = 没在选）。 */
+    private static final java.util.concurrent.ConcurrentHashMap<net.minecraft.core.BlockPos, java.util.function.BiConsumer<Integer, List<int[]>>> SLOT_LAYOUT_WAITERS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ConcurrentHashMap<net.minecraft.core.BlockPos, int[]> SLOT_LAYOUT_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();   // pos -> [total, hasLayout]
+
+    /** 服务端布局回包入口（SlotLayoutPayload）。 */
+    public static void acceptSlotLayout(net.minecraft.core.BlockPos pos, int total, List<int[]> slots) {
+        SLOT_LAYOUT_CACHE.put(pos, new int[]{total, slots.isEmpty() ? 0 : 1});
+        var waiter = SLOT_LAYOUT_WAITERS.remove(pos);
+        if (waiter != null) waiter.accept(total, slots);
+    }
+
+    /**
+     * 请求容器布局并在回包后回调（fail-safe：1 秒无回应视为服务端未装，
+     * 回调 total=-1）。回调线程 = 主线程。
+     */
+    public static void requestSlotLayout(net.minecraft.core.BlockPos pos,
+                                         java.util.function.BiConsumer<Integer, List<int[]>> onResult) {
+        SLOT_LAYOUT_WAITERS.put(pos, onResult);
+        boolean sent = SFMGuiNetwork.sendToServerBestEffortChecked(new io.github.xianynomial.sfmfactorystudio.net.SlotLayoutRequestPayload(pos));
+        if (!sent) {
+            SLOT_LAYOUT_WAITERS.remove(pos);
+            onResult.accept(-1, List.of());
+            return;
+        }
+        // 1 秒超时：optional 通道下原版 SFM 服务端会静默丢弃请求
+        new Thread(() -> {
+            try { Thread.sleep(1000); } catch (InterruptedException ignored) { }
+            var waiter = SLOT_LAYOUT_WAITERS.remove(pos);
+            if (waiter != null) Minecraft.getInstance().execute(() -> waiter.accept(-1, List.of()));
+        }, "sfmjimu-slot-layout-timeout").start();
+    }
 
     public static void acceptLabels(List<UpdateLabelsPayload.LabelInfo> labels) {
         SERVER_LABELS.clear();
@@ -386,6 +423,10 @@ public class BlockEditorScreen extends Screen {
     private static String clipboardSfml = null;
     /** 资源槽右键复制的资源（跨卡片可用，会话内保留）。 */
     private BProgram.ResourceRef copiedResource = null;
+    /** 槽位可视化：当前选中容器的总槽数（服务端推送；-1 = 未知/未装）。 */
+    private int slotLayoutTotal = -1;
+    /** 槽位可视化：服务端是否具备布局推送能力（双端安装探测）。 */
+    private boolean slotLayoutAvailable = false;
     /** 标签药丸右键复制的标签组（跨卡片可用）。 */
     private List<String> copiedLabels = null;
     private boolean clipboardTriggers = false; // last copy was whole triggers
@@ -4641,6 +4682,40 @@ public class BlockEditorScreen extends Screen {
             fx = drawField(g, fx, y, slotText(access.slots), 70,
                     () -> openTextEditor(fieldX, rowY, slotText(access.slots),
                             value -> setSlotsFromText(access.slots, value), null, 150), mx, my, false);
+            // 槽位可视化（beta）：仅双端安装时显示（服务端未装直接隐藏）
+            // 槽位可视化（beta）：双端安装且该语句至少有一个标签可定位时显示
+            var visualPos = firstBoundBlockPos(access.labels);
+            if (slotLayoutAvailable && visualPos != null) {
+                final net.minecraft.core.BlockPos vpos = visualPos;
+                final java.util.function.Consumer<List<Integer>> apply = sel -> {
+                    setSlotsFromText(access.slots, sel.stream().map(String::valueOf)
+                            .collect(java.util.stream.Collectors.joining(",")));
+                    layoutDirty = true;
+                    refreshIssues(); // 成本角标联动：指定槽位后负载实时刷新
+                };
+                boolean vbHover = overField(mx, my, fx, y + 2, 18, BAR_H - 6);
+                g.fill(fx + 1, y + 3, fx + 17, y + 19, vbHover ? 0xFF3A6FD8 : 0xFF6B7688);
+                border(g, fx, y + 2, 18, BAR_H - 6, vbHover ? C_SELECT : 0xFFC9D4E2);
+                g.drawString(this.font, "β", fx + 5, y + 7, 0xFFFFFFFF, false);
+                hits.add(hit(fx, y + 2, 18, BAR_H - 6, K_CLICK, null, () -> {
+                    requestSlotLayout(vpos, (total, slots) -> {
+                        if (total < 0) {
+                            Minecraft.getInstance().setScreen(
+                                    SlotPickerScreen.unavailable());
+                            return;
+                        }
+                        List<Integer> initialSel = new ArrayList<>();
+                        for (BProgram.SlotRange r : access.slots) {
+                            for (long v = r.first(); v <= r.last() && v < (total < 0 ? Long.MAX_VALUE : total); v++) {
+                                initialSel.add((int) v);
+                            }
+                        }
+                        Minecraft.getInstance().setScreen(new SlotPickerScreen(
+                                this, total, slots, initialSel, apply));
+                    });
+                }));
+                fx += 22;
+            }
             drawIcon(g, x + w - 18, y, "✕", () -> {
                 pushUndo();
                 access.slots.clear();
@@ -5104,12 +5179,21 @@ public class BlockEditorScreen extends Screen {
         return slots.stream().map(BProgram.SlotRange::sfml).collect(java.util.stream.Collectors.joining(","));
     }
 
+    /**
+     * 宽松槽位输入解析：任意分隔符（空格/逗号/分号/加号/顿号）、支持开区间
+     * （-10 = 0..10；40- = 40..末尾，需容器槽数）、范围自动交换、all=清空。
+     */
     private void setSlotsFromText(List<BProgram.SlotRange> target, String text) {
         List<BProgram.SlotRange> parsed = new ArrayList<>();
         try {
-            if (!text.isBlank()) {
-                for (String part : text.split("[,，]")) {
-                    BProgram.SlotRange range = BProgram.SlotRange.parse(part);
+            String trimmed = text == null ? "" : text.trim();
+            if (trimmed.equalsIgnoreCase("all") || trimmed.equals("全部")) {
+                // 清空 = 全部槽位
+            } else if (!trimmed.isEmpty()) {
+                int total = slotTotalHint();
+                for (String part : trimmed.split("[,，;；+\s]+")) {
+                    if (part.isBlank()) continue;
+                    BProgram.SlotRange range = BProgram.SlotRange.parseLenient(part, total);
                     if (!parsed.contains(range)) parsed.add(range);
                 }
             }
@@ -5120,6 +5204,35 @@ public class BlockEditorScreen extends Screen {
         pushUndo();
         target.clear();
         target.addAll(parsed);
+        if (slotLayoutTotal >= 0) {
+            for (BProgram.SlotRange r : parsed) {
+                if (r.last() >= slotLayoutTotal) {
+                    showStatus("⚠ 该容器只有 " + slotLayoutTotal + " 格（0-" + (slotLayoutTotal - 1) + "），超出部分可能无效", 0xFFB45309);
+                    break;
+                }
+            }
+        }
+    }
+
+    /** 已知容器总槽数（可视化快照带出）；-1 = 未知。 */
+    private int slotTotalHint() {
+        return slotLayoutTotal;
+    }
+
+    /**
+     * 该组标签里第一个能定位到的方块位置（磁盘标签位置表）。
+     * 没有绑定信息返回 null —— 可视化入口随之隐藏。
+     */
+    private @Nullable net.minecraft.core.BlockPos firstBoundBlockPos(List<String> labels) {
+        var holder = LabelPositionHolder.from(menu.getDisk());
+        for (String label : labels) {
+            var set = holder.getPositions(label);
+            if (set != null && !set.isEmpty()) {
+                var it = set.longIterator();
+                if (it.hasNext()) return net.minecraft.core.BlockPos.of(it.nextLong());
+            }
+        }
+        return null;
     }
 
     private String shortWith(BProgram.WithFilter filter) {
