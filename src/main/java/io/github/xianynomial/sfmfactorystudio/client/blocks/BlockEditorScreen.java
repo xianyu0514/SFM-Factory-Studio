@@ -3606,6 +3606,16 @@ public class BlockEditorScreen extends Screen {
         showStatus("已平衡 " + timers.size() + " 个定时触发器的相位（全局时钟 + 错峰偏移），吞吐量不变", C_SELECT);
     }
 
+    // 显示文本缓存：药丸显示名每帧重算（NBT 解析+StringBuilder+查询）在大
+    // 程序里是显著热点。键=matcher 原文；模型重建时 matcher 对象随语句重建，
+    // 但 matcher 字符串内容相同——缓存命中即可，无需失效（显示规则不变）。
+    private static final java.util.HashMap<String, String> DISPLAY_NAME_CACHE = new java.util.HashMap<>();
+
+    private String cachedDisplayName(String matcher) {
+        return DISPLAY_NAME_CACHE.computeIfAbsent(matcher == null ? "*" : matcher,
+                m -> ResourceTagIndex.displayName(nbtComponentDisplay(m)));
+    }
+
     /** 成本模型的数据源：服务器推送的标签绑定计数（未知按保守值估算）。 */
     private ProgramCost.LabelSizeLookup labelSizeLookup() {
         return label -> knownLabelCounts.getOrDefault(label, 4);
@@ -4910,7 +4920,7 @@ public class BlockEditorScreen extends Screen {
     }
     private int drawWithTagPill(GuiGraphics g, int x, int y, BProgram.ResourceLimit limit,
                                  BProgram.WithExpr.Tag tag, String connector, int mx, int my) {
-        String name = ResourceTagIndex.displayName(nbtComponentDisplay(tag.matcher));
+        String name = cachedDisplayName(tag.matcher);
         String shown = shortUi(name, 16);
         int connW = connector.isEmpty() ? 0 : this.font.width(connector) + 2;
         int pw = Math.max(48, connW + this.font.width(shown) + 30);
@@ -4990,7 +5000,7 @@ public class BlockEditorScreen extends Screen {
     /** 点条件药丸本身：重选 / 手改 / 删除这一项。 */
     private void openWithTagMenu(int x, int y, BProgram.ResourceLimit limit,
                                  BProgram.WithExpr.Tag tag) {
-        String display = ResourceTagIndex.displayName(nbtComponentDisplay(tag.matcher));
+        String display = cachedDisplayName(tag.matcher);
         setPopup(new Popup.ChoicePopup(sX(x), sY(y), 210,
                 List.of("pick", "manual", "remove"),
                 List.of("重新选择：" + display, "手动编辑原标签", "删除这一项"), "", picked -> {
@@ -5361,7 +5371,7 @@ public class BlockEditorScreen extends Screen {
 
     private String shortWithExpr(BProgram.WithExpr expr) {
         if (expr instanceof BProgram.WithExpr.Tag tag) {
-            return ResourceTagIndex.displayName(nbtComponentDisplay(tag.matcher));
+            return cachedDisplayName(tag.matcher);
         }
         if (expr instanceof BProgram.WithExpr.Not not) return "不是 " + shortWithExpr(not.inner);
         if (expr instanceof BProgram.WithExpr.And and) {
