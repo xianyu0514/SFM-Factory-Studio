@@ -51,12 +51,13 @@ public final class SlotPickerScreen extends Screen {
         else this.coords.addAll(coords);
         this.selected.addAll(initial);
         this.onResult = onResult;
-        this.ready = true;
+        if (this.coords.isEmpty() && this.total > 0) buildGridCoords(this.total);
+        this.ready = this.total > 0;
     }
 
     /** 服务端未回应（未装附属）：短暂提示后自动关闭。 */
     public static SlotPickerScreen unavailable() {
-        return new SlotPickerScreen(null, -1, List.of(), List.of(), null, true);
+        return new SlotPickerScreen(null, 0, List.of(), List.of(), null, true);
     }
 
     public static void showUnavailable(Screen parent) {
@@ -150,13 +151,20 @@ public final class SlotPickerScreen extends Screen {
     @Override
     public void render(GuiGraphics g, int mx, int my, float partialTick) {
         this.renderBackground(g, mx, my, partialTick);
+        if (!ready) {
+            g.drawCenteredString(this.font, "无法获取该容器的槽位信息", width / 2, height / 2 - 8, 0xFFFFFFFF);
+            g.drawCenteredString(this.font, "请直接在输入框中输入槽位数字", width / 2, height / 2 + 8, 0xFFB0B0B0);
+            return;
+        }
         g.drawCenteredString(this.font, "选择槽位（beta）", width / 2, 24, 0xFFFFFFFF);
         g.drawCenteredString(this.font, "单击选中 · 拖动刷选 · Shift+点击选范围", width / 2, 38, 0xFF909090);
 
         relayoutGrid();
         // 背景
         g.fill(gridX - 4, gridY - 4, gridX + gridW + 4, gridY + gridH + 4, 0xFF2A2A2E);
-        for (int i = 0; i < total; i++) {
+        // 坐标数可能少于 total（快照缺失/退化网格）：按实际有的坐标渲染
+        int drawable = Math.min(total, coords.size());
+        for (int i = 0; i < drawable; i++) {
             int x = gridX + coords.get(i)[0];
             int y = gridY + coords.get(i)[1];
             boolean sel = selected.contains(i);
@@ -172,7 +180,7 @@ public final class SlotPickerScreen extends Screen {
                 width / 2, gridY + gridH + 12, selected.isEmpty() ? 0xFF909090 : 0xFF7FA8FF);
         int by = gridY + gridH + 26;
         button(g, width / 2 - 110, by, 70, "确认", 0xFF2FA84F, () -> {
-            onResult.accept(new ArrayList<>(selected));
+            if (onResult != null) onResult.accept(new ArrayList<>(selected));
             onClose();
         }, over(width / 2 - 110, by, 70, mx, my));
         button(g, width / 2 - 35, by, 70, "清空", 0xFF5B6472, () -> selected.clear(), over(width / 2 - 35, by, 70, mx, my));
@@ -231,6 +239,8 @@ public final class SlotPickerScreen extends Screen {
 
     @Override
     public void onClose() {
-        Minecraft.getInstance().setScreen(parent);
+        Minecraft mc = Minecraft.getInstance();
+        if (parent != null) mc.setScreen(parent);
+        else mc.setScreen(null);
     }
 }
