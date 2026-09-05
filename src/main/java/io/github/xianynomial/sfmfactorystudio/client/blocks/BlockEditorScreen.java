@@ -3611,10 +3611,26 @@ public class BlockEditorScreen extends Screen {
         return label -> knownLabelCounts.getOrDefault(label, 4);
     }
 
+    // 成本角标缓存：模型或标签数据没变就直接复用（renderCard 每帧每卡调用，
+    // ProgramCost.of 是全语句扫描+字符串拼接，无缓存会形成每帧热点）
+    private final java.util.HashMap<Long, ProgramCost.Cost> costCache = new java.util.HashMap<>();
+    private long costCacheVersion = -1;
+    private int costCacheLabelStamp = 0;
+
+    private ProgramCost.Cost cachedCost(BProgram.Trigger t) {
+        int labelStamp = knownLabelCounts.hashCode();
+        if (costCacheVersion != modelVersion || costCacheLabelStamp != labelStamp) {
+            costCache.clear();
+            costCacheVersion = modelVersion;
+            costCacheLabelStamp = labelStamp;
+        }
+        return costCache.computeIfAbsent(t.id, id -> ProgramCost.of(t, labelSizeLookup()));
+    }
+
     /** 卡头右上角成本角标：绿/黄/红点，悬停显示成本明细与优化建议。 */
     private void renderCostBadge(GuiGraphics g, BProgram.Trigger t, int x, int y, int mx, int my) {
         if (!(t instanceof BProgram.TimerTrigger) && !(t instanceof BProgram.PulseTrigger)) return;
-        ProgramCost.Cost cost = ProgramCost.of(t, labelSizeLookup());
+        ProgramCost.Cost cost = cachedCost(t);
         int color = switch (cost.level()) {
             case LOW -> 0xFF2FA84F;
             case MEDIUM -> 0xFFE8A213;
