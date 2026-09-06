@@ -94,6 +94,8 @@ abstract class Popup {
         private int visibleRows;
         private boolean clipped;
         private static final int HINT_H = 12;
+        // 搜索过滤：输入字符实时收窄列表（/ 打开的选择器自动启用）
+        private String filter = "";
 
         public ChoicePopup(int x, int y, int w, List<String> values, List<String> labels,
                            String current, Consumer<String> onSelect) {
@@ -134,13 +136,28 @@ abstract class Popup {
             return font.plainSubstrByWidth(text, Math.max(8, room - 6)) + "…";
         }
 
+        private java.util.List<Integer> viewIndices() {
+            java.util.List<Integer> v = new java.util.ArrayList<>();
+            String f = filter.toLowerCase();
+            for (int i = 0; i < values.size(); i++) {
+                if (f.isEmpty() || labels.get(i).toLowerCase().contains(f)
+                        || values.get(i).toLowerCase().contains(f)) v.add(i);
+            }
+            return v;
+        }
+
         @Override
         public void render(GuiGraphics g, Font font, int mx, int my) {
             panel(g, x, y, w, h);
+            var view = viewIndices();
+            if (!filter.isEmpty()) {
+                g.drawString(font, "筛选: " + filter + "（" + view.size() + " 项 · Backspace 删除）",
+                        x + 5, y + h - 10, 0xFF6B7688, false);
+            }
             int listBottom = y + h - 2 - (clipped ? HINT_H : 0);
-            int rows = Math.min(values.size() - scroll, visibleRows);
+            int rows = Math.min(view.size() - scroll, visibleRows);
             for (int i = 0; i < rows; i++) {
-                int idx = scroll + i;
+                int idx = view.get(scroll + i);
                 int ry = y + 2 + i * rowH;
                 if (ry + rowH > listBottom) break;
                 boolean hover = mx >= x && mx < x + w && my >= ry && my < ry + rowH;
@@ -165,13 +182,36 @@ abstract class Popup {
             }
             // 底栏不算条目：点到它只是关掉提示，不能选中看不见的那一项
             if (clipped && my >= y + h - 2 - HINT_H) return true;
+            var view = viewIndices();
             int i = (int) ((my - y - 2) / rowH) + scroll;
-            if (i >= scroll && i < scroll + visibleRows && i < values.size()) {
-                onSelect.accept(values.get(i));
+            if (i >= scroll && i < scroll + visibleRows && i < view.size()) {
+                onSelect.accept(values.get(view.get(i)));
                 keepOpen = false;
                 return true;
             }
             return true;
+        }
+
+        @Override
+        public boolean charTyped(char ch, int modifiers) {
+            if (Character.isISOControl(ch)) return false;
+            filter += ch;
+            scroll = 0;
+            return true;
+        }
+
+        @Override
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            if (keyCode == 259) { // Backspace 删除最后一个过滤字符
+                filter = filter.isEmpty() ? "" : filter.substring(0, filter.length() - 1);
+                scroll = 0;
+                return true;
+            }
+            if (keyCode == 256) { // ESC 关闭
+                keepOpen = false;
+                return true;
+            }
+            return false;
         }
 
         @Override
