@@ -1,0 +1,137 @@
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    // Teaches ForgeGradle the 'parchment' mappings channel; ForgeGradle itself
+    // has no parchment support and fails with "Unknown mapping provider".
+    id 'org.parchmentmc.librarian.forgegradle' version '1.2.0'
+}
+
+version = project.mod_version
+group = project.mod_group_id
+
+base {
+    // Public-facing artifact name, mirrors the 1.21.1 release naming.
+    archivesName = "SFM-Factory-Studio-${project.minecraft_version}"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
+    // Parchment gives better parameter names than official mappings.
+}
+
+minecraft {
+    mappings channel: 'parchment', version: '2023.09.03-1.20.1'
+
+    runs {
+        configureEach {
+            workingDirectory project.file("run/${it.name}")
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            // Dev 环境不走 jar manifest，mixin config 需要显式声明（生产用 manifest 即可）
+            arg "-mixin.config=${project.mod_id}.mixins.json"
+
+            mods {
+                "${project.mod_id}" {
+                    source sourceSets.main
+                }
+            }
+        }
+
+        client {
+        }
+    }
+}
+
+repositories {
+    maven { url = 'https://maven.aliyun.com/repository/public' } // CN mirror of maven central
+    // Parchment mappings live on their own maven; ForgeGradle only auto-adds
+    // the Forge maven and Maven Central, so without this the mappings artifact
+    // is ground through every other repo with long retry timeouts.
+    maven { url = 'https://maven.parchmentmc.org' }
+    mavenCentral()
+    maven { url = 'https://jitpack.io' }
+    // BlameJared maven (for the JEI API jar)
+    maven { url = 'https://maven.blamejared.com' }
+    // Local SFM jar (see sfm_artifact in gradle.properties). Gradle 8.14 forbids
+    // ForgeGradle from attaching its mapped-content filter to a flatDir repo
+    // after first use ("Cannot mutate content repository descriptor"), so the
+    // jar is served from a maven-layout directory instead of flatDir.
+    maven { url = uri("${projectDir}/libs-repo") }
+}
+
+// PinIn: standalone Chinese pinyin matching library. Bundled into the release
+// jar (see the jar task below) so pinyin search works without any extra mod.
+def pininCoords = "com.github.Towdium:PinIn:1.6.0"
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${project.forge_version}"
+
+    // Mixin annotation processor: rewrites WithTagMixin's member references into
+    // SRG names inside sfmfactorystudio-refmap.json. Without this the mixin
+    // resolves mojmap names at runtime and silently fails on production Forge.
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+
+    // SFM 1.20.1 Forge is a required companion mod at runtime; compile against
+    // the deobfuscated (SRG -> parchment) form of the same 4.34.0 release the
+    // 1.21.1 version targets.
+    compileOnly fg.deobf(project.sfm_artifact)
+    runtimeOnly fg.deobf(project.sfm_artifact)
+
+    // JEI API: compile-only optional integration; guarded at runtime.
+    def jei = "mezz.jei:jei-${project.minecraft_version}"
+    compileOnly "${jei}-common-api:${project.jei_version}"
+    compileOnly "${jei}-forge-api:${project.jei_version}"
+    runtimeOnly fg.deobf("${jei}-forge:${project.jei_version}")
+
+    implementation(pininCoords) { transitive = false }
+    testImplementation(pininCoords) { transitive = false }
+
+    testImplementation fg.deobf(project.sfm_artifact)
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// Bundle PinIn into the distributable jar (ForgeGradle has no jarJar).
+tasks.named('jar', Jar).configure {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    // 1.20.1 Forge discovers mod mixin configs through the JAR manifest.
+    manifest {
+        attributes('MixinConfigs': 'sfmfactorystudio.mixins.json')
+    }
+    from {
+        configurations.runtimeClasspath
+                .filter { it.name.startsWith('PinIn-') }
+                .collect { zipTree(it) }
+    }
+    exclude 'META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    // load properties as UTF-8 so the Chinese mod name survives template expansion
+    def utf8Props = new Properties()
+    file('gradle.properties').newReader('UTF-8').withCloseable { reader -> utf8Props.load(reader) }
+    def replaceProperties = [
+            minecraft_version      : utf8Props['minecraft_version'],
+            minecraft_version_range: utf8Props['minecraft_version_range'],
+            forge_version_range    : utf8Props['forge_version_range'],
+            loader_version_range   : utf8Props['loader_version_range'],
+            mod_id                 : utf8Props['mod_id'],
+            mod_name               : utf8Props['mod_name'],
+            mod_license            : utf8Props['mod_license'],
+            mod_version            : utf8Props['mod_version'],
+            mod_authors            : utf8Props['mod_authors'],
+            mod_description        : utf8Props['mod_description']
+    ]
+    inputs.properties replaceProperties
+    filesMatching(['META-INF/mods.toml']) {
+        expand replaceProperties
+    }
+}
+
+test {
+    useJUnitPlatform()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

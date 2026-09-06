@@ -1,0 +1,47 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
+logoFile="logo.png"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+authors="${mod_authors}"
+description='''${mod_description}'''
+# Client-friendly: joining a vanilla-SFM server without this addon is allowed.
+displayTest="IGNORE_ALL_VERSION"
+
+# NOTE: 1.20.1 Forge uses the mandatory=true/false key here; the newer
+# type="required"/"optional" syntax is NeoForge-only and FML rejects the file.
+
+# This addon requires Super Factory Manager to be installed.
+[[dependencies.${mod_id}]]
+    modId="sfm"
+    mandatory=true
+    versionRange="[4.30,)"
+    ordering="AFTER"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="forge"
+    mandatory=true
+    versionRange="${forge_version_range}"
+    ordering="AFTER"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="${minecraft_version_range}"
+    ordering="AFTER"
+    side="BOTH"
+
+# Optional JEI integration: when present, the resource picker uses JEI's item list
+# and renderer. Load after JEI (client only) so our plugin's runtime is ready.
+[[dependencies.${mod_id}]]
+    modId="jei"
+    mandatory=false
+    versionRange="[15.0,)"
+    ordering="AFTER"
+    side="CLIENT"

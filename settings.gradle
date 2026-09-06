@@ -1,0 +1,16 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven { url = 'https://maven.minecraftforge.net/' }
+        maven { url = 'https://maven.aliyun.com/repository/gradle-plugin' }
+        // Librarian (the plugin that teaches ForgeGradle the 'parchment'
+        // mappings channel) publishes only here.
+        maven { url = 'https://maven.parchmentmc.org/' }
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.9.0'
+}
+
+rootProject.name = "sfmfactorystudio"
