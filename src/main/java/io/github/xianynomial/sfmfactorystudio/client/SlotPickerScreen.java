@@ -201,8 +201,10 @@ public final class SlotPickerScreen extends Screen {
     public void render(GuiGraphics g, int mx, int my, float partialTick) {
         this.renderBackground(g, mx, my, partialTick);
         if (!ready) {
-            g.drawCenteredString(this.font, "无法获取该容器的槽位信息", width / 2, height / 2 - 8, 0xFFFFFFFF);
-            g.drawCenteredString(this.font, "请直接在输入框中输入槽位数字", width / 2, height / 2 + 8, 0xFFB0B0B0);
+            g.drawCenteredString(this.font, "还没有这个容器的布局记录", width / 2, height / 2 - 20, 0xFFFFFFFF);
+            g.drawCenteredString(this.font, "① 返回游戏，右键打开一次该容器的界面", width / 2, height / 2 - 2, 0xFFE0E0E0);
+            g.drawCenteredString(this.font, "② 再回到这里，就会还原成和原版一样的布局", width / 2, height / 2 + 14, 0xFFE0E0E0);
+            g.drawCenteredString(this.font, "也可以直接关闭后输入槽位数字", width / 2, height / 2 + 30, 0xFF909090);
             return;
         }
         g.drawCenteredString(this.font, "选择槽位（beta）", width / 2, 24, 0xFFFFFFFF);

@@ -5228,7 +5228,11 @@ public class BlockEditorScreen extends Screen {
         if (primary != null && primary.retain == null) addChoice(values, labels, "retain:0", "至少留下指定数量");
         addChoice(values, labels, "except", "排除一种资源");
         if (!access.eachSide && access.sides.isEmpty()) addChoice(values, labels, "sides", "指定方块侧面");
-        if (access.slots.isEmpty()) addChoice(values, labels, "slots", "指定槽位");
+        if (access.slots.isEmpty()) {
+            // 输入框为默认；可视化 beta 为可选项（不放第一位）
+            addChoice(values, labels, "slots", "指定槽位（输入数字，如 3 或 3-10）");
+            addChoice(values, labels, "slots_beta", "指定槽位（可视化 beta）");
+        }
         if (access.roundRobin == BProgram.RoundRobinMode.NONE) addChoice(values, labels, "round_robin", "轮流选择目标");
         if (!each) addChoice(values, labels, "each", "每个方块分别处理");
         if (io instanceof BProgram.Statement.Output && !emptySlots) {
@@ -5322,25 +5326,24 @@ public class BlockEditorScreen extends Screen {
                     layoutDirty = true;
                 });
                 case "sides" -> openSideEditor(x, y, access);
-                case "slots" -> {
-                    // 首次添加也走可视化：有捕获布局（玩家打开过该容器）→ 直接开选择器
+                case "slots_beta" -> {
                     var firstPos = firstBoundBlockPos(access.labels);
-                    if (firstPos != null && ClientGuiLayoutCache.get(firstPos) != null) {
-                        var captured = ClientGuiLayoutCache.get(firstPos);
-                        int total = captured.totalSlots();
-                        slotLayoutTotal = total;
-                        Minecraft.getInstance().setScreen(new SlotPickerScreen(
-                                this, total, captured.slots(), new ArrayList<>(), picked2 -> {
-                                    pushUndo();
-                                    setSlotsFromText(access.slots, picked2.stream()
-                                            .map(String::valueOf)
-                                            .collect(java.util.stream.Collectors.joining(",")));
-                                    layoutDirty = true;
-                                    refreshIssues();
-                                }, firstPos));
+                    if (firstPos == null) {
+                        showStatus("✖ 先给这条积木设置标签，才能定位容器", 0xFFD13438);
                         return;
                     }
-                    openTextEditor(x, y, "", value -> setSlotsFromText(access.slots, value), null, 150,
+                    slotLayoutTotal = -1;
+                    Minecraft.getInstance().setScreen(new SlotPickerScreen(
+                            this, -1, List.of(), new ArrayList<>(), picked2 -> {
+                                pushUndo();
+                                setSlotsFromText(access.slots, picked2.stream()
+                                        .map(String::valueOf)
+                                        .collect(java.util.stream.Collectors.joining(",")));
+                                layoutDirty = true;
+                                refreshIssues();
+                            }, firstPos));
+                }
+                case "slots" -> openTextEditor(x, y, "", value -> setSlotsFromText(access.slots, value), null, 150,
                         input -> {
                             String v = input == null ? "" : input.trim();
                             if (v.isEmpty()) return "清空 = 不限制（全部槽位）";
@@ -5362,7 +5365,6 @@ public class BlockEditorScreen extends Screen {
                                     ? "（超出容器 " + slotLayoutTotal + " 格！）" : "";
                             return "将指定 " + n + " 个槽位：" + joined + over;
                         });
-                }
                 case "round_robin" -> openChoice(x, y, "none",
                         List.of("label", "block"), List.of("按标签轮流", "按方块轮流"), value -> {
                             pushUndo();
