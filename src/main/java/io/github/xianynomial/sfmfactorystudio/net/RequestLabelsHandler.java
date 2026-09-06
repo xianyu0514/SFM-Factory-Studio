@@ -1,5 +1,7 @@
 package io.github.xianynomial.sfmfactorystudio.net;
 
+import io.github.xianynomial.sfmfactorystudio.client.Loc;
+
 import ca.teamdman.sfm.common.blockentity.ManagerBlockEntity;
 import ca.teamdman.sfm.common.label.LabelPositionHolder;
 import ca.teamdman.sfml.ast.Program;

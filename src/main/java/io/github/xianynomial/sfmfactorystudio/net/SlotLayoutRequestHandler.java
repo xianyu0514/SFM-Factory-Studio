@@ -1,5 +1,7 @@
 package io.github.xianynomial.sfmfactorystudio.net;
 
+import io.github.xianynomial.sfmfactorystudio.client.Loc;
+
 import io.github.xianynomial.sfmfactorystudio.SFMGui;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.MenuProvider;

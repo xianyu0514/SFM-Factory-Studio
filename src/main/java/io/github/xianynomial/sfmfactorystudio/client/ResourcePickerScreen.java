@@ -1,5 +1,7 @@
 package io.github.xianynomial.sfmfactorystudio.client;
 
+import io.github.xianynomial.sfmfactorystudio.client.Loc;
+
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BProgram;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
