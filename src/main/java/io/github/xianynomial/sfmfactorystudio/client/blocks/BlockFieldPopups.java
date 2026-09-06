@@ -285,7 +285,20 @@ abstract class Popup {
             return new TextPopup(host, x, y, w, initial, hint, onDone, openPicker, confirmLabel);
         }
 
+        /** 带侧边按钮（可自定义文字/橙色高亮）+ 实时预览的输入框。 */
+        public static TextPopup withButton(Screen host, int x, int y, int w, String initial,
+                                           Consumer<String> onDone, Runnable openButton,
+                                           String confirmLabel, String buttonLabel,
+                                           java.util.function.Function<String, String> livePreview) {
+            TextPopup p = new TextPopup(host, x, y, w, initial, "", onDone, openButton, confirmLabel, livePreview);
+            if (buttonLabel != null) p.pickerButtonLabel = buttonLabel;
+            if ("beta".equals(buttonLabel)) p.pickerButtonOrange = true;
+            return p;
+        }
+
         private final java.util.function.Function<String, String> livePreview;
+        private String pickerButtonLabel = BROWSE.getString();
+        private boolean pickerButtonOrange = false;
 
         private TextPopup(Screen host, int x, int y, int w, String initial, String hint,
                           Consumer<String> onDone, Runnable openPicker, String confirmLabel) {
@@ -336,9 +349,12 @@ abstract class Popup {
             if (openPicker != null) {
                 int bx = x + w - 54, by = y + 4;
                 boolean hover = mx >= bx && mx < bx + 50 && my >= by && my < by + 16;
-                g.fill(bx, by, bx + 50, by + 16, hover ? 0xFFE3ECFB : 0xFFF1F4F9);
-                border(g, bx, by, 50, 16, 0xFFC9D2DF);
-                g.drawCenteredString(font, BROWSE.getString(), bx + 25, by + 4, 0xFF1B2432);
+                int bBg = pickerButtonOrange ? (hover ? 0xFFFDE7C8 : 0xFFFBEDD5) : hover ? 0xFFE3ECFB : 0xFFF1F4F9;
+                int bBd = pickerButtonOrange ? 0xFFD79A2B : 0xFFC9D2DF;
+                g.fill(bx, by, bx + 50, by + 16, bBg);
+                border(g, bx, by, 50, 16, bBd);
+                g.drawCenteredString(font, pickerButtonLabel, bx + 25, by + 4,
+                        pickerButtonOrange ? 0xFFB45309 : 0xFF1B2432);
             }
             if (confirmLabel != null) {
                 int by = y + h - 20;

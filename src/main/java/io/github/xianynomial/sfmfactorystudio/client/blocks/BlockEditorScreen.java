@@ -2199,6 +2199,35 @@ public class BlockEditorScreen extends Screen {
     }
 
     /** 积木行的标签列表（取出/存入/遗忘；其它积木返回 null）。 */
+    /**
+     * 槽位可视化（beta）：按容器坐标查捕获布局并打开选择器。
+     * 无捕获时打开引导模式（提示先右键打开一次该容器界面）。
+     */
+    private void openSlotBetaPicker(net.minecraft.core.BlockPos pos, List<BProgram.SlotRange> target) {
+        if (pos == null) {
+            showStatus("✖ 先给这条积木设置标签，才能定位容器", 0xFFD13438);
+            return;
+        }
+        var captured = ClientGuiLayoutCache.get(pos);
+        int total = captured != null ? captured.totalSlots() : -1;
+        List<int[]> coords = captured != null ? captured.slots() : List.of();
+        slotLayoutTotal = total;   // 输入校验的超界提示依赖它
+        List<Integer> initialSel = new ArrayList<>();
+        for (BProgram.SlotRange r : target) {
+            for (long v = r.first(); v <= r.last() && v < (total < 0 ? Long.MAX_VALUE : total); v++) {
+                initialSel.add((int) v);
+            }
+        }
+        Minecraft.getInstance().setScreen(new SlotPickerScreen(
+                this, total, coords, initialSel, picked -> {
+                    setSlotsFromText(target, picked.stream()
+                            .map(String::valueOf)
+                            .collect(java.util.stream.Collectors.joining(",")));
+                    layoutDirty = true;
+                    refreshIssues(); // 成本角标联动
+                }, pos));
+    }
+
     private List<String> labelsOf(BProgram.Statement s) {
         if (s instanceof BProgram.Statement.Input in) return in.access.labels;
         if (s instanceof BProgram.Statement.Output out) return out.access.labels;
@@ -5228,11 +5257,7 @@ public class BlockEditorScreen extends Screen {
         if (primary != null && primary.retain == null) addChoice(values, labels, "retain:0", "至少留下指定数量");
         addChoice(values, labels, "except", "排除一种资源");
         if (!access.eachSide && access.sides.isEmpty()) addChoice(values, labels, "sides", "指定方块侧面");
-        if (access.slots.isEmpty()) {
-            // 输入框为默认；可视化 beta 为可选项（不放第一位）
-            addChoice(values, labels, "slots", "指定槽位（输入数字，如 3 或 3-10）");
-            addChoice(values, labels, "slots_beta", "指定槽位（可视化 beta）");
-        }
+        if (access.slots.isEmpty()) addChoice(values, labels, "slots", "指定槽位");
         if (access.roundRobin == BProgram.RoundRobinMode.NONE) addChoice(values, labels, "round_robin", "轮流选择目标");
         if (!each) addChoice(values, labels, "each", "每个方块分别处理");
         if (io instanceof BProgram.Statement.Output && !emptySlots) {
@@ -5343,28 +5368,36 @@ public class BlockEditorScreen extends Screen {
                                 refreshIssues();
                             }, firstPos));
                 }
-                case "slots" -> openTextEditor(x, y, "", value -> setSlotsFromText(access.slots, value), null, 150,
-                        input -> {
-                            String v = input == null ? "" : input.trim();
-                            if (v.isEmpty()) return "清空 = 不限制（全部槽位）";
-                            if (v.equalsIgnoreCase("all") || v.equals("全部")) return "不限制（全部槽位）";
-                            List<BProgram.SlotRange> parsed = new ArrayList<>();
-                            try {
-                                for (String part : v.split("[,，;；+\s]+")) {
-                                    if (part.isBlank()) continue;
-                                    parsed.add(BProgram.SlotRange.parseLenient(part, slotTotalHint()));
+                case "slots" -> {
+                    // 默认聚焦输入框（实时预览）；旁边 beta 按钮打开可视化
+                    var firstPos = firstBoundBlockPos(access.labels);
+                    setPopup(Popup.TextPopup.withButton(
+                            this, sX(x), sY(y) + BAR_H - 3, 150, "",
+                            value -> setSlotsFromText(access.slots, value),
+                            () -> openSlotBetaPicker(firstPos, access.slots),
+                            null, "beta",
+                            input -> {
+                                String v = input == null ? "" : input.trim();
+                                if (v.isEmpty()) return "清空 = 不限制（全部槽位）";
+                                if (v.equalsIgnoreCase("all") || v.equals("全部")) return "不限制（全部槽位）";
+                                List<BProgram.SlotRange> parsed = new ArrayList<>();
+                                try {
+                                    for (String part : v.split("[,]，;；+\s]+")) {
+                                        if (part.isBlank()) continue;
+                                        parsed.add(BProgram.SlotRange.parseLenient(part, slotTotalHint()));
+                                    }
+                                } catch (IllegalArgumentException ex) {
+                                    return "✖ " + ex.getMessage();
                                 }
-                            } catch (IllegalArgumentException ex) {
-                                return "✖ " + ex.getMessage();
-                            }
-                            int n = 0;
-                            for (BProgram.SlotRange r : parsed) n += (int) (r.last() - r.first() + 1);
-                            String joined = parsed.stream().map(BProgram.SlotRange::sfml)
-                                    .collect(java.util.stream.Collectors.joining("、"));
-                            String over = slotLayoutTotal >= 0 && parsed.stream().anyMatch(r -> r.last() >= slotLayoutTotal)
-                                    ? "（超出容器 " + slotLayoutTotal + " 格！）" : "";
-                            return "将指定 " + n + " 个槽位：" + joined + over;
-                        });
+                                int n = 0;
+                                for (BProgram.SlotRange r : parsed) n += (int) (r.last() - r.first() + 1);
+                                String joined = parsed.stream().map(BProgram.SlotRange::sfml)
+                                        .collect(java.util.stream.Collectors.joining("、"));
+                                String over = slotLayoutTotal >= 0 && parsed.stream().anyMatch(r -> r.last() >= slotLayoutTotal)
+                                        ? "（超出容器 " + slotLayoutTotal + " 格！）" : "";
+                                return "将指定 " + n + " 个槽位：" + joined + over;
+                            }));
+                }
                 case "round_robin" -> openChoice(x, y, "none",
                         List.of("label", "block"), List.of("按标签轮流", "按方块轮流"), value -> {
                             pushUndo();
