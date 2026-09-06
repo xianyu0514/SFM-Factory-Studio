@@ -1654,6 +1654,14 @@ public class BlockEditorScreen extends Screen {
             codeEditor.clearSuggestions();
         }
 
+        // ===== 右键统一入口（全面重构）：最高优先级，永不左键平移抢占 =====
+        // 右键语义=命中什么就弹出什么菜单（积木行/标签/资源槽/卡片/画布），
+        // 全部给出可见反馈；右键不再承担平移（平移=中键拖动）。
+        if (button == 2) {
+            handleRightClick(mx, my);
+            return true; // 右键在画布内一律由统一入口处理（菜单/复制），不再平移
+        }
+
         if (super.mouseClicked(mx, my, button)) {
             if (codeEditor != null && codeEditor.isFocused()) codeSuggestDelay = 2;
             return true;
@@ -1684,20 +1692,9 @@ public class BlockEditorScreen extends Screen {
         // Ctrl+左键：在任意位置（包括积木上）起框，不被命中区抢走
         boolean overCanvas = mx >= canvasX && mx < canvasX + canvasW
                 && my >= canvasY && my < canvasY + canvasH;
-        // 右键优先命中 K_RCLICK：在 super/uiHits 之前判定（右键语义=命中
-        // 什么就复制什么；未命中任何 K_RCLICK 才轮到平移/卡片菜单）。
-        if (button == 2) {
-            double rcx = ctX(mx), rcy = ctY(my);
-            for (int i = hits.size() - 1; i >= 0; i--) {
-                Hit h = hits.get(i);
-                if (h.kind == K_RCLICK && in(h, rcx, rcy)) {
-                    h.onClick.run();
-                    return true;
-                }
-            }
-        }
-        // 中键或右键（无右键目标时）从画布任意位置开始平移，即使光标正位于积木上。
-        if (overCanvas && button != 0) {
+        // 右键统一入口：见 handleRightClick（放在所有左键逻辑之前）
+        // 中键从画布任意位置开始平移（右键已由统一入口处理，不再平移）
+        if (overCanvas && button == 1) {
             startPanning(mx, my);
             return true;
         }
@@ -1717,13 +1714,6 @@ public class BlockEditorScreen extends Screen {
         for (int i = hits.size() - 1; i >= 0; i--) {
             Hit h = hits.get(i);
             if (in(h, cx, cy)) {
-                if (h.kind == K_RCLICK) {
-                    if (button == 2) {
-                        h.onClick.run();
-                        return true;
-                    }
-                    continue; // 左键/中键穿透到普通命中
-                }
                 if (h.kind == K_GRIP && button == 0) {
                     if (hasShiftDown()) {
                         // Shift+点击行：加选/减选，不进入拖动
@@ -2127,6 +2117,120 @@ public class BlockEditorScreen extends Screen {
      * 右键原地点击：卡片内=复制/粘贴/删除（自动选中该卡）；卡片外=仅粘贴。
      * 不放撤销/重做（工具栏已有，用户拍板 2026-09-02）。
      */
+    /** 光标下的语句（按布局行矩形反查，含 If 嵌套）；未命中返回 null。 */
+    private BProgram.Statement statementAt(double cx, double cy) {
+        var stack = new java.util.ArrayDeque<List<BProgram.Statement>>();
+        for (BProgram.Trigger t : program.triggers) stack.push(t.body);
+        while (!stack.isEmpty()) {
+            var body = stack.pop();
+            for (BProgram.Statement s : body) {
+                int[] r = layout.rowRectOf(s.id);
+                if (r != null && cx >= r[0] && cx < r[0] + r[2] && cy >= r[1] && cy < r[1] + r[3]) return s;
+                if (s instanceof BProgram.Statement.If iff) {
+                    for (BProgram.Branch b : iff.branches) stack.push(b.body);
+                    stack.push(iff.elseBody);
+                }
+            }
+        }
+        return null;
+    }
+
+    private void handleRightClick(double mx, double my) {
+        double cx = ctX(mx), cy = ctY(my);
+        // 命中注册的右键目标（资源槽/标签药丸——渲染期注册，与显示同源）
+        for (int i = hits.size() - 1; i >= 0; i--) {
+            Hit h = hits.get(i);
+            if (h.kind == K_RCLICK && in(h, cx, cy)) {
+                h.onClick.run();
+                return;
+            }
+        }
+        // 语句行 → 行菜单（可见反馈）
+        BProgram.Statement s = statementAt(cx, cy);
+        if (s != null) {
+            openRowMenu(mx, my, s);
+            return;
+        }
+        // 卡片 / 画布空白 → 卡片菜单
+        openContextMenu(mx, my);
+    }
+
+    private boolean overCanvasAt(double mx, double my) {
+        return mx >= canvasX && mx < canvasX + canvasW && my >= canvasY && my < canvasY + canvasH;
+    }
+
+    /**
+     * 右键积木行：可见菜单（不再静默复制——用户必须看到反馈）。
+     * 复制此积木 / 复制标签组 / 粘贴标签组 / 删除此积木。
+     */
+    private void openRowMenu(double mx, double my, BProgram.Statement s) {
+        List<String> values = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        values.add("copy");
+        labels.add("复制此积木");
+        List<String> labelsRef = labelsOf(s);
+        if (labelsRef != null) {
+            values.add("copy_labels");
+            labels.add("复制标签组");
+            if (copiedLabels != null) {
+                values.add("paste_labels");
+                labels.add("粘贴标签组：" + String.join("+", copiedLabels));
+            }
+        }
+        values.add("delete");
+        labels.add("删除此积木");
+        setPopup(new Popup.ChoicePopup(sX((int) mx), sY((int) my) + 8, 170, values, labels, "", action -> {
+            switch (action) {
+                case "copy" -> copySingleStatement(s);
+                case "copy_labels" -> {
+                    if (labelsRef != null && !labelsRef.isEmpty()) {
+                        copiedLabels = new ArrayList<>(labelsRef);
+                        showStatus("已复制标签 " + String.join("+", labelsRef), C_SELECT);
+                    }
+                }
+                case "paste_labels" -> {
+                    if (labelsRef != null && copiedLabels != null) {
+                        pushUndo();
+                        labelsRef.clear();
+                        labelsRef.addAll(copiedLabels);
+                        layoutDirty = true;
+                    }
+                }
+                case "delete" -> {
+                    pushUndo();
+                    removeStatementEverywhere(s);
+                }
+            }
+        }));
+    }
+
+    /** 积木行的标签列表（取出/存入/遗忘；其它积木返回 null）。 */
+    private List<String> labelsOf(BProgram.Statement s) {
+        if (s instanceof BProgram.Statement.Input in) return in.access.labels;
+        if (s instanceof BProgram.Statement.Output out) return out.access.labels;
+        if (s instanceof BProgram.Statement.Forget f) return f.labels;
+        return null;
+    }
+
+    /** 从程序任意位置删除积木（右键删除用）。 */
+    private void removeStatementEverywhere(BProgram.Statement target) {
+        java.util.Deque<List<BProgram.Statement>> stack = new java.util.ArrayDeque<>();
+        for (BProgram.Trigger t : program.triggers) stack.push(t.body);
+        while (!stack.isEmpty()) {
+            var body = stack.pop();
+            if (body.remove(target)) {
+                layoutDirty = true;
+                return;
+            }
+            for (BProgram.Statement s : body) {
+                if (s instanceof BProgram.Statement.If iff) {
+                    for (BProgram.Branch b : iff.branches) stack.push(b.body);
+                    stack.push(iff.elseBody);
+                }
+            }
+        }
+    }
+
     private void openContextMenu(double mx, double my) {
         double ccx = ctX(mx), ccy = ctY(my);
         BProgram.Trigger over = null;
@@ -3647,7 +3751,7 @@ public class BlockEditorScreen extends Screen {
             case HIGH -> 0xFFD13438;
         };
         g.fill(x, y, x + 6, y + 6, color);
-        boolean hover = mx >= x - 2 && mx < x + 8 && my >= y - 2 && my < y + 8;
+        boolean hover = mx >= x - 5 && mx < x + 11 && my >= y - 5 && my < y + 11;
         if (hover) {
             // tooltip 延迟到内容矩阵 pop 后统一画（renderCostTooltip 字段桥）
             List<Component> tip = new ArrayList<>();
@@ -3998,7 +4102,7 @@ public class BlockEditorScreen extends Screen {
         border(g, x, y, w, h - 3, G_BORDER);
 
         // 成本角标：抓手左侧的 6px 色点（绿/黄/红），悬停看明细
-        renderCostBadge(g, t, x + w - 13, y + HEAD_H / 2 - 3, mx, my);
+        renderCostBadge(g, t, x + w - 13, y + h / 2 - 3, mx, my);
 
         // 头部抓手：3×2 点阵，提示"这里可以拖"。画在 accent 条右侧，不占额外宽度。
         int gripC = mix(accent, 0xFFFFFFFF, 120);
