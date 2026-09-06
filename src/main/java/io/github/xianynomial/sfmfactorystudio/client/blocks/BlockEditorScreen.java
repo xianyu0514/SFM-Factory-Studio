@@ -18,6 +18,7 @@ import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.G
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.ProgramDiagnostics;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlToBlocks;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.ProgramCost;
+import io.github.xianynomial.sfmfactorystudio.client.ClientGuiLayoutCache;
 import io.github.xianynomial.sfmfactorystudio.client.SlotPickerScreen;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlSyntax;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlValidate;
@@ -4894,33 +4895,31 @@ public class BlockEditorScreen extends Screen {
                     layoutDirty = true;
                     refreshIssues(); // 成本角标联动：指定槽位后负载实时刷新
                 };
-                boolean vbHover = overField(mx, my, fx, y + 2, 18, BAR_H - 6);
-                g.fill(fx + 1, y + 3, fx + 17, y + 19, vbHover ? 0xFF3A6FD8 : 0xFF6B7688);
-                border(g, fx, y + 2, 18, BAR_H - 6, vbHover ? C_SELECT : 0xFFC9D4E2);
-                g.pose().pushPose();
-                g.pose().translate(fx + 2, y + 8, 0);
-                g.pose().scale(0.7f, 0.7f, 1);
-                g.drawString(this.font, "beta", 0, 0, 0xFFFFFFFF, false);
-                g.pose().popPose();
-                hits.add(hit(fx, y + 2, 18, BAR_H - 6, K_CLICK, null, () -> {
-                    requestSlotLayout(vpos, (total, slots, menuClass) -> {
-                        if (total < 0) {
-                            Minecraft.getInstance().setScreen(
-                                    SlotPickerScreen.unavailable());
-                            return;
+                boolean vbHover = overField(mx, my, fx, y + 2, 34, BAR_H - 6);
+                // 橙色胶囊（与「＋ 或…」同风格）：beta = 测试含义
+                int vbBg = vbHover ? 0xFFFDF0DC : 0xFFFBEDD5;
+                int vbBorder = vbHover ? 0xFFD79A2B : 0xFFE8C48A;
+                g.fill(fx, y + 2, fx + 34, y + BAR_H - 4, vbBg);
+                border(g, fx, y + 2, 34, BAR_H - 4, vbBorder);
+                g.drawString(this.font, "beta", fx + (34 - this.font.width("beta")) / 2, y + 6,
+                        0xFFB45309, false);
+                hits.add(hit(fx, y + 2, 34, BAR_H - 6, K_CLICK, null, () -> {
+                    // 直接读客户端捕获缓存（按方块坐标键）：
+                    // 玩家打开过该容器界面 = 有真实布局；没打开过 = 引导提示
+                    var captured = ClientGuiLayoutCache.get(vpos);
+                    int total = captured != null ? captured.totalSlots() : -1;
+                    List<int[]> slots = captured != null ? captured.slots() : List.of();
+                    slotLayoutTotal = total;   // 输入校验的超界提示依赖它
+                    List<Integer> initialSel = new ArrayList<>();
+                    for (BProgram.SlotRange r : access.slots) {
+                        for (long v = r.first(); v <= r.last() && v < (total < 0 ? Long.MAX_VALUE : total); v++) {
+                            initialSel.add((int) v);
                         }
-                        slotLayoutTotal = total;   // 输入校验的超界提示依赖它
-                        List<Integer> initialSel = new ArrayList<>();
-                        for (BProgram.SlotRange r : access.slots) {
-                            for (long v = r.first(); v <= r.last() && v < (total < 0 ? Long.MAX_VALUE : total); v++) {
-                                initialSel.add((int) v);
-                            }
-                        }
-                        Minecraft.getInstance().setScreen(new SlotPickerScreen(
-                                this, total, slots, initialSel, apply, menuClass));
-                    });
+                    }
+                    Minecraft.getInstance().setScreen(new SlotPickerScreen(
+                            this, total, slots, initialSel, apply, vpos));
                 }));
-                fx += 22;
+                fx += 38;
             }
             drawIcon(g, x + w - 18, y, "✕", () -> {
                 pushUndo();
@@ -5323,7 +5322,25 @@ public class BlockEditorScreen extends Screen {
                     layoutDirty = true;
                 });
                 case "sides" -> openSideEditor(x, y, access);
-                case "slots" -> openTextEditor(x, y, "", value -> setSlotsFromText(access.slots, value), null, 150,
+                case "slots" -> {
+                    // 首次添加也走可视化：有捕获布局（玩家打开过该容器）→ 直接开选择器
+                    var firstPos = firstBoundBlockPos(access.labels);
+                    if (firstPos != null && ClientGuiLayoutCache.get(firstPos) != null) {
+                        var captured = ClientGuiLayoutCache.get(firstPos);
+                        int total = captured.totalSlots();
+                        slotLayoutTotal = total;
+                        Minecraft.getInstance().setScreen(new SlotPickerScreen(
+                                this, total, captured.slots(), new ArrayList<>(), picked2 -> {
+                                    pushUndo();
+                                    setSlotsFromText(access.slots, picked2.stream()
+                                            .map(String::valueOf)
+                                            .collect(java.util.stream.Collectors.joining(",")));
+                                    layoutDirty = true;
+                                    refreshIssues();
+                                }, firstPos));
+                        return;
+                    }
+                    openTextEditor(x, y, "", value -> setSlotsFromText(access.slots, value), null, 150,
                         input -> {
                             String v = input == null ? "" : input.trim();
                             if (v.isEmpty()) return "清空 = 不限制（全部槽位）";
@@ -5345,6 +5362,7 @@ public class BlockEditorScreen extends Screen {
                                     ? "（超出容器 " + slotLayoutTotal + " 格！）" : "";
                             return "将指定 " + n + " 个槽位：" + joined + over;
                         });
+                }
                 case "round_robin" -> openChoice(x, y, "none",
                         List.of("label", "block"), List.of("按标签轮流", "按方块轮流"), value -> {
                             pushUndo();

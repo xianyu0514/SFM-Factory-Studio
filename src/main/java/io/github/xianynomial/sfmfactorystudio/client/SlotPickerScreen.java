@@ -38,24 +38,25 @@ public final class SlotPickerScreen extends Screen {
 
     public SlotPickerScreen(Screen parent, int total, List<int[]> coords, List<Integer> initial,
                             Consumer<List<Integer>> onResult) {
-        this(parent, total, coords, initial, onResult, false, "");
+        this(parent, total, coords, initial, onResult, false, null);
     }
 
     public SlotPickerScreen(Screen parent, int total, List<int[]> coords, List<Integer> initial,
-                            Consumer<List<Integer>> onResult, String menuClass) {
-        this(parent, total, coords, initial, onResult, false, menuClass);
+                            Consumer<List<Integer>> onResult, net.minecraft.core.BlockPos containerPos) {
+        this(parent, total, coords, initial, onResult, false, containerPos);
     }
 
     private SlotPickerScreen(Screen parent, int total, List<int[]> coords, List<Integer> initial,
-                             Consumer<List<Integer>> onResult, boolean unavailableMode, String menuClass) {
+                             Consumer<List<Integer>> onResult, boolean unavailableMode,
+                             net.minecraft.core.BlockPos containerPos) {
         super(Component.literal("选择槽位（beta）"));
         this.parent = parent;
         this.total = total;
         this.unavailableMode = unavailableMode;
-        // 真实 GUI 布局优先：玩家打开过该容器界面时，捕获缓存里存着像素级
-        // 坐标（含异形布局），比服务端探针更可靠
-        if (menuClass != null && !menuClass.isEmpty()) {
-            ClientGuiLayoutCache.Layout captured = ClientGuiLayoutCache.get(menuClass);
+        // 真实 GUI 布局：玩家右键打开过该容器界面时，捕获缓存里存着像素级
+        // 坐标（按方块坐标键，含异形布局）——与原版界面完全一致
+        if (containerPos != null) {
+            ClientGuiLayoutCache.Layout captured = ClientGuiLayoutCache.get(containerPos);
             if (captured != null && !captured.slots().isEmpty()) {
                 // 捕获条目 = [容器槽索引, x, y]；按索引展开成坐标数组
                 int maxIdx = 0;
@@ -78,7 +79,7 @@ public final class SlotPickerScreen extends Screen {
 
     /** 服务端未回应（未装附属）：短暂提示后自动关闭。 */
     public static SlotPickerScreen unavailable() {
-        return new SlotPickerScreen(null, 0, List.of(), List.of(), null, true, "");
+        return new SlotPickerScreen(null, 0, List.of(), List.of(), null, true, null);
     }
 
     public static void showUnavailable(Screen parent) {
