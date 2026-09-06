@@ -117,10 +117,32 @@ public final class ClientGuiLayoutCache {
         // 跳过不渲染的幽灵槽（isActive=false），按容器内索引去重
         Inventory playerInv = Minecraft.getInstance().player != null
                 ? Minecraft.getInstance().player.getInventory() : null;
-        Map<Integer, int[]> byIndex = new java.util.TreeMap<>();
+        Map<Object, List<Slot>> groups = new LinkedHashMap<>();
         for (Slot slot : menu.slots) {
             if (playerInv != null && slot.container == playerInv) continue;
             if (!slot.isActive()) continue;
+            groups.computeIfAbsent(slot.container, k -> new ArrayList<>()).add(slot);
+        }
+        if (groups.isEmpty()) return;
+        // 首选组 = 与方块暴露的 ItemHandler 一致的组（SFM slot N 寻址的就是它）；
+        // 升级卡等内部容器没有能力暴露面，SFM 无法寻址——丢弃
+        List<Slot> primary = null;
+        var exposed = Minecraft.getInstance().level != null
+                ? Minecraft.getInstance().level.getCapability(
+                        net.neoforged.neoforge.capabilities.Capabilities.ItemHandler.BLOCK, pos, null)
+                : null;
+        if (exposed != null) {
+            for (List<Slot> g : groups.values()) {
+                if (!g.isEmpty() && g.get(0).container == exposed) { primary = g; break; }
+            }
+        }
+        if (primary == null) { // 回退：最大组
+            for (List<Slot> g : groups.values()) {
+                if (primary == null || g.size() > primary.size()) primary = g;
+            }
+        }
+        Map<Integer, int[]> byIndex = new java.util.TreeMap<>();
+        for (Slot slot : primary) {
             int idx = slot.getContainerSlot();
             if (idx < 0) continue;
             byIndex.putIfAbsent(idx, new int[]{idx, slot.x, slot.y});
