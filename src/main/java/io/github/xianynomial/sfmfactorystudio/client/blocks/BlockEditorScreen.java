@@ -1654,14 +1654,6 @@ public class BlockEditorScreen extends Screen {
             codeEditor.clearSuggestions();
         }
 
-        // ===== 右键统一入口（全面重构）：最高优先级，永不左键平移抢占 =====
-        // 右键语义=命中什么就弹出什么菜单（积木行/标签/资源槽/卡片/画布），
-        // 全部给出可见反馈；右键不再承担平移（平移=中键拖动）。
-        if (button == 2) {
-            handleRightClick(mx, my);
-            return true; // 右键在画布内一律由统一入口处理（菜单/复制），不再平移
-        }
-
         if (super.mouseClicked(mx, my, button)) {
             if (codeEditor != null && codeEditor.isFocused()) codeSuggestDelay = 2;
             return true;
@@ -1693,8 +1685,9 @@ public class BlockEditorScreen extends Screen {
         boolean overCanvas = mx >= canvasX && mx < canvasX + canvasW
                 && my >= canvasY && my < canvasY + canvasH;
         // 右键统一入口：见 handleRightClick（放在所有左键逻辑之前）
-        // 中键从画布任意位置开始平移（右键已由统一入口处理，不再平移）
-        if (overCanvas && button == 1) {
+        // 右键/中键按下开始平移；松手未移动 = 弹出光标处上下文菜单
+        //（按钮编号：0=左键 1=右键 2=中键——GLFW 标准，此前 1/2 搞反）
+        if (overCanvas && (button == 1 || button == 2)) {
             startPanning(mx, my);
             return true;
         }
@@ -2107,7 +2100,7 @@ public class BlockEditorScreen extends Screen {
         }
         if (panning) {
             panning = false;
-            if (!panMoved) openContextMenu(mx, my);
+            if (!panMoved) openContextAt(mx, my); // 按光标位置分派：资源槽/积木行/卡片/画布
             return true; // 平移/右键菜单的收尾不冒泡给控件
         }
         return super.mouseReleased(mx, my, button);
@@ -2229,6 +2222,27 @@ public class BlockEditorScreen extends Screen {
                 }
             }
         }
+    }
+
+    /**
+     * 右键/中键原地点击的统一分派：按光标下的内容弹出对应菜单——
+     * 资源槽（复制/粘贴）、积木行（复制积木/标签组/删除）、卡片、画布。
+     */
+    private void openContextAt(double mx, double my) {
+        double cx = ctX(mx), cy = ctY(my);
+        for (int i = hits.size() - 1; i >= 0; i--) {
+            Hit h = hits.get(i);
+            if (h.kind == K_RCLICK && in(h, cx, cy)) {
+                h.onClick.run();
+                return;
+            }
+        }
+        BProgram.Statement s = statementAt(cx, cy);
+        if (s != null) {
+            openRowMenu(mx, my, s);
+            return;
+        }
+        openContextMenu(mx, my);
     }
 
     private void openContextMenu(double mx, double my) {
@@ -3751,7 +3765,7 @@ public class BlockEditorScreen extends Screen {
             case HIGH -> 0xFFD13438;
         };
         g.fill(x, y, x + 6, y + 6, color);
-        boolean hover = mx >= x - 5 && mx < x + 11 && my >= y - 5 && my < y + 11;
+        boolean hover = overField(mx, my, x - 5, y - 5, 16, 16);
         if (hover) {
             // tooltip 延迟到内容矩阵 pop 后统一画（renderCostTooltip 字段桥）
             List<Component> tip = new ArrayList<>();
