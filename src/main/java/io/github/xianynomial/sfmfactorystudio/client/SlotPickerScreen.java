@@ -57,8 +57,15 @@ public final class SlotPickerScreen extends Screen {
         if (menuClass != null && !menuClass.isEmpty()) {
             ClientGuiLayoutCache.Layout captured = ClientGuiLayoutCache.get(menuClass);
             if (captured != null && !captured.slots().isEmpty()) {
-                coords = captured.slots();
-                if (total < 0 || total < captured.slots().size()) total = captured.slots().size();
+                // 捕获条目 = [容器槽索引, x, y]；按索引展开成坐标数组
+                int maxIdx = 0;
+                for (int[] e : captured.slots()) maxIdx = Math.max(maxIdx, e[0]);
+                int need = Math.max(total, maxIdx + 1);
+                List<int[]> positioned = new ArrayList<>();
+                for (int i = 0; i < need; i++) positioned.add(new int[]{-1, -1}); // 无坐标占位
+                for (int[] e : captured.slots()) positioned.set(e[0], new int[]{e[1], e[2]});
+                coords = positioned;
+                total = need;
             }
         }
         if (coords.isEmpty()) buildGridCoords(total);
@@ -104,9 +111,10 @@ public final class SlotPickerScreen extends Screen {
     private float viewScale = 1.0f;
 
     private void relayoutGrid() {
-        // 计算布局包围盒（真实 GUI 坐标可能远超 9 列网格）
+        // 计算布局包围盒（真实 GUI 坐标可能远超 9 列网格；-1 占位跳过）
         int maxX = 0, maxY = 0;
         for (int[] c : coords) {
+            if (c[0] < 0) continue;
             maxX = Math.max(maxX, c[0] + CELL);
             maxY = Math.max(maxY, c[1] + CELL);
         }
@@ -129,8 +137,10 @@ public final class SlotPickerScreen extends Screen {
     private int slotAt(double mx, double my) {
         int sz = Math.max(8, Math.round(CELL * viewScale));
         for (int i = 0; i < Math.min(coords.size(), total); i++) {
-            int x = gridX + Math.round(coords.get(i)[0] * viewScale);
-            int y = gridY + Math.round(coords.get(i)[1] * viewScale);
+            int[] c = coords.get(i);
+            if (c[0] < 0) continue;
+            int x = gridX + Math.round(c[0] * viewScale);
+            int y = gridY + Math.round(c[1] * viewScale);
             if (mx >= x && mx < x + sz && my >= y && my < y + sz) {
                 return i;
             }
@@ -203,8 +213,10 @@ public final class SlotPickerScreen extends Screen {
         // 坐标数可能少于 total（快照缺失/退化网格）：按实际有的坐标渲染
         int drawable = Math.min(total, coords.size());
         for (int i = 0; i < drawable; i++) {
-            int x = gridX + Math.round(coords.get(i)[0] * viewScale);
-            int y = gridY + Math.round(coords.get(i)[1] * viewScale);
+            int[] c = coords.get(i);
+            if (c[0] < 0) continue; // 无坐标的槽（快照未覆盖）不渲染
+            int x = gridX + Math.round(c[0] * viewScale);
+            int y = gridY + Math.round(c[1] * viewScale);
             int cw = Math.max(8, Math.round(CELL * viewScale));
             int ch = cw;
             boolean sel = selected.contains(i);

@@ -69,6 +69,9 @@ public final class ClientGuiLayoutCache {
         Map<Object, List<Slot>> groups = new LinkedHashMap<>();
         for (Slot slot : menu.slots) {
             if (playerInv != null && slot.container == playerInv) continue;
+            // 幽灵槽过滤：isActive=false 的槽不渲染（如 AE2 压印器的图案提示格），
+            // 它们的坐标无意义且会以 (0,0) 叠堆污染布局
+            if (!slot.isActive()) continue;
             groups.computeIfAbsent(slot.container, k -> new ArrayList<>()).add(slot);
         }
         List<Slot> primary = null;
@@ -78,10 +81,19 @@ public final class ClientGuiLayoutCache {
         if (primary == null || primary.isEmpty()) return;
 
         String key = menu.getClass().getSimpleName();
-        List<int[]> slots = new ArrayList<>();
+        // 按容器内索引去重（同 index 只保留第一个）：幽灵槽可能与实槽同 index
+        Map<Integer, int[]> byIndex = new java.util.TreeMap<>();
         for (Slot slot : primary) {
-            slots.add(new int[]{slot.x, slot.y});
+            int idx = slot.getContainerSlot();
+            if (idx < 0) continue;
+            byIndex.putIfAbsent(idx, new int[]{slot.x, slot.y});
         }
+        if (byIndex.isEmpty()) return;
+        // (0,0) 叠堆残留防护：多个槽挤在原点说明坐标不可信，放弃本次捕获
+        long origin = byIndex.values().stream().filter(c -> c[0] == 0 && c[1] == 0).count();
+        if (origin > 1 || (origin == 1 && byIndex.size() > 1)) return;
+        List<int[]> slots = new ArrayList<>();
+        for (var e : byIndex.entrySet()) slots.add(new int[]{e.getKey(), e.getValue()[0], e.getValue()[1]});
         String title = screen.getTitle() != null ? screen.getTitle().getString() : "";
 
         Layout existing = CACHE.get(key);
