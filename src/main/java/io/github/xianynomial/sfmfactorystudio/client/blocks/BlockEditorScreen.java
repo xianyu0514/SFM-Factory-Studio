@@ -21074,7 +21074,21 @@ public class BlockEditorScreen extends Screen {
 
                 hits.add(hit(fx, y + 2, 34, BAR_H - 6, K_CLICK, null, () -> {
 
+                    // 失败模式可见反馈：未绑标签 / 无布局记录都明确告知
 
+                    if (visualPos == null) {
+
+                        showStatus("✖ 标签未绑定方块：请先用标签枪绑定容器", 0xFFD13438);
+
+                        return;
+
+                    }
+
+                    if (ClientGuiLayoutCache.get(vpos) == null) {
+
+                        showStatus("⚠ 还没有布局记录：右键打开一次该容器界面后再点 beta", 0xFFB45309);
+
+                    }
 
                     // 直接读客户端捕获缓存（按方块坐标键）：
 
