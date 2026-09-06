@@ -13062,7 +13062,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-            codeStatusText = result.errors().isEmpty() ? S_DRAFT_INCOMPLETE.getString() : "未同步：" + result.errors().get(0);
+            codeStatusText = result.errors().isEmpty() ? S_DRAFT_INCOMPLETE.getString() : S_NOT_SYNCED.getString(result.errors().get(0));
 
 
 
@@ -15178,18 +15178,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-            String perf = String.format(java.util.Locale.ROOT,
-
-
-
-                    "布局 %.2f ms · 卡 %d · 内容命中 %d · UI 命中 %d · 诊断 %d 次 · %s",
-
-
-
-                    perfLayoutNanos / 1_000_000.0, layout.cards().size(), hits.size(), uiHits.size(),
-
-
-
+            String perf = V_PERF.getString(perfLayoutNanos / 1_000_000.0, layout.cards().size(), hits.size(), uiHits.size(),
                     issuesRefreshCount, dirty ? S_PERF_UNSAVED.getString() : S_PERF_SAVED.getString());
 
 
@@ -18198,15 +18187,8 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                            showStatus("当前内容最少需要 " + minimum
-
-
-
-                                    + (tt.unit == BProgram.TimerTrigger.Unit.TICKS ? new Loc("gui.sfmfactorystudio.diag.unit.ticks", " 刻").getString() : new Loc("gui.sfmfactorystudio.diag.unit.seconds", " 秒").getString())
-
-
-
-                                    + "；不会偷偷修改你的输入", 0xFFB45309);
+                            showStatus(S_KEEP_MINIMUM.getString(minimum,
+                                    tt.unit == BProgram.TimerTrigger.Unit.TICKS ? U_TICK.getString() : U_SECOND.getString()), 0xFFB45309);
 
 
 
@@ -19478,7 +19460,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        showStatus("已复制 1 个积木（Ctrl+V 粘贴）", C_SELECT);
+        showStatus(S_COPIED_BLOCKS.getString(1), C_SELECT);
 
 
 
@@ -20502,7 +20484,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-            String groupPrefix = i == 0 ? "" : "第 " + (i + 1) + " 组：";
+            String groupPrefix = i == 0 ? "" : F_GROUP.getString(i + 1);
 
 
 
@@ -21306,7 +21288,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        extensionRow(g, x, y, w, C_SELECT, "＋ 添加");
+        extensionRow(g, x, y, w, C_SELECT, F_ADD_EXT.getString());
 
 
 
@@ -21682,7 +21664,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-            showStatus("已复制资源标签 " + tag.matcher + "（＋ 且…/或… 后可粘贴）", C_SELECT);
+            showStatus(TAG_COPIED.getString(tag.matcher), C_SELECT);
 
 
 
@@ -21814,7 +21796,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-            labels.add(prefix + "粘贴：" + copiedTagMatcher);
+            labels.add(M_LABEL_PASTE2.getString(copiedTagMatcher));
 
 
 
@@ -21958,7 +21940,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                List.of("重新选择：" + display, F_EDIT_RAW.getString(), F_DELETE_ITEM.getString()), "", picked -> {
+                List.of(F_RESELECT.getString(display), F_EDIT_RAW.getString(), F_DELETE_ITEM.getString()), "", picked -> {
 
 
 
@@ -23383,14 +23365,7 @@ public class BlockEditorScreen extends Screen {
 
 
             if (over) {
-
-
-
-                showStatus("⚠ 已设置槽位 " + detail + "，但该容器只有 " + slotLayoutTotal
-
-
-
-                        + " 格（0-" + (slotLayoutTotal - 1) + "），超出的部分不会生效", 0xFFB45309);
+                showStatus(SLOT_WARN_OVERFLOW.getString(detail, slotLayoutTotal), 0xFFB45309);
 
 
 
@@ -24890,7 +24865,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                    showStatus("✖ 请先把资源类别改成“" + incoming.kind().chineseName + "”再放入", 0xFFD13438);
+                    showStatus(S_CHANGE_KIND_FIRST.getString(incoming.kind().chineseName), 0xFFD13438);
 
 
 
@@ -25582,11 +25557,8 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                ? "纯能量传输，本服限制（" + unit + "）"
-
-
-
-                : "普通传输，本服限制（" + unit + "）";
+                ? V_ENERGY_RULE.getString(unit)
+                : V_NORMAL_RULE.getString(unit);
 
 
 
@@ -25607,14 +25579,7 @@ public class BlockEditorScreen extends Screen {
 
 
             if (value < minimum) {
-
-
-
-                showStatus("✖ 本服务器要求至少 " + minimum + unit
-
-
-
-                        + "；数值已保留，请修改后再保存", 0xFFD13438);
+                showStatus(S_SERVER_MIN.getString(minimum, unit), 0xFFD13438);
 
 
 
@@ -25623,18 +25588,12 @@ public class BlockEditorScreen extends Screen {
 
 
                 String duration = trigger.unit == BProgram.TimerTrigger.Unit.TICKS
+                        ? V_TICK_SEC.getString(value, formatSeconds(value / 20.0))
+                        : V_SEC_TICK.getString(value, value * 20);
 
 
 
-                        ? value + " 刻 = " + formatSeconds(value / 20.0)
-
-
-
-                        : value + " 秒 = " + (value * 20) + new Loc("gui.sfmfactorystudio.diag.unit.ticks", " 刻").getString();
-
-
-
-                showStatus("执行间隔已设为 " + duration, C_SELECT);
+                showStatus(S_INTERVAL_SET.getString(duration), C_SELECT);
 
 
 
@@ -28022,7 +27981,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-            List<String> labels = List.of(M_COND_ALL.getString(), M_COND_ANY.getString(), "再加普通条件", "再加红石条件", M_COND_REMOVE_LAST.getString(), M_COND_NEGATE.getString());
+            List<String> labels = List.of(M_COND_ALL.getString(), M_COND_ANY.getString(), M_COND_ADD.getString(), M_COND_ADD_RS.getString(), M_COND_REMOVE_LAST.getString(), M_COND_NEGATE.getString());
 
 
 
@@ -28794,7 +28753,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                                List.of("默认按合计", V_SET_OVERALL.getString(), V_SET_SOME.getString(), V_SET_EVERY.getString(), V_SET_ONE.getString(), V_SET_LONE.getString()),
+                                List.of(V_SET_DEFAULT.getString(), V_SET_OVERALL.getString(), V_SET_SOME.getString(), V_SET_EVERY.getString(), V_SET_ONE.getString(), V_SET_LONE.getString()),
 
 
 
@@ -28934,7 +28893,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                String resourceText = resource.isWildcard() ? "□ 全部" : shortResource(resource);
+                String resourceText = resource.isWildcard() ? "□ " + V_ALL.getString() : shortResource(resource);
 
 
 
@@ -28990,7 +28949,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                            showStatus("✖ 请先选择“" + incoming.kind().chineseName + "”类别", 0xFFD13438);
+                            showStatus(S_CHANGE_KIND_FIRST.getString(incoming.kind().chineseName), 0xFFD13438);
 
 
 
@@ -29050,7 +29009,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                String exceptText = has.except.isEmpty() ? F_ADD_EXCEPT.getString() : "排除 " + has.except.size() + " 种资源";
+                String exceptText = has.except.isEmpty() ? F_ADD_EXCEPT.getString() : F_EXCEPT_N.getString(has.except.size());
 
 
 
@@ -29666,7 +29625,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                out.add(pillW(fnt, resource.isWildcard() ? "□ 全部" : shortResource(resource), 44));
+                out.add(pillW(fnt, resource.isWildcard() ? "□ " + V_ALL.getString() : shortResource(resource), 44));
 
 
 
@@ -29682,7 +29641,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                String exceptText = has.except.isEmpty() ? F_ADD_EXCEPT.getString() : "排除 " + has.except.size() + " 种资源";
+                String exceptText = has.except.isEmpty() ? F_ADD_EXCEPT.getString() : F_EXCEPT_N.getString(has.except.size());
 
 
 
