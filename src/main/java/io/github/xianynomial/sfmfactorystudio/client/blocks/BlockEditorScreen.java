@@ -10476,7 +10476,7 @@ public class BlockEditorScreen extends Screen {
 
                                 try {
 
-                                    for (String part : v.split("[,，;；+\s]+")) {
+                                    for (String part : v.split("[\s,，;；+]+")) {
 
                                         if (part.isBlank()) continue;
 
@@ -11444,7 +11444,7 @@ public class BlockEditorScreen extends Screen {
 
                                 try {
 
-                                    for (String part : v.split("[,]，;；+\s]+")) {
+                                    for (String part : v.split("[\s,，;；+]+")) {
 
                                         if (part.isBlank()) continue;
 
@@ -11644,7 +11644,7 @@ public class BlockEditorScreen extends Screen {
 
                 int total = slotTotalHint();
 
-                for (String part : trimmed.split("[,，;；+\s]+")) {
+                for (String part : trimmed.split("[\s,，;；+]+")) {
 
                     if (part.isBlank()) continue;
 
