@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import io.github.xianynomial.sfmfactorystudio.SFMGui;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Inventory;
@@ -75,6 +76,9 @@ public final class ClientGuiLayoutCache {
         lastClickedAt = System.currentTimeMillis();
     }
 
+    /** Init 后尚未完成渲染期捕获的界面（晚绑定槽位的模组菜单需要渲染期补捕）。 */
+    private static final Map<Screen, BlockPos> PENDING = new java.util.concurrent.ConcurrentHashMap<>();
+
     /** 容器界面初始化：按最近点击的方块坐标捕获真实槽位布局。 */
     @SubscribeEvent
     public static void onScreenInit(ScreenEvent.Init.Post event) {
@@ -83,10 +87,24 @@ public final class ClientGuiLayoutCache {
         boolean fresh = pos != null && System.currentTimeMillis() - lastClickedAt < 3000;
         lastClickedPos = null;
         if (!fresh) return;
+        PENDING.put(screen, pos);
+        try {
+            capture(pos, screen);   // 尽早尝试；若槽位晚绑定，渲染期会再补一次
+        } catch (Throwable t) {
+            SFMGui.LOGGER.debug("slot layout capture failed at {}", pos, t);
+        }
+    }
+
+    /** 首帧渲染：菜单完全成型，晚绑定槽位此时已就位——补捕并保留更完整的结果。 */
+    @SubscribeEvent
+    public static void onContainerRender(net.neoforged.neoforge.client.event.ContainerScreenEvent.Render.Foreground event) {
+        var screen = event.getContainerScreen();
+        BlockPos pos = PENDING.remove(screen);
+        if (pos == null) return;
         try {
             capture(pos, screen);
         } catch (Throwable t) {
-            SFMGui.LOGGER.debug("slot layout capture failed at {}", pos, t);
+            SFMGui.LOGGER.debug("slot layout re-capture failed at {}", pos, t);
         }
     }
 
@@ -115,6 +133,8 @@ public final class ClientGuiLayoutCache {
 
         List<int[]> slots = new ArrayList<>(byIndex.values());
         String title = screen.getTitle() != null ? screen.getTitle().getString() : "";
+        var existing = BY_POS.get(key(pos));
+        if (existing != null && existing.slots().size() > slots.size()) return; // 保留更完整捕获
         BY_POS.put(key(pos), new Layout(title, slots));
         save();
     }
