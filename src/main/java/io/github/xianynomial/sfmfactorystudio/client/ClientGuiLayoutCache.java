@@ -136,7 +136,12 @@ public final class ClientGuiLayoutCache {
         long origin = byIndex.values().stream().filter(c -> c[1] == 0 && c[2] == 0).count();
         if (origin > 1) return;
 
+        // 按真实坐标排序（先 y 后 x）：编号与屏幕位置一致——左上角是 0，
+        // 从左到右、从上到下递增。玩家点哪个格子，slot N 就对应该格子。
         List<int[]> slots = new ArrayList<>(byIndex.values());
+        slots.sort((a, b) -> a[2] != b[2] ? Integer.compare(a[2], b[2])
+                : Integer.compare(a[1], b[1]));
+        for (int i = 0; i < slots.size(); i++) slots.get(i)[0] = i; // 重排后重新编号
         String title = screen.getTitle() != null ? screen.getTitle().getString() : "";
         var existing = BY_POS.get(key(pos));
         if (existing != null && existing.slots().size() > slots.size()) return; // 保留更完整捕获
