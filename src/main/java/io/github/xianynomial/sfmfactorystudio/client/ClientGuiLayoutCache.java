@@ -117,19 +117,20 @@ public final class ClientGuiLayoutCache {
         // 跳过不渲染的幽灵槽（isActive=false），按容器内索引去重
         Inventory playerInv = Minecraft.getInstance().player != null
                 ? Minecraft.getInstance().player.getInventory() : null;
-        // 全量捕获：所有非玩家槽位一个不漏（含升级卡/输出/图案等全部内部
-        // 容器的槽），编号=菜单顺序位置（0,1,2...）。此前按容器内索引去重，
-        // AE2 压印器的升级卡容器先注册抢先占了 0-3 号，真正的物品槽反被
-        // 当成重复丢掉——这正是"只捕到升级卡"的根因。
-        Map<Integer, int[]> byIndex = new java.util.TreeMap<>();
-        int seq = 0;
+        // 全量捕获所有非玩家槽位（一个不漏），编号=菜单顺序位置
+        List<int[]> all = new ArrayList<>();
         for (Slot slot : menu.slots) {
             if (playerInv != null && slot.container == playerInv) continue;
             if (!slot.isActive()) continue;
-            byIndex.put(seq, new int[]{seq, slot.x, slot.y});
-            seq++;
+            all.add(new int[]{0, slot.x, slot.y}); // {占位索引, x, y}
         }
-        if (byIndex.isEmpty()) return;
+        if (all.isEmpty()) return;
+        // 重编号：去重后按 x+y 排序（先横后纵），索引从 0 递增
+        all.sort((a, b) -> a[2] != b[2] ? Integer.compare(a[2], b[2]) : Integer.compare(a[1], b[1]));
+        Map<Integer, int[]> byIndex = new java.util.TreeMap<>();
+        for (int i = 0; i < all.size(); i++) {
+            byIndex.put(i, new int[]{i, all.get(i)[1], all.get(i)[2]});
+        }
 
         // 多个槽挤在 (0,0) = 坐标不可信（异常菜单），放弃本次捕获
         long origin = byIndex.values().stream().filter(c -> c[1] == 0 && c[2] == 0).count();
