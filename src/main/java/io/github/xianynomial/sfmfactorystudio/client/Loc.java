@@ -12,14 +12,25 @@ import net.minecraft.network.chat.MutableComponent;
  * loaded language file the {@code fallback} (the Chinese default) is emitted
  * instead — showing the raw key to the player is never acceptable
  * (2026-09-02: issues_warn 键漏登语言文件，按钮直接显示了键名).
+ * <p>
+ * 1.21.1 sync: parameterized form added (matches 1.20.1's Loc).
  */
 public record Loc(String key, String fallback) {
     public MutableComponent getComponent() {
-        return I18n.exists(key) ? Component.translatable(key) : Component.literal(fallback);
+        return exists() ? Component.translatable(key) : Component.literal(fmt(fallback, NO_ARGS));
     }
 
     public String getString() {
-        return I18n.exists(key) ? I18n.get(key) : fallback;
+        return exists() ? safeGet(NO_ARGS) : fmt(fallback, NO_ARGS);
+    }
+
+    /** Translate with arguments ({@code %s} slots in the lang entry/fallback). */
+    public String getString(Object... args) {
+        return exists() ? safeGet(args) : fmt(fallback, args);
+    }
+
+    public MutableComponent getComponent(Object... args) {
+        return exists() ? Component.translatable(key, args) : Component.literal(fmt(fallback, args));
     }
 
     /** Convenience: translate a raw key to a display string. */
@@ -30,5 +41,32 @@ public record Loc(String key, String fallback) {
     /** Convenience: translate a raw key with args. */
     public static String tr(String key, Object... args) {
         return I18n.get(key, args);
+    }
+
+    private boolean exists() {
+        try {
+            return I18n.exists(key);
+        } catch (Throwable t) {
+            return false; // headless test JVM / language manager not initialized
+        }
+    }
+
+    private String safeGet(Object... args) {
+        try {
+            return I18n.get(key, args);
+        } catch (Throwable t) {
+            return fmt(fallback, args);
+        }
+    }
+
+    private static final Object[] NO_ARGS = new Object[0];
+
+    private static String fmt(String pattern, Object... args) {
+        if (args == null || args.length == 0) return pattern;
+        try {
+            return String.format(pattern, args);
+        } catch (Throwable t) {
+            return pattern;
+        }
     }
 }
