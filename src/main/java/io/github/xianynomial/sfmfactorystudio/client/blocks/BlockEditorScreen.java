@@ -16323,25 +16323,19 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        long step = Math.max(1, minTicks / timers.size());
+        // SFM 文法限制：global 时钟下没有 offset 关键字（plus/offset/delay 等
+        // 全部非法，已实测），且 global 相同间隔必然同刻。错峰=把每个触发器
+        // 的间隔改为最小值的倍数（1x/2x/3x...），在全局时钟的自然交错点触发。
+        // 每秒触发频率只取决于自身间隔，吞吐量不变。
+        long step = Math.max(1, minTicks);
 
-
-
-        long offset = 0;
-
-
+        int bi = 0;
 
         for (BProgram.TimerTrigger tt : timers) {
 
+            tt.count = Math.max(TimerRules.minimumCount(tt), minTicks * (bi + 1));
 
-
-            tt.plus = offset;
-
-
-
-            offset = (offset + step) % Math.max(TimerRules.minimumCount(tt), tt.count);
-
-
+            bi++;
 
         }
 
