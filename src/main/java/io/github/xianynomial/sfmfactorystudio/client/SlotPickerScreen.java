@@ -53,6 +53,7 @@ public final class SlotPickerScreen extends Screen {
     private final BlockPos containerPos;   // 实际显示布局的机器
     private final List<SlotLayoutData.SlotCapture> captures;    // 捕获原始条目（含 containerSlot，锚点匹配键）
     private final List<SlotLayoutData.SlotAnchor> anchors;      // 操作学习锚点（最高优先级证据）
+    private final boolean noExposure;                           // 学习判定：界面槽位在变化但未暴露给能力面
     private List<SlotNumbering.MenuSlot> capturedSlots;         // 捕获的界面格（应用锚点提示后）
     private List<SlotNumbering.MenuSlot> menuSlots;             // 显示列表 = 捕获格 + 隐藏槽合成格
     private int learnedAnchors = 0;                             // 本次校准被锚点证实的格子数
@@ -99,6 +100,7 @@ public final class SlotPickerScreen extends Screen {
         this.onResult = onResult;
         this.captures = layout != null ? layout.slots() : List.<SlotLayoutData.SlotCapture>of();
         this.anchors = layout != null && layout.anchors() != null ? layout.anchors() : List.of();
+        this.noExposure = layout != null && layout.noExposure();
         List<SlotNumbering.MenuSlot> slots = new ArrayList<>();
         if (layout != null) {
             int seq = 0;
@@ -424,6 +426,9 @@ public final class SlotPickerScreen extends Screen {
         drawFittedCentered(g, targetText(), 42, 0xFF8A93A5);
         drawFittedCentered(g, bannerText(), 53, bannerColor());
         String guide = guideText();
+        if (guide == null && noExposure && capState == CapState.READY) {
+            guide = L_NO_EXPOSURE.getString();
+        }
         drawFittedCentered(g, guide == null ? "" : guide, 64, 0xFFE8B339);
 
         relayout();
@@ -712,5 +717,6 @@ public final class SlotPickerScreen extends Screen {
     private static final Loc L_PARTIAL = new Loc("gui.sfmfactorystudio.slot.slot_partial", "✓ 已校准：%s 个格子的编号按屏幕顺序推断（存在歧义），建议先放 1 个物品试运行验证");
     private static final Loc L_SIDE_GUIDE = new Loc("gui.sfmfactorystudio.slot.slot_side_guide", "该机器各朝向槽位数不同（当前 %s，其他朝向最多 %s）——给积木写侧面限定（如 each side）可访问更多槽位");
     private static final Loc L_LEARNED = new Loc("gui.sfmfactorystudio.slot.slot_learned", "（%s 个槽位已由你的实际操作学习证实）");
+    private static final Loc L_NO_EXPOSURE = new Loc("gui.sfmfactorystudio.slot.slot_no_exposure", "该机器的界面槽位在变化，但未暴露给任何朝向的能力面——请在机器的侧面配置中开放输入/输出（如 Mekanism 侧面配置），之后正常存取会自动学习");
     private static final Loc L_HIDDEN_SECTION = new Loc("gui.sfmfactorystudio.slot.slot_hidden_section", "▼ 此界面未显示的槽位（编号即真实槽位序号）");
 }

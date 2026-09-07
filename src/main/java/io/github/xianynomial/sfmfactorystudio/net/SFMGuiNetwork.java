@@ -70,6 +70,12 @@ public final class SFMGuiNetwork {
                     SlotAnchorPayload::decode,
                     SlotAnchorPayload::handle,
                     java.util.Optional.of(net.minecraftforge.network.NetworkDirection.PLAY_TO_CLIENT));
+            // 操作学习诊断（服务端 → 客户端）
+            CHANNEL.registerMessage(id++, SlotCalibrationInfoPayload.class,
+                    SlotCalibrationInfoPayload::encode,
+                    SlotCalibrationInfoPayload::decode,
+                    SlotCalibrationInfoPayload::handle,
+                    java.util.Optional.of(net.minecraftforge.network.NetworkDirection.PLAY_TO_CLIENT));
             // 槽位能力槽内容（服务端 → 客户端，槽位可视化编号校准）
             CHANNEL.registerMessage(id++, SlotCapabilityPayload.class,
                     SlotCapabilityPayload::encode,
