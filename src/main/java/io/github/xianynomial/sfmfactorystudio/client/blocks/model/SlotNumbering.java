@@ -220,6 +220,19 @@ public final class SlotNumbering {
 
     // ---- 视图布局（纯逻辑可单测）：归一化 + 防重叠缩放 ----
 
+    /**
+     * 校准后没有任何界面格对应的能力槽编号——机器能力面上真实存在、SFM 可寻址、
+     * 但 GUI 里没画出来的那些槽（内部缓冲槽、翻页槽等）。调用方可以把它们以
+     * 合成格形式补显（编号 = 真实槽位序号，仍然可选）。
+     */
+    public static List<Integer> unclaimedCapIndexes(Result r, int capTotal) {
+        List<Integer> out = new ArrayList<>();
+        for (int c = 0; c < capTotal; c++) {
+            if (r.seqOfNumber(c) < 0) out.add(c);
+        }
+        return out;
+    }
+
     /** 格子渲染的最小边长（px）。缩放下限 = 此值/格距，保证格子永不互相重叠。 */
     public static final float MIN_CELL_PX = 8f;
 

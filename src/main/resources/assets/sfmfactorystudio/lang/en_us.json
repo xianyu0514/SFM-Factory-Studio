@@ -613,6 +613,7 @@
   "gui.sfmfactorystudio.slot.slot_too_far": "⚠ Too far away or block missing; move within 64 blocks and reopen",
   "gui.sfmfactorystudio.slot.slot_side_fallback": "⚠ No slots on the selected side; numbering follows the %s side instead - SFM needs a side qualifier (e.g. each side) to reach this machine",
   "gui.sfmfactorystudio.slot.slot_dir_null": "no side",
+  "gui.sfmfactorystudio.slot.slot_hidden_section": "▼ Slots not shown in this GUI (numbers are real slot indexes)",
   "gui.sfmfactorystudio.slot.slot_calibrating": "Calibrating slot numbers with the server…",
   "gui.sfmfactorystudio.slot.slot_calibrated": "✓ Calibrated: numbers match the machine real slot indexes",
   "gui.sfmfactorystudio.slot.slot_uncalibrated": "⚠ Not calibrated: numbers follow screen order and may differ from real slot indexes on multi-inventory machines (test with 1 item first)",
