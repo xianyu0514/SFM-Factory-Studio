@@ -128,12 +128,13 @@ public final class SlotLayoutData {
     }
 
     /**
-     * 捕获新鲜度比较：新的更好 = 格子更多；打平 = 内容签名更多（内容更新鲜）。
-     *
-     * @return true = 用新捕获替换旧缓存
+     * 捕获新鲜度比较。偏向新捕获（模组 GUI 的槽位布局会晚绑定/动态调整，
+     * 新打开界面的一次更可信）；仅当旧捕获格子数超过新捕获两倍以上时
+     * 才认为旧的是明显更完整的另一容器布局而保留。
      */
     public static boolean preferCapture(List<SlotCapture> fresh, List<SlotCapture> existing) {
         if (existing == null) return true;
+        if (existing.size() > fresh.size() * 2) return false;
         if (fresh.size() != existing.size()) return fresh.size() > existing.size();
         return countSignatures(fresh) >= countSignatures(existing);
     }

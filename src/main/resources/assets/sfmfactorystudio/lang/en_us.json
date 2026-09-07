@@ -595,6 +595,8 @@
   "gui.sfmfactorystudio.slot.slot_side_fallback": "⚠ No slots on the selected side; numbering follows the %s side instead - SFM needs a side qualifier (e.g. each side) to reach this machine",
   "gui.sfmfactorystudio.slot.slot_dir_null": "no side",
   "gui.sfmfactorystudio.slot.slot_hidden_section": "▼ Slots not shown in this GUI (numbers are real slot indexes)",
+  "gui.sfmfactorystudio.slot.slot_partial": "✓ Calibrated: %s cell numbers inferred by screen order (ambiguous) - test with 1 item first",
+  "gui.sfmfactorystudio.slot.slot_side_guide": "This machine exposes different slot counts per direction (current %s, max other %s) - add a side qualifier (e.g. each side) to the statement for more slots",
   "gui.sfmfactorystudio.slot.slot_calibrating": "Calibrating slot numbers with the server…",
   "gui.sfmfactorystudio.slot.slot_calibrated": "✓ Calibrated: numbers match the machine real slot indexes",
   "gui.sfmfactorystudio.slot.slot_uncalibrated": "⚠ Not calibrated: numbers follow screen order and may differ from real slot indexes on multi-inventory machines (test with 1 item first)",

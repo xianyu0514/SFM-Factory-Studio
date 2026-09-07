@@ -33,6 +33,7 @@ import java.util.function.Supplier;
  * <li>{@link #STATE_NO_CAPABILITY} —— 所有朝向都没有物品能力面；</li>
  * <li>{@link #STATE_UNREACHABLE} —— 方块实体不存在或距离过远。</li>
  * </ul>
+ * dirTotals = 七朝向各自暴露的槽位数（模组机器各朝向不同，客户端用于引导）。
  * 全程只读，不改任何状态。
  */
 public final class SlotCapabilityRequestHandler {
@@ -54,15 +55,22 @@ public final class SlotCapabilityRequestHandler {
             Level level = player.level();
             BlockPos pos = msg.pos;
             if (player.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5) > MAX_DISTANCE_SQR) {
-                send(player, pos, STATE_UNREACHABLE, "", -1, List.of(), List.of());
+                send(player, pos, STATE_UNREACHABLE, "", -1, new int[7], List.of(), List.of());
                 return;
             }
             ItemResourceType itemType = SFMResourceTypes.ITEM.get();
 
+            // 七个朝向各自暴露的槽位数（[0]=无侧面，1..6=down,up,north,south,west,east）
+            // ——模组机器（如 Mekanism）各朝向槽位不同，用于客户端的侧面限定引导
+            int[] dirTotals = new int[7];
+            dirTotals[0] = probeTotal(itemType, level, pos, null);
+            Direction[] worldDirs = Direction.values();
+            for (int i = 0; i < 6; i++) dirTotals[i + 1] = probeTotal(itemType, level, pos, worldDirs[i]);
+
             // 与 SFM 本体同一套侧面解析：Side.resolve 按方块朝向换算世界方向
             List<Direction> directions = resolveDirections(level, pos, msg.sides);
             if (directions == null) {
-                send(player, pos, STATE_UNREACHABLE, "", -1, List.of(), List.of());
+                send(player, pos, STATE_UNREACHABLE, "", -1, dirTotals, List.of(), List.of());
                 return;
             }
 
@@ -73,7 +81,7 @@ public final class SlotCapabilityRequestHandler {
                 if (result != null && result.isPresent()) {
                     var handler = (net.minecraftforge.items.IItemHandler) result.unwrap();
                     send(player, pos, STATE_OK, dirName(dir), readTotal(itemType, handler),
-                            readItems(itemType, handler), readCounts(itemType, handler));
+                            dirTotals, readItems(itemType, handler), readCounts(itemType, handler));
                     return;
                 }
             }
@@ -81,18 +89,18 @@ public final class SlotCapabilityRequestHandler {
             // ② 限定方向全空：扫其余朝向，区分"机器真没槽"和"槽位在其他面"
             Direction other = firstPresentDirection(level, itemType, pos, directions);
             if (other == null) {
-                send(player, pos, STATE_NO_CAPABILITY, "", 0, List.of(), List.of());
+                send(player, pos, STATE_NO_CAPABILITY, "", 0, dirTotals, List.of(), List.of());
                 return;
             }
             SFMBlockCapabilityResult<?> result =
                     SFMBlockCapabilityDiscovery.discoverCapabilityFromLevel(level, itemType.capabilityKind(), pos, other);
             if (result == null || !result.isPresent()) {
-                send(player, pos, STATE_NO_CAPABILITY, "", 0, List.of(), List.of());
+                send(player, pos, STATE_NO_CAPABILITY, "", 0, dirTotals, List.of(), List.of());
                 return;
             }
             var handler = (net.minecraftforge.items.IItemHandler) result.unwrap();
             send(player, pos, STATE_SIDE_FALLBACK, dirName(other), readTotal(itemType, handler),
-                    readItems(itemType, handler), readCounts(itemType, handler));
+                    dirTotals, readItems(itemType, handler), readCounts(itemType, handler));
         });
         ctx.get().setPacketHandled(true);
     }
@@ -127,6 +135,18 @@ public final class SlotCapabilityRequestHandler {
             if (result != null && result.isPresent()) return dir;
         }
         return null;
+    }
+
+    /** 单朝向能力面槽数（-1 = 无能力面/读取失败）。只读。 */
+    private static int probeTotal(ItemResourceType itemType, Level level, BlockPos pos, Direction dir) {
+        try {
+            SFMBlockCapabilityResult<?> r =
+                    SFMBlockCapabilityDiscovery.discoverCapabilityFromLevel(level, itemType.capabilityKind(), pos, dir);
+            if (r == null || !r.isPresent()) return -1;
+            return Math.min(itemType.getSlots((net.minecraftforge.items.IItemHandler) r.unwrap()), 4096);
+        } catch (Throwable t) {
+            return -1;
+        }
     }
 
     /** 每槽内容签名；单个槽读取失败按空槽处理，不炸整次校准。 */
@@ -173,9 +193,9 @@ public final class SlotCapabilityRequestHandler {
     }
 
     private static void send(ServerPlayer player, BlockPos pos, int state, String refDir,
-                             int total, List<String> items, List<Integer> counts) {
+                             int total, int[] dirTotals, List<String> items, List<Integer> counts) {
         SFMGuiNetwork.CHANNEL.send(
                 PacketDistributor.PLAYER.with(() -> player),
-                new SlotCapabilityPayload(pos, state, refDir, total, items, counts));
+                new SlotCapabilityPayload(pos, state, refDir, total, dirTotals, items, counts));
     }
 }
