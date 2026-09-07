@@ -1,130 +1,140 @@
 <div align="center">
 
-# SFM Factory Studio
+# SFM Factory Studio（SFM 智造工坊）
 
-**Visual factory programming companion for [Super Factory Manager 4](https://github.com/TeamDman/SuperFactoryManager)**
+为 [Super Factory Manager 4](https://github.com/TeamDman/SuperFactoryManager) 打造的
+**可视化工厂编程附属**：用积木快速搭建自动化，与 SFML 源码同屏双向编辑，
+保存到磁盘的始终是标准 SFML——不装本模组的人也能打开你的程序。
 
-Build automation with blocks — edits side-by-side with SFML source, always saves standard SFML.
-
-**English** | [简体中文](README_zh.md)
+**简体中文** | [English](README_en.md)
 
 </div>
 
 ---
 
-- **Minecraft**: 1.21.1 (NeoForge) & 1.20.1 (Forge)
-- **Dependency**: [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager) (required)
-- **Version**: 0.8
-- **License**: MPL-2.0
+- **Minecraft**: 1.21.1（NeoForge）和 1.20.1（Forge）
+- **前置**: [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)（必须安装）
+- **当前版本**: 0.8
+- **许可证**: MPL-2.0
 
-[Downloads](#installation) · [Features](#features) · [Installation](#installation) · [Building](#building)
+[下载](#安装) · [功能](#核心功能) · [构建](#构建)
 
 ---
 
-## What is this?
+## 这是什么？
 
-A visual block editor that replaces SFM's text-only program editing. Design factory automation with drag-and-drop blocks, see the SFML source update in real time, and save directly to the manager's disk — no coding required.
+一个可视化的积木式编辑器，替代 SFM 的纯文本程序编辑。用拖放积木的方式设计工厂自动化，
+实时查看 SFML 源码，直接保存到管理器磁盘——不需要写代码。
 
-The UI follows your Minecraft language setting: **English** or **简体中文**.
+界面跟随 Minecraft 语言设置：**English** 或 **简体中文**。
 
-## Features
+## 核心功能
 
-### Block Editor
+### 积木编辑器
 
-- **Free-form trigger cards**: infinite canvas, scroll to zoom, drag anywhere, middle/right-click to pan
-- **Layout persistence**: card positions saved per trigger (matched by fingerprint, survives edits)
-- **Block palette**: timer/redstone triggers, input/output/forget, if/else-if/else with and/or/not grouping, comments, one-click templates (smelting line, full-stack sorting, round-robin, parallel transfers)
-- **Extension blocks**: or-move, also-move, quantity limit, retain minimum, resource tag filter, exclude, sides, slots, round-robin, per-block handling, empty slots only
-- **Box select & batch ops**: rubber-band select, group drag, copy/paste/duplicate/delete, save as custom template
-- **Right-click menus**: block row → copy; label pill → copy/paste/edit/clear; resource slot → copy/paste/browse
-- **Undo/redo** (Ctrl+Z / Ctrl+Y), card positions preserved across undo
-- **Zone workspaces**: draw colored rectangles on canvas to group related cards, click to focus
-- **Card & If folding**: collapse cards to a summary bar, collapse If to one condition line
-- **LOD**: distant cards auto-switch to summary rows, hundreds of cards stay smooth
-- **Block connections**: drag ◆ from card corner to another card for a visual bezier link (cosmetic only)
+- **触发器卡片自由布局**：无限画布 + 滚轮缩放，卡片拖到任意位置，按中键/右键平移视角
+- **布局自动记忆**：卡片位置按触发头指纹匹配保存（`config/sfmfactorystudio/layouts.json`），改积木不丢位置
+- **积木库**：定时循环（每 N 刻/秒、全局时钟、相位偏移）、红石脉冲、取出/存入/遗忘、
+  如果/否则如果/否则（条件支持且/或/非组合）、注释、一键模板（熔炉自动线、满仓分类、均衡分配、高频并行）
+- **扩展积木**：或者也搬运、另外搬运、限制数量、至少保留、资源标签、排除、
+  侧面、槽位、轮流、每个方块分别处理、仅空槽——不用的能力不占主积木
+- **框选与批量操作**：框选高亮、整体拖动、复制/粘贴/原地复制/删除、存为自定义模板
+- **右键菜单**：积木行右键 = 复制；标签药丸右键 = 复制/粘贴/编辑/清空；
+  资源槽右键 = 复制/粘贴/浏览
+- **撤销/重做**（Ctrl+Z / Ctrl+Y），卡片坐标在撤销后保留
+- **分区工作区**：画布拖矩形圈出蓝/绿/黄工作区并命名，点击标题聚焦，区外卡片蒙纱退后
+- **卡片折叠 / If 折叠**：卡片收成一行摘要，If 收成一行条件，缩略视图不再翻屏
+- **LOD 缩略**：缩小到一定级别自动换成摘要行，几百张卡也流畅
+- **积木连线**：卡片右上 ◆ 拖到另一张卡建立贝塞尔连线（纯视觉备注，不进 SFML）
 
-### SFML Source Editor
+### 同屏 SFML 代码双向编辑
 
-- Blocks and source are **always in sync** — click "Source" to see both side by side
-- Syntax highlighting, line numbers, Tab indent, Ctrl+/ comment, smart suggestions (Ctrl+Space)
-- **Lossless round-trip**: comments, empty else branches, and formatting survive block↔source conversion
-- Validated against all 8 official SFM example programs + 1000 randomized block combinations
+- 积木改动实时生成源码；点「代码编辑」后源码与积木同屏，**双向同步**
+- 源码区支持语法着色、行号、滚动、剪切/复制/粘贴、撤销/重做、Tab 缩进、
+  Ctrl+/ 注释、智能建议（Ctrl+空格）；输入到一半的错误不会清空积木，自动存草稿
+- **无损往返**：合法 SFML 的注释、空否则分支、格式在积木↔源码往返中保留；
+  测试覆盖 SFM 官方 8 个示例程序、全部语法分支，以及随机生成的 1000 组积木组合
+  全部通过 SFM 本体编译器
 
-### Diagnostics
+### 中文诊断
 
-- Pre-save validation via SFM's own compiler + local checks: missing labels, conflicting sides,
-  invalid slots, always-false conditions, exclusion covering all resources, timer below server minimum, etc.
-- **Issues panel**: click to locate (camera jump + breathing outline), most issues have one-click fix
-- **Cost badge**: per-card execution cost estimate (probes/second) on the top-right corner
+- 保存前经 SFM 本体编译器校验 + 本地体检：缺少标签、冲突侧面、无效槽位、
+  恒假条件、排除全覆盖、计时低于服务器下限等常见错误在写入磁盘前拦截
+- **问题面板**：每条问题可**定位**（相机跳转 + 呼吸红框），多数带**一键修复**
+- **成本角标**：每张卡右上角显示执行成本估算（等效试探/秒）
 
-### Resource Tag Filtering
+### 资源标签（物品筛选）
 
-- **Visual tag picker**: pick an item → see its tags (localized name, source, coverage hint, member grid)
-  or search the full library; pinyin search for Chinese names
-- **And / Or / Not**: free-form boolean grouping with per-pill delete
-- **NBT component filter** (both sides installed): pick non-default components from items —
-  enchantments (with level), potion type, custom name, custom_data (nested paths / numeric comparison);
-  compiles to `with #nbt:minecraft/enchantments/sharpness` pseudo-tags intercepted by the server mixin
+- **可视化标签选择器**：先选物品再看它所属的标签（中文名、来源、覆盖范围提示、
+  成员预览网格 140 个/页），或全库搜索；拼音输入直接搜中文名
+- **且 / 或 / 非**：多条件自由组合，每颗条件药丸可单独删除、整链预览匹配物品
+- **NBT 组件筛选**（需双端安装）：从物品可视化选择其非默认组件——附魔（含等级）、
+  药水种类、自定义名称、custom_data（子键/多级路径/数值大于小于比较）等，
+  编译为 `with #nbt:minecraft/enchantments/sharpness` 形式的伪标签，
+  由本模组服务端 Mixin 拦截匹配；SFM 更新导致注入失效时自动退回原版行为不崩服
 
-### JEI Integration
+### JEI 联动
 
-- JEI ingredient list stays visible while editing; the editor auto-narrows
-- All resource slots are JEI drop targets: drag items (left-click), fluid containers (right-click); bookmarks work too
-- Fully usable without JEI (built-in catalog with pinyin search)
+- 编辑器打开时 JEI 物品管理器常驻右侧，编辑器自动收窄避让
+- 所有资源槽都是 JEI 拖放目标：左键拖物品、右键拖流体容器自动识别；JEI 书签也能直接拖入
+- 未装 JEI 时完全可用，自带目录浏览与拼音输入
 
-### Performance
+### 性能
 
-- Pure client-side — **zero tick handlers registered**, no server overhead
-- Incremental layout engine: only re-lays out cards whose content hash changed
-- Hit-test object pooling, NBT picker registry cached once per session
+- 编辑器是纯客户端界面，**不注册任何每刻（tick）事件**，对服务器零开销
+- 增量布局引擎：编辑只重排内容变化的卡（内容哈希差分），拖动走缓存平移，
+  渲染只画视野内的卡片；命中检测对象池化；NBT 选择器全注册表缓存一次构建
+- 大程序实测路径：卡片折叠 + LOD + 分区聚焦，几百张卡仍可流畅编辑
 
-### Server TPS Tools (optional, all off by default)
+### 服务端 TPS 工具（可选，默认全关）
 
-Mod list → select this mod → **Config** (in-game GUI, or edit `config/sfmfactorystudio-common.toml`):
+模组列表 → 选中本模组 → **配置**（全中文界面，或编辑 `config/sfmfactorystudio-common.toml`）：
 
-- **Idle backoff**: idle managers stretch their timer interval; resume on first successful transfer
-- **Per-tick global budget**: cap total manager time per tick; overflow deferred to next tick
-- **Defaults = vanilla SFM behaviour** (throughput and first-item latency unchanged);
-  changes take effect immediately, no restart needed
+- **空转退避**：连续空转的管理器把定时检测间隔逐级拉长，搬运成功立即恢复
+  （每秒平均搬运量不变；代价是空闲工厂首件检测最多多等几个周期）
+- **每刻全局预算**：所有管理器单刻总耗时封顶，超出者本轮顺延（会损失该轮吞吐，
+  只适合 TPS 垂死的服务器）
+- **默认全部关闭 = 与原版 SFM 行为完全一致**（吞吐与首件延迟都不变），
+  修改保存后即时生效，无需重启
 
-## Installation
+## 安装
 
-### 1.21.1 (NeoForge)
+### 1.21.1（NeoForge）
 
-1. Install [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. Drop `SFM-Factory-Studio-1.21.1-0.8.jar` into `mods/`
+1. 安装 [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
+2. 把 `SFM-Factory-Studio-1.21.1-0.8.jar` 放进 `mods` 文件夹
 
-### 1.20.1 (Forge)
+### 1.20.1（Forge）
 
-1. Install [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. Drop `SFM-Factory-Studio-1.20.1-0.8.jar` into `mods/`
+1. 安装 [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
+2. 把 `SFM-Factory-Studio-1.20.1-0.8.jar` 放进 `mods` 文件夹
 
-| Setup | Editor | NBT tag filter | TPS tools |
+| 安装方式 | 编辑器 | NBT 标签筛选 | TPS 工具 |
 |---|---|---|---|
-| Client only | ✅ | hidden (entry auto-hides) | ❌ |
-| Client + Server | ✅ | ✅ unlocked (`with #nbt:…`) | ✅ opt-in |
+| 只装客户端 | ✅（进原版 SFM 服务器也正常） | 入口自动隐藏 | ❌ |
+| 客户端 + 服务端都装 | ✅ | ✅ 解锁（`with #nbt:…`） | ✅ 可选开启 |
 
-### Getting started
+### 使用步骤
 
-1. Place a **Factory Manager**, insert a **disk**
-2. Open the manager GUI → click **Factory Studio** on the left
-3. Build your program from the block palette → click **Save**
+1. 放置**工厂管理器**、插入**磁盘**
+2. 打开管理器界面，点击左侧新增的 **「智造编辑」** 按钮
+3. 从积木库搭建程序，点 **「保存」** 写入磁盘
 
-## Building
+## 构建
 
-Requires JDK 21:
+需要 JDK 21：
 
 ```bash
-./gradlew build        # output in build/libs/
-./gradlew test         # 130+ unit tests (model / serialization / layout / diagnostics / NBT)
+./gradlew build        # 产物在 build/libs/
+./gradlew test         # 130+ 项单元测试（模型/序列化/布局/诊断/NBT 匹配）
 ```
 
-Release JARs bundle [PinIn](https://github.com/Towdium/PinIn) (MIT) for pinyin search.
-Place SFM 4.34.0's jar at `libs/sfm-4.34.0.jar` before building (see `gradle.properties`).
+正式发行 JAR 内置 [PinIn](https://github.com/Towdium/PinIn)（MIT）拼音搜索库。
+构建前需将 SFM 4.34.0 的 jar 放到 `libs/` 目录（见 `gradle.properties`，不会进入本仓库）。
 
-## License & Credits
+## 许可与致谢
 
-- This mod: [Mozilla Public License 2.0](LICENSE)
-- Based on [SFM-GUI](https://github.com/MimosaLW/SuperFactoryManager-GUI) (MPL-2.0, by Mimosa_LW / TeamDman)
-- [Super Factory Manager](https://github.com/TeamDman/SuperFactoryManager) (MPL-2.0, by TeamDman)
-- Bundles [PinIn](https://github.com/Towdium/PinIn) (MIT, by Towdium) pinyin search library
+- 本模组：[Mozilla Public License 2.0](LICENSE)
+- 基于 [SFM-GUI](https://github.com/MimosaLW/SuperFactoryManager-GUI)（MPL-2.0，by Mimosa_LW / TeamDman）改造
+- [Super Factory Manager](https://github.com/TeamDman/SuperFactoryManager)（MPL-2.0，by TeamDman）
+- 内置 [PinIn](https://github.com/Towdium/PinIn)（MIT，by Towdium）拼音搜索库
