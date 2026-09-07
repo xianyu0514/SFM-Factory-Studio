@@ -120,6 +120,8 @@ public class SlotNumberingTest {
                 List.of(cap(0, "", 0), cap(1, "", 0), cap(2, "", 0), cap(3, "", 0)), 4);
         assertTrue(r.calibrated());
         for (int i = 0; i < 4; i++) assertEquals(i, r.number(i));
+        // 全部编号都来自歧义拉链（空签名无唯一证据）——界面必须如实示警
+        assertEquals(4, r.zipClaims());
     }
 
     // ---- 置灰：升级卡等不可寻址格 ----

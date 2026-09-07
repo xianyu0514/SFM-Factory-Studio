@@ -45,10 +45,11 @@ public final class SlotNumbering {
 
     /**
      * 编号结果。number[seq] = 显示编号（校准失败时为空间序号；校准后不可寻址格为 -1）；
-     * addressable[seq] = 是否可寻址（可点选、可输出）。
+     * addressable[seq] = 是否可寻址（可点选、可输出）。zipClaims = 经歧义拉链
+     * （空间顺序推断）认领的格子数——这些编号是推断值，界面应如实示警。
      */
     public record Result(List<MenuSlot> slots, int[] number, boolean[] addressable,
-                         boolean calibrated, int capTotal, int hiddenCaps) {
+                         boolean calibrated, int capTotal, int hiddenCaps, int zipClaims) {
         public int size() {
             return slots.size();
         }
@@ -89,7 +90,7 @@ public final class SlotNumbering {
                     ? Integer.compare(slots.get(a).y(), slots.get(b).y())
                     : Integer.compare(slots.get(a).x(), slots.get(b).x()));
             for (int rank = 0; rank < n; rank++) number[order[rank]] = rank;
-            return new Result(slots, number, addressable, false, capTotal == null ? -1 : capTotal, 0);
+            return new Result(slots, number, addressable, false, capTotal == null ? -1 : capTotal, 0, 0);
         }
 
         // ---- 校准 ----
@@ -147,15 +148,25 @@ public final class SlotNumbering {
         // 编号与可寻址性：拿到能力槽的格子显示真实索引；其余置灰
         int hidden = 0;
         for (int c = 0; c < total && c < capUsed.length; c++) if (!capUsed[c]) hidden++;
+        int zipClaims = 0;
         for (int i = 0; i < n; i++) {
             if (claimedCap[i] >= 0) {
                 number[i] = claimedCap[i];
+                if (isZipClaimed(i, deferredCaps, zipSlots)) zipClaims++;
             } else {
                 number[i] = -1;
                 addressable[i] = false;
             }
         }
-        return new Result(slots, number, addressable, true, total, hidden);
+        return new Result(slots, number, addressable, true, total, hidden, zipClaims);
+    }
+
+    /** 该格是否由歧义拉链（而非提示/唯一签名）认领。 */
+    private static boolean isZipClaimed(int seq, List<Integer> deferredCaps, List<Integer> zipSlots) {
+        for (int k = 0; k < deferredCaps.size() && k < zipSlots.size(); k++) {
+            if (zipSlots.get(k) == seq) return true;
+        }
+        return false;
     }
 
     /** 与能力槽内容签名匹配的未认领格子。两边都空 = 弱匹配（交给歧义拉链）。 */

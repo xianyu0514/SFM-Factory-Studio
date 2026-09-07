@@ -71,8 +71,15 @@ public final class ClientGuiLayoutCache {
         lastClickedAt = System.currentTimeMillis();
     }
 
-    /** Init 后尚未完成渲染期捕获的界面（晚绑定槽位的模组菜单需要渲染期补捕）。 */
-    private static final Map<Screen, BlockPos> PENDING = new java.util.concurrent.ConcurrentHashMap<>();
+    /**
+     * 待渲染期补捕的界面：模组 GUI（如 Mekanism）的槽位布局晚绑定且会动态
+     * 调整，首帧可能还没摆好——保留多帧，逐帧用更完整的结果覆盖。
+     */
+    private record Pending(BlockPos pos, int framesLeft) {
+    }
+
+    private static final int RECAPTURE_FRAMES = 20;
+    private static final Map<Screen, Pending> PENDING = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** 容器界面初始化：按最近点击的方块坐标捕获真实槽位布局。 */
     @SubscribeEvent
@@ -82,24 +89,29 @@ public final class ClientGuiLayoutCache {
         boolean fresh = pos != null && System.currentTimeMillis() - lastClickedAt < 3000;
         lastClickedPos = null;
         if (!fresh) return;
-        PENDING.put(screen, pos);
+        PENDING.put(screen, new Pending(pos, RECAPTURE_FRAMES));
         try {
-            capture(pos, screen);   // 尽早尝试；若槽位晚绑定，渲染期会再补一次
+            capture(pos, screen);   // 尽早尝试；渲染期会持续补捕
         } catch (Throwable t) {
             SFMGui.LOGGER.debug("slot layout capture failed at {}", pos, t);
         }
     }
 
-    /** 首帧渲染：菜单完全成型，晚绑定槽位此时已就位——补捕并保留更完整的结果。 */
+    /** 渲染期补捕：菜单完全成型/槽位就位后逐帧覆盖，保留更完整的结果。 */
     @SubscribeEvent
     public static void onContainerRender(net.neoforged.neoforge.client.event.ContainerScreenEvent.Render.Foreground event) {
         var screen = event.getContainerScreen();
-        BlockPos pos = PENDING.remove(screen);
-        if (pos == null) return;
+        Pending pending = PENDING.get(screen);
+        if (pending == null) return;
+        if (pending.framesLeft() <= 0) {
+            PENDING.remove(screen);
+            return;
+        }
+        PENDING.put(screen, new Pending(pending.pos(), pending.framesLeft() - 1));
         try {
-            capture(pos, screen);
+            capture(pending.pos(), screen);
         } catch (Throwable t) {
-            SFMGui.LOGGER.debug("slot layout re-capture failed at {}", pos, t);
+            SFMGui.LOGGER.debug("slot layout re-capture failed at {}", pending.pos(), t);
         }
     }
 
@@ -114,13 +126,20 @@ public final class ClientGuiLayoutCache {
         Inventory playerInv = Minecraft.getInstance().player != null
                 ? Minecraft.getInstance().player.getInventory() : null;
         List<SlotLayoutData.SlotCapture> all = new ArrayList<>();
-        java.util.Set<Long> seenCoords = new java.util.HashSet<>();
         for (Slot slot : menu.slots) {
             if (playerInv != null && slot.container == playerInv) continue;
             if (!slot.isActive()) continue;
-            // 完全同坐标的重复格（异常菜单）：只保留一个，防止选择器叠画
-            long coordKey = ((long) slot.x << 32) | (slot.y & 0xFFFFFFFFL);
-            if (!seenCoords.add(coordKey)) continue;
+            // 邻近去重（10px 内）：模组 GUI 的隐藏/配置槽位会与真槽位几乎同位，
+            // 叠画在选择器里就是"两个编号叠在一起"的显示事故
+            boolean tooClose = false;
+            for (SlotLayoutData.SlotCapture c : all) {
+                int dx = c.x() - slot.x, dy = c.y() - slot.y;
+                if ((long) dx * dx + (long) dy * dy < 100) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            if (tooClose) continue;
             Integer capIndex = null;
             if (capability != null && slot.container == capability) {
                 capIndex = slot.getContainerSlot();

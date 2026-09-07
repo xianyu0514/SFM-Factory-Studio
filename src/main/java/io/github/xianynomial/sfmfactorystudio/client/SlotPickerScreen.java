@@ -66,6 +66,7 @@ public final class SlotPickerScreen extends Screen {
     private boolean tooFar = false;              // 方块不存在或超出读取距离
     private String sideFallbackDir = null;       // 限定方向无槽位，实际按该朝向编号（null 面 = "null"）
     private final String sidesCode;              // 语句的侧面限定（请求校准用）
+    private int[] dirTotals;                     // 七朝向槽位数（[0]=无侧面；null=未知）
     private boolean initialApplied = false;      // 已写槽号区间是否已映射为选中
     private int ticksElapsed;
     private boolean selectionTouched = false;
@@ -127,12 +128,13 @@ public final class SlotPickerScreen extends Screen {
 
     /** 服务端校准数据入口（BlockEditorScreen.acceptSlotCapability 转发，主线程）。 */
     public static void onCapabilityData(BlockPos pos, int state, String refDir, int total,
-                                        List<String> items, List<Integer> counts) {
+                                        int[] dirTotals, List<String> items, List<Integer> counts) {
         SlotPickerScreen picker = pos == null ? null : WAITERS.get(pos);
-        if (picker != null) picker.applyCapability(state, refDir, total, items, counts);
+        if (picker != null) picker.applyCapability(state, refDir, total, dirTotals, items, counts);
     }
 
-    private void applyCapability(int state, String refDir, int total, List<String> items, List<Integer> counts) {
+    private void applyCapability(int state, String refDir, int total, int[] dirTotals,
+                                 List<String> items, List<Integer> counts) {
         if (capState != CapState.PENDING) return;
         if (state < 0) {
             // 方块不存在或距离过远：无法校准（横幅单独提示）
@@ -141,6 +143,7 @@ public final class SlotPickerScreen extends Screen {
             applyInitialSelection();
             return;
         }
+        this.dirTotals = dirTotals != null && dirTotals.length == 7 ? dirTotals : null;
         capabilityMissing = state == 2;
         sideFallbackDir = state == 1 ? refDir : null;
         List<SlotNumbering.CapSlot> caps = new ArrayList<>();
@@ -262,7 +265,7 @@ public final class SlotPickerScreen extends Screen {
         vpW = Math.min(view.contentW(), availW);
         vpH = Math.min(view.contentH(), availH);
         gridX = (width - vpW) / 2;
-        gridY = Math.max(66, height / 2 - vpH / 2);
+        gridY = Math.max(guideText() != null ? 82 : 66, height / 2 - vpH / 2);
         scrollX = clampScroll(scrollX, view.contentW(), vpW);
         scrollY = clampScroll(scrollY, view.contentH(), vpH);
         int bottom = gridY + vpH;
@@ -392,6 +395,8 @@ public final class SlotPickerScreen extends Screen {
         drawFittedCentered(g, L_HINT.getString(), 31, 0xFF8A93A5);
         drawFittedCentered(g, targetText(), 42, 0xFF8A93A5);
         drawFittedCentered(g, bannerText(), 53, bannerColor());
+        String guide = guideText();
+        drawFittedCentered(g, guide == null ? "" : guide, 64, 0xFFE8B339);
 
         relayout();
         g.fill(gridX - 4, gridY - 4, gridX + vpW + 4, gridY + vpH + 4, 0xFF2A2A2E);
@@ -491,6 +496,9 @@ public final class SlotPickerScreen extends Screen {
             return L_SIDE_FALLBACK.getString(
                     sideFallbackDir.equals("null") ? L_DIR_NULL.getString() : sideFallbackDir);
         }
+        if (capState == CapState.READY && numbering.zipClaims() > 0) {
+            return L_PARTIAL.getString(numbering.zipClaims());
+        }
         return switch (capState) {
             case PENDING -> L_CALIBRATING.getString();
             case READY -> {
@@ -506,6 +514,19 @@ public final class SlotPickerScreen extends Screen {
             }
             case FAILED -> L_UNCALIBRATED.getString();
         };
+    }
+
+    /**
+     * 朝向差异引导：语句用默认（无侧面）查询、而其他朝向暴露的槽位更多时，
+     * 提示玩家写侧面限定——模组机器（Mekanism 等）各朝向暴露的槽位不同。
+     */
+    private String guideText() {
+        if (dirTotals == null || !sidesCode.equals("null")) return null;
+        int current = dirTotals[0];
+        int maxOther = -1;
+        for (int i = 1; i < 7; i++) maxOther = Math.max(maxOther, dirTotals[i]);
+        if (current < 0 || maxOther <= current) return null;
+        return L_SIDE_GUIDE.getString(current, maxOther);
     }
 
     private int bannerColor() {
@@ -658,4 +679,6 @@ public final class SlotPickerScreen extends Screen {
     private static final Loc L_SIDE_FALLBACK = new Loc("gui.sfmfactorystudio.slot.slot_side_fallback", "⚠ 所选侧面没有槽位，编号按 %s 面显示——SFM 访问此机器需要写侧面限定（如 each side）");
     private static final Loc L_DIR_NULL = new Loc("gui.sfmfactorystudio.slot.slot_dir_null", "无侧面");
     private static final Loc L_HIDDEN_SECTION = new Loc("gui.sfmfactorystudio.slot.slot_hidden_section", "▼ 此界面未显示的槽位（编号即真实槽位序号）");
+    private static final Loc L_PARTIAL = new Loc("gui.sfmfactorystudio.slot.slot_partial", "✓ 已校准：%s 个格子的编号按屏幕顺序推断（存在歧义），建议先放 1 个物品试运行验证");
+    private static final Loc L_SIDE_GUIDE = new Loc("gui.sfmfactorystudio.slot.slot_side_guide", "该机器各朝向槽位数不同（当前 %s，其他朝向最多 %s）——给积木写侧面限定（如 each side）可访问更多槽位");
 }
