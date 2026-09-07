@@ -306,7 +306,8 @@ abstract class Popup {
 
                 g.fill(x + 1, listBottom, x + w - 1, listBottom + 1, 0xFFE1E7F0);
 
-                g.drawString(font, "↓ 还有 " + left + " 项 · 滚轮查看",
+                g.drawString(font, new Loc("gui.sfmfactorystudio.blocks.popup.more_below", "↓ 还有 %s 项 · 滚轮查看")
+                        .getString(left),
 
                         x + 5, listBottom + 2, 0xFF6B7688, false);
 
@@ -932,7 +933,8 @@ abstract class Popup {
 
             int infoColor = value < minimum ? 0xFFC22B21 : 0xFF5C6779;
 
-            g.drawString(font, minimumReason + "：最少 " + minimum, x + 7, y + 26, infoColor, false);
+            g.drawString(font, new Loc("gui.sfmfactorystudio.blocks.popup.min_required", "%s：最少 %s")
+                    .getString(minimumReason, minimum), x + 7, y + 26, infoColor, false);
 
             drawButton(g, font, x + 6, y + 42, 24, "−", mx, my, false);
 
@@ -1306,7 +1308,8 @@ abstract class Popup {
 
             panel(g, x, y, w, h);
 
-            g.drawString(font, "可用方块标签 · " + known.size() + " 个", x + 6, y + 6, 0xFF1B2432, false);
+            g.drawString(font, new Loc("gui.sfmfactorystudio.blocks.popup.known_labels", "可用方块标签 · %s 个")
+                    .getString(known.size()), x + 6, y + 6, 0xFF1B2432, false);
 
             search.render(g, mx, my, 0);
 

@@ -21074,7 +21074,7 @@ public class BlockEditorScreen extends Screen {
 
                     if (visualPos == null) {
 
-                        showStatus("✖ 标签未绑定方块：请先用标签枪绑定容器", 0xFFD13438);
+                        showStatus(E("slot_beta_unbound", "✖ 标签未绑定方块：请先用标签枪绑定容器").getString(), 0xFFD13438);
 
                         return;
 
@@ -21082,7 +21082,7 @@ public class BlockEditorScreen extends Screen {
 
                     if (ClientGuiLayoutCache.get(vpos) == null) {
 
-                        showStatus("⚠ 还没有布局记录：右键打开一次该容器界面后再点 beta", 0xFFB45309);
+                        showStatus(E("slot_beta_no_layout", "⚠ 还没有布局记录：右键打开一次该容器界面后再点 beta").getString(), 0xFFB45309);
 
                     }
 
@@ -23130,7 +23130,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                kinds.stream().map(kind -> (String) M_ADD_KIND.getString(kind.chineseName)).toList(), "", value ->
+                kinds.stream().map(kind -> (String) M_ADD_KIND.getString(kind.chineseName())).toList(), "", value ->
 
 
 
@@ -24527,7 +24527,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        if (resource == null || resource.isWildcard()) return SLOT_ALL_WORD.getString() + (resource == null ? V_ALL_ITEMS.getString() : resource.kind().chineseName);
+        if (resource == null || resource.isWildcard()) return SLOT_ALL_WORD.getString() + (resource == null ? V_ALL_ITEMS.getString() : resource.kind().chineseName());
 
 
 
@@ -24735,7 +24735,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                : current.kind().chineseName;
+                : current.kind().chineseName();
 
 
 
@@ -24875,7 +24875,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                    showStatus(S_CHANGE_KIND_FIRST.getString(incoming.kind().chineseName), 0xFFD13438);
+                    showStatus(S_CHANGE_KIND_FIRST.getString(incoming.kind().chineseName()), 0xFFD13438);
 
 
 
@@ -27187,7 +27187,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        List<String> labels = kinds.stream().map(kind -> kind.chineseName).toList();
+        List<String> labels = kinds.stream().map(kind -> kind.chineseName()).toList();
 
 
 
@@ -27451,7 +27451,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                List.of(M_BROWSE_KIND.getString(current.kind().chineseName), M_INPUT_NAME.getString(), M_ALL_OF_KIND.getString()),
+                List.of(M_BROWSE_KIND.getString(current.kind().chineseName()), M_INPUT_NAME.getString(), M_ALL_OF_KIND.getString()),
 
 
 
@@ -27675,7 +27675,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-            labels.add(M_KIND_N.getString(i + 1, resource.kind().chineseName));
+            labels.add(M_KIND_N.getString(i + 1, resource.kind().chineseName()));
 
 
 
@@ -28883,7 +28883,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                rx = drawP(g, fnt, rx, resource.kind().chineseName, 38,
+                rx = drawP(g, fnt, rx, resource.kind().chineseName(), 38,
 
 
 
@@ -28959,7 +28959,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                            showStatus(S_CHANGE_KIND_FIRST.getString(incoming.kind().chineseName), 0xFFD13438);
+                            showStatus(S_CHANGE_KIND_FIRST.getString(incoming.kind().chineseName()), 0xFFD13438);
 
 
 
@@ -29631,7 +29631,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                out.add(pillW(fnt, resource.kind().chineseName, 38));
+                out.add(pillW(fnt, resource.kind().chineseName(), 38));
 
 
 

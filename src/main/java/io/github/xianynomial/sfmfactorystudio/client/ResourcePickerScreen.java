@@ -23,6 +23,8 @@ import java.util.function.Consumer;
  */
 public class ResourcePickerScreen extends Screen {
     private static final Loc SEARCH = new Loc("gui.sfmfactorystudio.blocks.picker.search", "搜索...");
+    private static final Loc TITLE = new Loc("gui.sfmfactorystudio.blocks.picker.title", "选择%s");
+    private static final Loc COUNT = new Loc("gui.sfmfactorystudio.blocks.picker.count", "%s 项");
     private static final Loc CANCEL = new Loc("gui.sfmfactorystudio.blocks.close", "关闭");
 
     private static final int CELL = 22;
@@ -38,7 +40,7 @@ public class ResourcePickerScreen extends Screen {
     private ResourceIndex.Entry hoveredEntry;
 
     public ResourcePickerScreen(Screen previousScreen, BProgram.ResourceKind resourceKind, Consumer<String> onPick) {
-        super(Component.literal("选择" + resourceKind.chineseName));
+        super(Component.literal(TITLE.getString(resourceKind.chineseName())));
         this.previousScreen = previousScreen;
         this.resourceKind = resourceKind;
         this.onPick = onPick;
@@ -97,7 +99,7 @@ public class ResourcePickerScreen extends Screen {
         border(graphics, this.width / 2 - 114, 23, 228, 22, 0xFFD9DFEA);
 
         renderGrid(graphics, mx, my);
-        drawCentered(graphics, filtered.size() + " 项", this.width / 2,
+        drawCentered(graphics, COUNT.getString(filtered.size()), this.width / 2,
                 this.height - 38, 0xFF6B7688);
         boolean closeHovered = mx >= this.width / 2 - 50 && mx < this.width / 2 + 50
                 && my >= this.height - 24 && my < this.height - 6;
@@ -188,12 +190,5 @@ public class ResourcePickerScreen extends Screen {
 
     private void drawCentered(GuiGraphics g, String text, int centerX, int y, int color) {
         g.drawString(font, text, centerX - font.width(text) / 2, y, color, false);
-    }
-
-    // kept for parity with the rest of the codebase's Loc helper
-    private record Loc(String key, String fallback) {
-        public String getString() {
-            return net.minecraft.client.resources.language.I18n.get(key);
-        }
     }
 }

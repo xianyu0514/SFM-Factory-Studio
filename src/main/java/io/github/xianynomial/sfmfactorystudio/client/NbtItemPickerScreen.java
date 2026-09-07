@@ -386,7 +386,8 @@ public class NbtItemPickerScreen extends Screen {
 
         if (componentPage) {
 
-            g.drawString(font, selected.getHoverName().getString() + " 的 NBT（" + pickRows.size() + " 项）",
+            g.drawString(font, new Loc("gui.sfmfactorystudio.nbt.comp_count", "%s 的 NBT（%s 项）")
+                    .getString(selected.getHoverName().getString(), pickRows.size()),
 
                     px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
 
@@ -418,7 +419,7 @@ public class NbtItemPickerScreen extends Screen {
 
             if (pickRows.isEmpty()) {
 
-                String empty = "这件物品没有 NBT 数据（无非默认组件），换一件试试";
+                String empty = new Loc("gui.sfmfactorystudio.nbt.empty_item", "这件物品没有 NBT 数据，换一件试试").getString();
 
                 g.drawString(font, empty, px + PANEL_W / 2 - font.width(empty) / 2,
 
@@ -430,7 +431,8 @@ public class NbtItemPickerScreen extends Screen {
 
             g.drawString(font, new Loc("gui.sfmfactorystudio.nbt.pick_prompt", "选择一件物品，查看它的 NBT").getString(), px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
 
-            String[] tabs = {"背包物品（" + inventory.size() + "）", "全部物品（" + allItems.size() + "）"};
+            String[] tabs = {new Loc("gui.sfmfactorystudio.nbt.tab_inv", "背包物品（%s）").getString(inventory.size()),
+                    new Loc("gui.sfmfactorystudio.nbt.tab_all", "全部物品（%s）").getString(allItems.size())};
 
             int tx = px + 10;
 

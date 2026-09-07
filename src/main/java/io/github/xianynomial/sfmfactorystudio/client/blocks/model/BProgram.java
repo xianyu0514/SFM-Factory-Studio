@@ -576,40 +576,47 @@ public final class BProgram {
 
     public enum ResourceKind {
 
-        ITEM("item", new Loc("gui.sfmfactorystudio.ed.all_items", "物品").getString()),
+        ITEM("item", new Loc("gui.sfmfactorystudio.model.kind.item", "物品")),
 
-        FLUID("fluid", new Loc("gui.sfmfactorystudio.model.kind.fluid", "流体").getString()),
+        FLUID("fluid", new Loc("gui.sfmfactorystudio.model.kind.fluid", "流体")),
 
-        CHEMICAL("chemical", new Loc("gui.sfmfactorystudio.model.kind.chemical", "化学品").getString()),
+        CHEMICAL("chemical", new Loc("gui.sfmfactorystudio.model.kind.chemical", "化学品")),
 
-        GAS("gas", new Loc("gui.sfmfactorystudio.model.kind.gas", "气体").getString()),
+        GAS("gas", new Loc("gui.sfmfactorystudio.model.kind.gas", "气体")),
 
-        SLURRY("slurry", new Loc("gui.sfmfactorystudio.model.kind.slurry", "矿浆").getString()),
+        SLURRY("slurry", new Loc("gui.sfmfactorystudio.model.kind.slurry", "矿浆")),
 
-        PIGMENT("pigment", new Loc("gui.sfmfactorystudio.model.kind.pigment", "颜料").getString()),
+        PIGMENT("pigment", new Loc("gui.sfmfactorystudio.model.kind.pigment", "颜料")),
 
-        REDSTONE("redstone", new Loc("gui.sfmfactorystudio.ed.v_redstone_signal", "红石信号").getString()),
+        REDSTONE("redstone", new Loc("gui.sfmfactorystudio.model.kind.redstone", "红石信号")),
 
-        INFUSION("infusion", new Loc("gui.sfmfactorystudio.model.kind.infusion", "灌注材料").getString()),
+        INFUSION("infusion", new Loc("gui.sfmfactorystudio.model.kind.infusion", "灌注材料")),
 
-        FORGE_ENERGY("forge_energy", new Loc("gui.sfmfactorystudio.model.kind.forge_energy", "能量").getString()),
+        FORGE_ENERGY("forge_energy", new Loc("gui.sfmfactorystudio.model.kind.forge_energy", "能量")),
 
-        CUSTOM("custom", new Loc("gui.sfmfactorystudio.model.kind.custom", "其他类别").getString());
+        CUSTOM("custom", new Loc("gui.sfmfactorystudio.model.kind.custom", "其他类别"));
 
 
 
         public final String sfmlName;
 
-        public final String chineseName;
+        /** Bilingual display name: 中文默认，en_us 走语言文件。 */
+        public final Loc displayName;
 
 
 
-        ResourceKind(String sfmlName, String chineseName) {
+        ResourceKind(String sfmlName, Loc displayName) {
 
             this.sfmlName = sfmlName;
 
-            this.chineseName = chineseName;
+            this.displayName = displayName;
 
+        }
+
+
+        /** Player-facing name in the current language. */
+        public String chineseName() {
+            return displayName.getString();
         }
 
 

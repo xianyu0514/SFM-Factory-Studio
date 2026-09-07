@@ -2,1256 +2,701 @@ package io.github.xianynomial.sfmfactorystudio.client.blocks.model;
 
 import io.github.xianynomial.sfmfactorystudio.client.Loc;
 
-
-
 import java.util.ArrayList;
-
 import java.util.HashSet;
-
 import java.util.LinkedHashMap;
-
 import java.util.List;
-
 import java.util.Map;
-
 import java.util.Objects;
-
 import java.util.Set;
 
-
-
 /**
-
  * Structural and everyday-use checks for the block model. Grammar errors are
-
  * prevented by typed fields and the serializer; these diagnostics explain
-
  * incomplete or ineffective programs in player-facing Chinese before save.
-
  *
-
  * <p>Every issue carries an optional {@code block} reference (a
-
  * {@link BProgram.Trigger} or {@link BProgram.Statement}) so the editor can
-
  * highlight the offending block and jump the camera to it, plus an optional
-
  * one-click fix that mutates the model. The screen applies fixes through its
-
  * normal edit path (undo snapshot + invalidation), so they stay revertible.
-
  *
-
  * <p>Semantics notes verified against SFM 4.34 source:
-
  * <ul>
-
  *   <li>{@code input} with no resource limits compiles to
-
  *       {@code ResourceLimit.TAKE_ALL_LEAVE_NONE} — it moves everything.</li>
-
  *   <li>Unbound labels compile fine and silently do nothing at runtime.</li>
-
  *   <li>Except lists are plain resource sets; a superset exclusion starves a
-
  *       rule without any compile error.</li>
-
  * </ul>
-
  */
-
 public final class ProgramDiagnostics {
+    private static final String K = "gui.sfmfactorystudio.diag.";
 
-    private ProgramDiagnostics() {
-
-    }
+    // ---- 文案（中文默认 + en_us 语言键；带 %s 槽位） ------------------------
+    private static final Loc P_TRIGGER = new Loc(K + "path.trigger", "第 %s 个开始条件");
+    private static final Loc P_BLOCK = new Loc(K + "path.block", " / 第 %s 块");
+    private static final Loc P_IF = new Loc(K + "path.if", " / 如果");
+    private static final Loc P_ELSEIF = new Loc(K + "path.elseif", " / 否则如果 %s");
+    private static final Loc P_ELSE = new Loc(K + "path.else", " / 否则");
+    private static final Loc P_LABELS = new Loc(K + "path.labels", "标签");
+    private static final Loc L_RESOURCES = new Loc(K + "label.resources", "资源");
+    private static final Loc L_EXCEPT = new Loc(K + "label.except", "排除资源");
+    private static final Loc L_COND_RES = new Loc(K + "label.cond_resources", "判断资源");
+    private static final Loc U_TICKS = new Loc(K + "unit.ticks", " 刻");
+    private static final Loc U_SECONDS = new Loc(K + "unit.seconds", " 秒");
+    private static final Loc J_NAME = new Loc(K + "joiner", "、");
+    private static final Loc J_FORMATTED = new Loc(K + "formatted", "%s：%s");
+    private static final Loc M_UNBOUND = new Loc(K + "unbound_label", "标签「%s」还没有绑定方块");
+    private static final Loc E_MIN_INTERVAL = new Loc(K + "min_interval", "执行间隔必须至少为 %s%s%s");
+    private static final Loc M_RULE_ENERGY = new Loc(K + "rule_energy", "（纯能量传输规则）");
+    private static final Loc M_RULE_SERVER = new Loc(K + "rule_server", "（服务器普通传输规则）");
+    private static final Loc F_ADJUST = new Loc(K + "fix_adjust", "调整为 %s%s");
+    private static final Loc E_OFFSET_NEG = new Loc(K + "offset_negative", "计时偏移不能是负数");
+    private static final Loc W_EMPTY_BODY = new Loc(K + "empty_body", "下面还没有要执行的操作");
+    private static final Loc E_FORGET_BLANK = new Loc(K + "forget_blank", "要清空的方块标签中有空白项");
+    private static final Loc E_IF_EMPTY = new Loc(K + "if_no_branch", "判断至少需要一个条件");
+    private static final Loc W_FALSE_BRANCH = new Loc(K + "const_false", "条件是固定的「否」，这个分支永远不会执行");
+    private static final Loc W_EMPTY_TRUE = new Loc(K + "empty_true_body", "条件成立后没有要执行的操作");
+    private static final Loc W_EMPTY_ELSE = new Loc(K + "empty_else_body", "没有要执行的操作");
+    private static final Loc E_RAW_STMT = new Loc(K + "raw_stmt_invalid", "兼容代码不是有效的 SFM 操作，请在同屏代码编辑区修正");
+    private static final Loc E_NO_LABEL = new Loc(K + "no_labels", "必须选择至少一个方块标签");
+    private static final Loc E_BLANK_LABEL = new Loc(K + "blank_label", "方块标签中有空白项");
+    private static final Loc W_DUP_LABEL = new Loc(K + "dup_label", "方块标签有重复项");
+    private static final Loc E_EACH_SIDE = new Loc(K + "each_side_conflict", "“每个侧面”和指定侧面不能同时使用");
+    private static final Loc W_RR_ONE = new Loc(K + "rr_single_label", "只有一个标签时，按标签轮流没有效果");
+    private static final Loc W_SLOT_OVERLAP = new Loc(K + "slot_overlap", "槽位范围有重复，可合并为一个范围");
+    private static final Loc E_QTY_NEG = new Loc(K + "qty_negative", "搬运数量不能是负数");
+    private static final Loc E_RETAIN_NEG = new Loc(K + "retain_negative", "保留数量不能是负数");
+    private static final Loc W_LIMIT_DUP = new Loc(K + "limit_dup", "资源扩展组有重复项");
+    private static final Loc E_NULL_RES = new Loc(K + "res_null", "%s中有无法识别的项");
+    private static final Loc E_NO_KIND = new Loc(K + "res_no_kind", "%s缺少资源类别");
+    private static final Loc W_DUP_RES = new Loc(K + "res_dup", "%s有重复项");
+    private static final Loc W_NOT_FOUND = new Loc(K + "res_not_found", "%s「%s」在游戏里找不到，可能是拼写错误或来自未安装的模组");
+    private static final Loc W_KIND_MISMATCH = new Loc(K + "res_kind_mismatch", "%s「%s」不是%s，而是%s");
+    private static final Loc F_CHANGE_KIND = new Loc(K + "fix_change_kind", "改为%s");
+    private static final Loc W_KIND_MULTI = new Loc(K + "res_kind_multi", "%s「%s」不是%s（同时匹配：%s）");
+    private static final Loc W_EXCEPT_ALL = new Loc(K + "except_all", "排除条件里包含「全部资源」，这条规则永远匹配不到任何东西");
+    private static final Loc F_RM_EXCEPT_ALL = new Loc(K + "fix_rm_except_all", "移除「全部」排除");
+    private static final Loc W_EXCEPT_COVER = new Loc(K + "except_covers", "排除条件把这组资源全部排除了，这条规则不会搬运任何东西");
+    private static final Loc F_DEL_CONFLICT = new Loc(K + "fix_del_conflict", "删除冲突的排除条件");
+    private static final Loc E_NO_COND = new Loc(K + "no_cond", "缺少判断条件");
+    private static final Loc E_NO_CMP = new Loc(K + "no_comparison", "缺少数量比较方式");
+    private static final Loc E_NUM_NEG = new Loc(K + "number_negative", "比较数量不能是负数");
+    private static final Loc W_LT_ZERO = new Loc(K + "lt_zero", "「少于 0」永远不会成立，这个条件永远是假");
+    private static final Loc E_REDSTONE_NEG = new Loc(K + "redstone_negative", "红石信号数值不能是负数");
+    private static final Loc E_AND_SIZE = new Loc(K + "and_size", "“同时满足”至少需要两个条件");
+    private static final Loc E_OR_SIZE = new Loc(K + "or_size", "“满足任意一项”至少需要两个条件");
+    private static final Loc E_RAW_BOOL = new Loc(K + "raw_bool_invalid", "兼容条件不是有效的 SFM 判断");
+    private static final Loc J_AND = new Loc(K + "and", "且");
+    private static final Loc J_OR = new Loc(K + "or", "或");
+    private static final Loc W_DUP_COND = new Loc(K + "dup_cond", "「%s」里有两个完全相同的条件，可以删掉一个");
+    private static final Loc F_DEL_DUP = new Loc(K + "fix_del_dup", "删除重复条件");
+    private static final Loc W_AND_NEGATION = new Loc(K + "and_negation", "一个条件和它自己的相反同时出现，这个「且」永远不成立");
+    private static final Loc W_OR_NEGATION = new Loc(K + "or_negation", "一个条件和它自己的相反同时出现，这个「或」永远为真");
+    private static final Loc F_DEL_NEG = new Loc(K + "fix_del_neg", "删除相反的条件");
+    private static final Loc E_WITH_MISSING = new Loc(K + "with_missing", "缺少资源标签条件");
+    private static final Loc E_WITH_FORMAT = new Loc(K + "with_format", "资源标签标签格式不正确");
+    private static final Loc E_WITH_AND = new Loc(K + "with_and_size", "资源标签的“且”至少需要两项");
+    private static final Loc E_WITH_OR = new Loc(K + "with_or_size", "资源标签的“或”至少需要两项");
+    private static final Loc BALANCE_WARN = new Loc(K + "balance_warn", "有 %s 个触发器会在同一刻执行（可用工具栏「平衡优化」一键错峰，吞吐量不变）");
+    private static final Loc W_NO_INPUT = new Loc(K + "no_input", "这个开始条件里没有任何「取出资源」，不会存入任何东西");
 
 
 
     public enum Severity {ERROR, WARNING}
 
-
-
     /**
-
      * One finding. {@code block} is the trigger or statement the camera should
-
      * focus on; {@code fix} mutates the model in place when a safe, obvious
-
      * correction exists. {@code blockId} is the stable session id of
-
      * {@code block} (-1 when null), so UI overlays can key by id instead of
-
      * holding object references across model rebuilds.
-
      */
-
     public record Issue(
-
             Severity severity, String path, String message, Object block,
-
             String fixLabel, Runnable fix, long blockId
-
     ) {
-
     }
-
-
 
     /** External facts the pure checks cannot derive: label bindings + registries. */
-
     public static final class Context {
-
         public final Map<String, Integer> labelCounts;
-
         public final ResourceOracle oracle;
 
-
-
         /**
-
          * @param labelCounts label name → blocks actually bound on this disk;
-
          *                    labels absent from the map are treated as unknown
-
          *                    (never reported). An empty map disables the check.
-
          * @param oracle      resolves concrete ids to the kinds that contain
-
          *                    them; null disables id checks (unit tests).
-
          */
-
         public Context(Map<String, Integer> labelCounts, ResourceOracle oracle) {
-
             this.labelCounts = labelCounts == null ? Map.of() : labelCounts;
-
             this.oracle = oracle;
-
         }
-
-
 
         public static final Context EMPTY = new Context(Map.of(), null);
-
     }
-
-
 
     /** Which resource kinds contain a concrete {@code namespace:path} id. */
-
     public interface ResourceOracle {
-
         Set<BProgram.ResourceKind> kindsOf(String namespace, String name);
-
     }
-
-
 
     public static List<Issue> check(BProgram program) {
-
         return check(program, Context.EMPTY);
-
     }
-
-
 
     public static List<Issue> check(BProgram program, Context ctx) {
-
         List<Issue> issues = new ArrayList<>();
-
         for (int i = 0; i < program.triggers.size(); i++) {
-
             BProgram.Trigger trigger = program.triggers.get(i);
-
-            String path = "第 " + (i + 1) + " 个开始条件";
-
+            String path = P_TRIGGER.getString(i + 1);
             if (trigger instanceof BProgram.TimerTrigger timer) {
-
                 long minimum = TimerRules.minimumCount(timer);
-
                 if (timer.count < minimum) {
-
                     long finalMinimum = minimum;
-
-                    error(issues, path, "执行间隔必须至少为 " + minimum
-
-                                    + (timer.unit == BProgram.TimerTrigger.Unit.TICKS ? new Loc("gui.sfmfactorystudio.diag.unit.ticks", " 刻").getString() : new Loc("gui.sfmfactorystudio.diag.unit.seconds", " 秒").getString())
-
-                                    + (TimerRules.usesOnlyEnergyIO(timer.body)
-
-                                    ? new Loc("gui.sfmfactorystudio.diag.rule_energy", "（纯能量传输规则）").getString() : new Loc("gui.sfmfactorystudio.diag.rule_server", "（服务器普通传输规则）").getString()),
-
-                            timer, "调整为 " + finalMinimum + (timer.unit == BProgram.TimerTrigger.Unit.TICKS ? new Loc("gui.sfmfactorystudio.diag.unit.ticks", " 刻").getString() : new Loc("gui.sfmfactorystudio.diag.unit.seconds", " 秒").getString()),
-
+                    error(issues, path, E_MIN_INTERVAL.getString(minimum, unit(timer), ruleHint(timer)),
+                            timer, F_ADJUST.getString(finalMinimum, unit(timer)),
                             () -> timer.count = finalMinimum);
-
                 }
-
-                if (timer.plus < 0) error(issues, path, new Loc("gui.sfmfactorystudio.diag.offset_negative", "计时偏移不能是负数").getString(), timer, null, null);
-
-
+                if (timer.plus < 0) error(issues, path, E_OFFSET_NEG.getString(), timer, null, null);
 
                 // 写法体检（TPS 友好度，吞吐量不变的前提）。
-
                 // 高频不做提醒（用户拍板：负载大小看卡片角标即可）。
-
                 // 多卡同刻：多个定时触发器都没有错峰偏移时提示平衡优化
-
                 long period = Math.max(TimerRules.minimumCount(timer), timer.count);
-
                 java.util.Set<Long> phases = new java.util.HashSet<>();
-
                 int samePeriod = 0;
-
                 for (BProgram.Trigger o : program.triggers) {
-
                     if (o instanceof BProgram.TimerTrigger o2
-
                             && Math.max(TimerRules.minimumCount(o2), o2.count) == period) {
-
                         samePeriod++;
-
                         phases.add(o2.plus);
-
                     }
-
                 }
-
                 // 全部挤在同一相位（都是 plus 0）才提醒；平衡后相位各不相同 → 不再提醒
-
                 if (samePeriod > 1 && phases.size() == 1) {
-
-                    warning(issues, path, "有 " + samePeriod + " 个触发器会在同一刻执行（可用工具栏「平衡优化」一键错峰，吞吐量不变）",
-
+                    warning(issues, path, BALANCE_WARN.getString(samePeriod),
                             timer, null, null);
-
                 }
-
             }
-
             if (trigger.body.isEmpty()) {
-
                 // 空触发器体在 SFM 里合法（官方 timer_triggers 示例即是），
-
                 // 新拖入的卡片不该被当成错误 —— 只提醒。
-
-                warning(issues, path, new Loc("gui.sfmfactorystudio.diag.empty_body", "下面还没有要执行的操作").getString(), trigger, null, null);
-
+                warning(issues, path, W_EMPTY_BODY.getString(), trigger, null, null);
             }
-
             // SFM 按整刻解析（先收集 INPUT 再由 OUTPUT 分发），语句顺序无关；
-
             // 是否存在取出按整个触发器预先扫描。
-
             checkStatements(trigger.body, path, trigger, ctx, anyInput(trigger.body), issues);
-
         }
-
         checkUnboundLabels(program, ctx, issues);
-
         return issues;
-
     }
-
-
 
     /**
-
      * “标签没有绑定任何方块”的汇总报告：同一标签无论被多少积木引用，
-
      * 都只出一条提醒，定位指向第一次用到它的积木（用户 2026-09-02 拍板）。
-
      */
-
     private static void checkUnboundLabels(BProgram program, Context ctx, List<Issue> issues) {
-
         if (ctx == null || ctx.labelCounts.isEmpty()) return;
-
         Map<String, Object> firstUse = new LinkedHashMap<>();
-
         collectFirstLabelUses(program.triggers, firstUse);
-
         for (var entry : firstUse.entrySet()) {
-
             String label = entry.getKey();
-
             Integer count = ctx.labelCounts.get(label);
-
             if (count != null && count == 0) {
-
-                warning(issues, new Loc("gui.sfmfactorystudio.blocks.label", "标签").getString(), "标签「" + label + "」还没有绑定方块", entry.getValue(), null, null);
-
+                warning(issues, P_LABELS.getString(), M_UNBOUND.getString(label), entry.getValue(), null, null);
             }
-
         }
-
     }
-
-
 
     /** 首个引用各标签的积木（Trigger/Statement），供定位高亮。 */
-
     private static void collectFirstLabelUses(List<BProgram.Trigger> triggers, Map<String, Object> out) {
-
         for (BProgram.Trigger trigger : triggers) {
-
             collectFirstLabelUsesInBody(trigger.body, trigger, out);
-
         }
-
     }
-
-
 
     private static void collectFirstLabelUsesInBody(List<BProgram.Statement> statements, Object block, Map<String, Object> out) {
-
         for (BProgram.Statement statement : statements) {
-
             Object where = statement;
-
             if (statement instanceof BProgram.Statement.Input in) {
-
                 collectLabelsOf(in.access, where, out);
-
             } else if (statement instanceof BProgram.Statement.Output output) {
-
                 collectLabelsOf(output.access, where, out);
-
             } else if (statement instanceof BProgram.Statement.If iff) {
-
                 for (BProgram.Branch branch : iff.branches) {
-
                     if (branch.cond instanceof BProgram.Bool.Has has) {
-
                         collectLabelsOf(has.access, where, out);
-
                     }
-
                     collectFirstLabelUsesInBody(branch.body, where, out);
-
                 }
-
                 collectFirstLabelUsesInBody(iff.elseBody, where, out);
-
             }
-
         }
-
     }
-
-
 
     private static void collectLabelsOf(BProgram.LabelAccess access, Object block, Map<String, Object> out) {
-
         for (String label : access.labels) {
-
             if (label != null && !label.isBlank()) out.putIfAbsent(label, block);
-
         }
-
     }
-
-
 
     /** True when any input statement exists anywhere in the body, including branches. */
-
     private static boolean anyInput(List<BProgram.Statement> statements) {
-
         for (BProgram.Statement s : statements) {
-
             if (s instanceof BProgram.Statement.Input) return true;
-
             if (s instanceof BProgram.Statement.If iff) {
-
                 for (BProgram.Branch branch : iff.branches) {
-
                     if (anyInput(branch.body)) return true;
-
                 }
-
                 if (anyInput(iff.elseBody)) return true;
-
             }
-
         }
-
         return false;
-
     }
-
-
 
     public static List<String> errorMessages(BProgram program) {
-
         return check(program).stream()
-
                 .filter(issue -> issue.severity == Severity.ERROR)
-
-                .map(issue -> issue.path + "：" + issue.message)
-
+                .map(issue -> J_FORMATTED.getString(issue.path, issue.message))
                 .toList();
-
     }
-
-
 
     public static List<String> warningMessages(BProgram program) {
-
         return check(program).stream()
-
                 .filter(issue -> issue.severity == Severity.WARNING)
-
-                .map(issue -> issue.path + "：" + issue.message)
-
+                .map(issue -> J_FORMATTED.getString(issue.path, issue.message))
                 .toList();
-
     }
-
-
 
     private static void checkStatements(List<BProgram.Statement> statements, String parent,
-
                                         Object scope, Context ctx, boolean triggerHasInput,
-
                                         List<Issue> issues) {
-
         for (int i = 0; i < statements.size(); i++) {
-
             BProgram.Statement statement = statements.get(i);
-
-            String path = parent + " / 第 " + (i + 1) + " 块";
-
+            String path = parent + P_BLOCK.getString(i + 1);
             if (statement instanceof BProgram.Statement.Input input) {
-
                 checkAccess(input.access, path, true, statement, issues);
-
                 checkLimits(input.limits, path, statement, ctx, issues);
-
-                checkResources(input.except, path, new Loc("gui.sfmfactorystudio.diag.label.except", "排除资源").getString(), statement, ctx, issues);
-
+                checkResources(input.except, path, L_EXCEPT.getString(), statement, ctx, issues);
                 checkCoveredExcept(input.limits, input.except, path, statement, issues);
-
                 // 注意：不带数量/资源的 input（取出全部）是 SFM 的合法用法（TAKE_ALL），
-
                 // 不做提醒——玩家清空容器就是常见意图（2026-09-02 用户拍板，勿加回）。
-
                 // 同样，取出和存入使用同一个标签（分拣、重新分配的常见写法）也完全
-
                 // 合法，不做任何提醒（2026-09-02 用户拍板，勿加回）。
-
             } else if (statement instanceof BProgram.Statement.Output output) {
-
                 checkAccess(output.access, path, true, statement, issues);
-
                 checkLimits(output.limits, path, statement, ctx, issues);
-
-                checkResources(output.except, path, new Loc("gui.sfmfactorystudio.diag.label.except", "排除资源").getString(), statement, ctx, issues);
-
+                checkResources(output.except, path, L_EXCEPT.getString(), statement, ctx, issues);
                 checkCoveredExcept(output.limits, output.except, path, statement, issues);
-
                 // SFM 按整刻解析：同触发器里任何位置有取出即可；完全没有取出时程序
-
                 // 仍能编译（只是不会有任何东西可放），所以提醒而不是报错。
-
                 if (!triggerHasInput) {
-
-                    warning(issues, path, new Loc("gui.sfmfactorystudio.diag.no_input", "这个开始条件里没有任何「取出资源」，不会存入任何东西").getString(), statement, null, null);
-
+                    warning(issues, path, W_NO_INPUT.getString(), statement, null, null);
                 }
-
             } else if (statement instanceof BProgram.Statement.Forget forget) {
-
                 if (!forget.labels.isEmpty()
-
                         && forget.labels.stream().anyMatch(label -> label == null || label.isBlank())) {
-
-                    error(issues, path, new Loc("gui.sfmfactorystudio.diag.forget_blank", "要清空的方块标签中有空白项").getString(), statement, null, null);
-
+                    error(issues, path, E_FORGET_BLANK.getString(), statement, null, null);
                 }
-
             } else if (statement instanceof BProgram.Statement.If iff) {
-
                 if (iff.branches.isEmpty()) {
-
-                    error(issues, path, new Loc("gui.sfmfactorystudio.diag.if_no_branch", "判断至少需要一个条件").getString(), statement, null, null);
-
+                    error(issues, path, E_IF_EMPTY.getString(), statement, null, null);
                     continue;
-
                 }
-
                 for (int branchIndex = 0; branchIndex < iff.branches.size(); branchIndex++) {
-
                     BProgram.Branch branch = iff.branches.get(branchIndex);
-
-                    String branchPath = path + (branchIndex == 0 ? new Loc("gui.sfmfactorystudio.diag.path.if", " / 如果").getString() : " / 否则如果 " + (branchIndex + 1));
-
+                    String branchPath = path + (branchIndex == 0 ? P_IF.getString() : P_ELSEIF.getString(branchIndex + 1));
                     checkBool(branch.cond, branchPath, statement, ctx, issues);
-
                     if (branch.cond instanceof BProgram.Bool.Const c && !c.value) {
-
-                        warning(issues, branchPath, new Loc("gui.sfmfactorystudio.diag.const_false", "条件是固定的「否」，这个分支永远不会执行").getString(), statement, null, null);
-
+                        warning(issues, branchPath, W_FALSE_BRANCH.getString(), statement, null, null);
                     }
-
-                    if (branch.body.isEmpty()) warning(issues, branchPath, new Loc("gui.sfmfactorystudio.diag.empty_true_body", "条件成立后没有要执行的操作").getString(), statement, null, null);
-
+                    if (branch.body.isEmpty()) warning(issues, branchPath, W_EMPTY_TRUE.getString(), statement, null, null);
                     checkStatements(branch.body, branchPath, statement, ctx, triggerHasInput, issues);
-
                 }
-
                 if (iff.hasElse || !iff.elseBody.isEmpty()) {
-
-                    if (iff.elseBody.isEmpty()) warning(issues, path + new Loc("gui.sfmfactorystudio.diag.path.else", " / 否则").getString(), new Loc("gui.sfmfactorystudio.diag.empty_else_body", "没有要执行的操作").getString(), statement, null, null);
-
-                    checkStatements(iff.elseBody, path + new Loc("gui.sfmfactorystudio.diag.path.else", " / 否则").getString(), statement, ctx, triggerHasInput, issues);
-
+                    if (iff.elseBody.isEmpty()) warning(issues, path + P_ELSE.getString(), W_EMPTY_ELSE.getString(), statement, null, null);
+                    checkStatements(iff.elseBody, path + P_ELSE.getString(), statement, ctx, triggerHasInput, issues);
                 }
-
             } else if (statement instanceof BProgram.Statement.Raw raw) {
-
                 if (!validStatementFragment(raw.text)) {
-
-                    error(issues, path, new Loc("gui.sfmfactorystudio.diag.raw_stmt_invalid", "兼容代码不是有效的 SFM 操作，请在同屏代码编辑区修正").getString(), statement, null, null);
-
+                    error(issues, path, E_RAW_STMT.getString(), statement, null, null);
                 }
-
             }
-
         }
-
     }
-
-
 
     private static void checkAccess(BProgram.LabelAccess access, String path, boolean required,
-
                                     Object block, List<Issue> issues) {
-
         List<String> labels = access.labels.stream().filter(x -> x != null && !x.isBlank()).toList();
-
-        if (required && labels.isEmpty()) error(issues, path, new Loc("gui.sfmfactorystudio.diag.no_labels", "必须选择至少一个方块标签").getString(), block, null, null);
-
+        if (required && labels.isEmpty()) error(issues, path, E_NO_LABEL.getString(), block, null, null);
         if (access.labels.stream().anyMatch(x -> x == null || x.isBlank())) {
-
-            error(issues, path, new Loc("gui.sfmfactorystudio.diag.blank_label", "方块标签中有空白项").getString(), block, null, null);
-
+            error(issues, path, E_BLANK_LABEL.getString(), block, null, null);
         }
-
-        if (new HashSet<>(labels).size() != labels.size()) warning(issues, path, new Loc("gui.sfmfactorystudio.diag.dup_label", "方块标签有重复项").getString(), block, null, null);
-
+        if (new HashSet<>(labels).size() != labels.size()) warning(issues, path, W_DUP_LABEL.getString(), block, null, null);
         // 未绑定标签不在这里逐积木报告：同一标签可能被多处引用，
-
         // 汇总到 check() 末尾每个标签只出一条（见 checkUnboundLabels）。
-
         if (access.eachSide && !access.sides.isEmpty()) {
-
-            error(issues, path, new Loc("gui.sfmfactorystudio.diag.each_side_conflict", "“每个侧面”和指定侧面不能同时使用").getString(), block, null, null);
-
+            error(issues, path, E_EACH_SIDE.getString(), block, null, null);
         }
-
         if (access.roundRobin == BProgram.RoundRobinMode.LABEL && labels.size() < 2) {
-
-            warning(issues, path, new Loc("gui.sfmfactorystudio.diag.rr_single_label", "只有一个标签时，按标签轮流没有效果").getString(), block, null, null);
-
+            warning(issues, path, W_RR_ONE.getString(), block, null, null);
         }
-
         for (int i = 0; i < access.slots.size(); i++) {
-
             BProgram.SlotRange a = access.slots.get(i);
-
             for (int j = i + 1; j < access.slots.size(); j++) {
-
                 BProgram.SlotRange b = access.slots.get(j);
-
                 if (a.first() <= b.last() && b.first() <= a.last()) {
-
-                    warning(issues, path, new Loc("gui.sfmfactorystudio.diag.slot_overlap", "槽位范围有重复，可合并为一个范围").getString(), block, null, null);
-
+                    warning(issues, path, W_SLOT_OVERLAP.getString(), block, null, null);
                     return;
-
                 }
-
             }
-
         }
-
     }
-
-
 
     private static void checkLimits(List<BProgram.ResourceLimit> limits, String path, Object block,
-
                                     Context ctx, List<Issue> issues) {
-
         int meaningful = 0;
-
         for (BProgram.ResourceLimit limit : limits) {
-
             if (limit == null || limit.isEmpty()) continue;
-
             meaningful++;
-
-            if (limit.quantity != null && limit.quantity < 0) error(issues, path, new Loc("gui.sfmfactorystudio.diag.qty_negative", "搬运数量不能是负数").getString(), block, null, null);
-
-            if (limit.retain != null && limit.retain < 0) error(issues, path, new Loc("gui.sfmfactorystudio.diag.retain_negative", "保留数量不能是负数").getString(), block, null, null);
-
-            checkResources(limit.resources, path, new Loc("gui.sfmfactorystudio.blocks.resource", "资源").getString(), block, ctx, issues);
-
+            if (limit.quantity != null && limit.quantity < 0) error(issues, path, E_QTY_NEG.getString(), block, null, null);
+            if (limit.retain != null && limit.retain < 0) error(issues, path, E_RETAIN_NEG.getString(), block, null, null);
+            checkResources(limit.resources, path, L_RESOURCES.getString(), block, ctx, issues);
             if (limit.with != null) checkWith(limit.with.expr, path, issues);
-
         }
-
         if (meaningful > 1) {
-
             Set<String> rendered = new HashSet<>();
-
             for (BProgram.ResourceLimit limit : limits) {
-
                 if (limit != null && !limit.isEmpty()) {
-
                     String value = limit.resources + ":" + limit.quantity + ":" + limit.retain;
-
-                    if (!rendered.add(value)) warning(issues, path, new Loc("gui.sfmfactorystudio.diag.limit_dup", "资源扩展组有重复项").getString(), block, null, null);
-
+                    if (!rendered.add(value)) warning(issues, path, W_LIMIT_DUP.getString(), block, null, null);
                 }
-
             }
-
         }
-
     }
-
-
 
     private static void checkResources(List<BProgram.ResourceRef> resources, String path, String label,
-
                                        Object block, Context ctx, List<Issue> issues) {
-
         if (resources.stream().anyMatch(Objects::isNull)) {
-
-            error(issues, path, label + "中有无法识别的项", block, null, null);
-
+            error(issues, path, E_NULL_RES.getString(label), block, null, null);
         }
-
         for (BProgram.ResourceRef resource : resources) {
-
             if (resource == null) continue;
-
             if (resource.typeNamespace == null || resource.typeNamespace.isBlank()
-
                     || resource.typeName == null || resource.typeName.isBlank()) {
-
-                error(issues, path, label + "缺少资源类别", block, null, null);
-
+                error(issues, path, E_NO_KIND.getString(label), block, null, null);
             }
-
             checkResourceKindMatch(resource, path, label, block, ctx, issues);
-
         }
-
         if (new HashSet<>(resources).size() != resources.size()) {
-
-            warning(issues, path, label + "有重复项", block, null, null);
-
+            warning(issues, path, W_DUP_RES.getString(label), block, null, null);
         }
-
     }
-
-
 
     /**
-
      * “资源类型与资源 ID 不一致”：a concrete id that exists in other registries
-
      * but not in the declared one is almost always a silent no-op at runtime.
-
      * Only fires with an oracle (client session with a built resource index).
-
      */
-
     private static void checkResourceKindMatch(BProgram.ResourceRef resource, String path, String label,
-
                                                 Object block, Context ctx, List<Issue> issues) {
-
         if (ctx == null || ctx.oracle == null) return;
-
         BProgram.ResourceKind kind = resource.kind();
-
         if (kind == BProgram.ResourceKind.CUSTOM) return;
-
         // 只对“纯注册表 id”做存在性/类别核对。SFM 支持 *ingot*、".*ingot.*" 这类
-
         // 模糊匹配写法（见官方 filtering 示例），它们不是具体 id，查注册表必然
-
         // “找不到”——核对它们就是误报。连 '.' 也一并排除（既是正则通配又罕见于 id，
-
         // 宁可少查不可错怪）。
-
         if (!isPlainRegistryId(resource.name)) return;
-
         String namespace = resource.namespace == null || resource.namespace.isBlank()
-
                 || "*".equals(resource.namespace) || ".*".equals(resource.namespace)
-
                 ? null : resource.namespace;
-
         if (namespace != null && !isPlainRegistryId(namespace)) return;
-
         Set<BProgram.ResourceKind> found = ctx.oracle.kindsOf(namespace, resource.name);
-
         if (found.contains(kind)) return;
-
         String id = (namespace == null ? "*" : namespace) + ":" + resource.name;
-
         if (found.isEmpty()) {
-
-            warning(issues, path, label + "「" + id + "」在游戏里找不到，可能是拼写错误或来自未安装的模组",
-
-                    block, null, null);
-
+            warning(issues, path, W_NOT_FOUND.getString(label, id), block, null, null);
             return;
-
         }
-
         if (found.size() == 1) {
-
             BProgram.ResourceKind actual = found.iterator().next();
-
-            warning(issues, path, label + "「" + id + "」不是" + kind.chineseName
-
-                            + "，而是" + actual.chineseName,
-
-                    block, "改为" + actual.chineseName, () -> {
-
+            warning(issues, path, W_KIND_MISMATCH.getString(label, id, kind.chineseName(), actual.chineseName()),
+                    block, F_CHANGE_KIND.getString(actual.chineseName()), () -> {
                         resource.typeNamespace = "sfm";
-
                         resource.typeName = actual.sfmlName;
-
                     });
-
         } else {
-
             StringBuilder names = new StringBuilder();
-
             for (BProgram.ResourceKind k : found) {
-
-                if (names.length() > 0) names.append("、");
-
-                names.append(k.chineseName);
-
+                if (names.length() > 0) names.append(J_NAME.getString());
+                names.append(k.chineseName());
             }
-
-            warning(issues, path, label + "「" + id + "」不是" + kind.chineseName
-
-                    + "（同时匹配：" + names + "）", block, null, null);
-
+            warning(issues, path, W_KIND_MULTI.getString(label, id, kind.chineseName(), names.toString()), block, null, null);
         }
-
     }
-
-
 
     /** 注册表 id 的保守子集：字母数字 _ / -（不含点与星号，见上方注释）。 */
-
     private static boolean isPlainRegistryId(String value) {
-
         return value != null && !value.isBlank() && value.matches("[a-zA-Z0-9/_-]+");
-
     }
-
-
 
     /** “排除规则把所有资源全部排除”：starves the rule without a compile error. */
-
     private static void checkCoveredExcept(List<BProgram.ResourceLimit> limits, List<BProgram.ResourceRef> except,
-
                                            String path, Object block, List<Issue> issues) {
-
         if (except == null || except.isEmpty()) return;
-
         if (except.stream().filter(Objects::nonNull).anyMatch(BProgram.ResourceRef::isWildcard)) {
-
-            warning(issues, path, new Loc("gui.sfmfactorystudio.diag.except_all", "排除条件里包含「全部资源」，这条规则永远匹配不到任何东西").getString(), block,
-
-                    new Loc("gui.sfmfactorystudio.diag.fix_rm_except_all", "移除「全部」排除").getString(), () -> except.removeIf(r -> r != null && r.isWildcard()));
-
+            warning(issues, path, W_EXCEPT_ALL.getString(), block,
+                    F_RM_EXCEPT_ALL.getString(), () -> except.removeIf(r -> r != null && r.isWildcard()));
             return;
-
         }
-
         Set<BProgram.ResourceRef> exceptSet = new HashSet<>();
-
         for (BProgram.ResourceRef ref : except) {
-
             if (ref != null) exceptSet.add(ref);
-
         }
-
         for (BProgram.ResourceLimit limit : limits) {
-
             if (limit == null || limit.resources.isEmpty()) continue;
-
             Set<BProgram.ResourceRef> resourceSet = new HashSet<>(limit.resources);
-
             if (!resourceSet.isEmpty() && exceptSet.containsAll(resourceSet)) {
-
-                warning(issues, path, new Loc("gui.sfmfactorystudio.diag.except_covers", "排除条件把这组资源全部排除了，这条规则不会搬运任何东西").getString(), block,
-
-                        new Loc("gui.sfmfactorystudio.diag.fix_del_conflict", "删除冲突的排除条件").getString(), () -> except.removeIf(exceptSet::contains));
-
+                warning(issues, path, W_EXCEPT_COVER.getString(), block,
+                        F_DEL_CONFLICT.getString(), () -> except.removeIf(exceptSet::contains));
                 return;
-
             }
-
         }
-
     }
-
-
 
     private static void checkBool(BProgram.Bool bool, String path, Object block, Context ctx, List<Issue> issues) {
-
         if (bool == null) {
-
-            error(issues, path, new Loc("gui.sfmfactorystudio.diag.no_cond", "缺少判断条件").getString(), block, null, null);
-
+            error(issues, path, E_NO_COND.getString(), block, null, null);
         } else if (bool instanceof BProgram.Bool.Has has) {
-
             checkAccess(has.access, path, true, block, issues);
-
-            if (has.comparison == null) error(issues, path, new Loc("gui.sfmfactorystudio.diag.no_comparison", "缺少数量比较方式").getString(), block, null, null);
-
-            if (has.number < 0) error(issues, path, new Loc("gui.sfmfactorystudio.diag.number_negative", "比较数量不能是负数").getString(), block, null, null);
-
+            if (has.comparison == null) error(issues, path, E_NO_CMP.getString(), block, null, null);
+            if (has.number < 0) error(issues, path, E_NUM_NEG.getString(), block, null, null);
             if (has.comparison == BProgram.Bool.Comparison.LT && has.number == 0) {
-
-                warning(issues, path, new Loc("gui.sfmfactorystudio.diag.lt_zero", "「少于 0」永远不会成立，这个条件永远是假").getString(), block, null, null);
-
+                warning(issues, path, W_LT_ZERO.getString(), block, null, null);
             }
-
-            checkResources(has.resources, path, new Loc("gui.sfmfactorystudio.diag.label.cond_resources", "判断资源").getString(), block, ctx, issues);
-
-            checkResources(has.except, path, new Loc("gui.sfmfactorystudio.diag.label.except", "排除资源").getString(), block, ctx, issues);
-
+            checkResources(has.resources, path, L_COND_RES.getString(), block, ctx, issues);
+            checkResources(has.except, path, L_EXCEPT.getString(), block, ctx, issues);
             checkCoveredExcept(has.resources.isEmpty() ? List.of() : List.of(limitOf(has)), has.except, path, block, issues);
-
             if (has.with != null) checkWith(has.with.expr, path, issues);
-
         } else if (bool instanceof BProgram.Bool.Redstone redstone) {
-
-            if (redstone.number < 0) error(issues, path, new Loc("gui.sfmfactorystudio.diag.redstone_negative", "红石信号数值不能是负数").getString(), block, null, null);
-
+            if (redstone.number < 0) error(issues, path, E_REDSTONE_NEG.getString(), block, null, null);
         } else if (bool instanceof BProgram.Bool.And and) {
-
-            if (and.parts.size() < 2) error(issues, path, new Loc("gui.sfmfactorystudio.diag.and_size", "“同时满足”至少需要两个条件").getString(), block, null, null);
-
+            if (and.parts.size() < 2) error(issues, path, E_AND_SIZE.getString(), block, null, null);
             checkContradictions(and.parts, true, path, block, issues);
-
             for (BProgram.Bool part : and.parts) checkBool(part, path, block, ctx, issues);
-
         } else if (bool instanceof BProgram.Bool.Or or) {
-
-            if (or.parts.size() < 2) error(issues, path, new Loc("gui.sfmfactorystudio.diag.or_size", "“满足任意一项”至少需要两个条件").getString(), block, null, null);
-
+            if (or.parts.size() < 2) error(issues, path, E_OR_SIZE.getString(), block, null, null);
             checkContradictions(or.parts, false, path, block, issues);
-
             for (BProgram.Bool part : or.parts) checkBool(part, path, block, ctx, issues);
-
         } else if (bool instanceof BProgram.Bool.Not not) {
-
             checkBool(not.inner, path, block, ctx, issues);
-
         } else if (bool instanceof BProgram.Bool.RawBool raw && !validBoolFragment(raw.text)) {
-
-            error(issues, path, new Loc("gui.sfmfactorystudio.diag.raw_bool_invalid", "兼容条件不是有效的 SFM 判断").getString(), block, null, null);
-
+            error(issues, path, E_RAW_BOOL.getString(), block, null, null);
         }
-
     }
-
-
 
     private static BProgram.ResourceLimit limitOf(BProgram.Bool.Has has) {
-
         BProgram.ResourceLimit rl = new BProgram.ResourceLimit();
-
         rl.resources.addAll(has.resources);
-
         return rl;
-
     }
-
-
 
     /**
-
      * “AND / OR 条件永远无法成立”：structural duplicates and direct negations.
-
      * Catches the common hand-built mistakes; deep semantic analysis is out of
-
      * scope on purpose — false positives cost more than missed positives here.
-
      */
-
     private static void checkContradictions(List<BProgram.Bool> parts, boolean conjunction,
-
                                             String path, Object block, List<Issue> issues) {
-
         for (int i = 0; i < parts.size(); i++) {
-
             for (int j = i + 1; j < parts.size(); j++) {
-
                 BProgram.Bool a = parts.get(i);
-
                 BProgram.Bool b = parts.get(j);
-
                 if (a == null || b == null) continue;
-
                 if (sameBool(a, b)) {
-
-                    String joiner = conjunction ? new Loc("gui.sfmfactorystudio.blocks.and", "且").getString() : new Loc("gui.sfmfactorystudio.blocks.or", "或").getString();
-
+                    String joiner = conjunction ? J_AND.getString() : J_OR.getString();
                     int duplicateIndex = j;
-
-                    warning(issues, path, "「" + joiner + "」里有两个完全相同的条件，可以删掉一个", block,
-
-                            new Loc("gui.sfmfactorystudio.diag.fix_del_dup", "删除重复条件").getString(), () -> parts.remove(duplicateIndex));
-
+                    warning(issues, path, W_DUP_COND.getString(joiner), block,
+                            F_DEL_DUP.getString(), () -> parts.remove(duplicateIndex));
                     return;
-
                 }
-
                 BProgram.Bool innerB = b instanceof BProgram.Bool.Not not ? not.inner : null;
-
                 BProgram.Bool innerA = a instanceof BProgram.Bool.Not not ? not.inner : null;
-
                 if (innerB != null && sameBool(a, innerB)) {
-
                     reportNegationPair(parts, j, conjunction, path, block, issues);
-
                     return;
-
                 }
-
                 if (innerA != null && sameBool(innerA, b)) {
-
                     reportNegationPair(parts, i, conjunction, path, block, issues);
-
                     return;
-
                 }
-
             }
-
         }
-
     }
-
-
 
     private static void reportNegationPair(List<BProgram.Bool> parts, int notIndex, boolean conjunction,
-
                                            String path, Object block, List<Issue> issues) {
-
         if (conjunction) {
-
-            warning(issues, path, new Loc("gui.sfmfactorystudio.diag.and_negation", "一个条件和它自己的相反同时出现，这个「且」永远不成立").getString(), block,
-
-                    new Loc("gui.sfmfactorystudio.diag.fix_del_neg", "删除相反的条件").getString(), () -> parts.remove(notIndex));
-
+            warning(issues, path, W_AND_NEGATION.getString(), block,
+                    F_DEL_NEG.getString(), () -> parts.remove(notIndex));
         } else {
-
-            warning(issues, path, new Loc("gui.sfmfactorystudio.diag.or_negation", "一个条件和它自己的相反同时出现，这个「或」永远为真").getString(), block,
-
-                    new Loc("gui.sfmfactorystudio.diag.fix_del_neg", "删除相反的条件").getString(), () -> parts.remove(notIndex));
-
+            warning(issues, path, W_OR_NEGATION.getString(), block,
+                    F_DEL_NEG.getString(), () -> parts.remove(notIndex));
         }
-
     }
-
-
 
     // ---- structural equality (no equals() on the model; keep it local & typed) ----
 
-
-
     static boolean sameBool(BProgram.Bool a, BProgram.Bool b) {
-
         if (a instanceof BProgram.Bool.Has ha && b instanceof BProgram.Bool.Has hb) {
-
             return ha.setMode == hb.setMode
-
                     && sameAccess(ha.access, hb.access)
-
                     && ha.comparison == hb.comparison
-
                     && ha.number == hb.number
-
                     && new HashSet<>(ha.resources).equals(new HashSet<>(hb.resources))
-
                     && new HashSet<>(ha.except).equals(new HashSet<>(hb.except))
-
                     && (ha.with == null ? hb.with == null : hb.with != null && sameWith(ha.with.expr, hb.with.expr));
-
         }
-
         if (a instanceof BProgram.Bool.Redstone ra && b instanceof BProgram.Bool.Redstone rb) {
-
             return ra.comparison == rb.comparison && ra.number == rb.number;
-
         }
-
         if (a instanceof BProgram.Bool.Const ca && b instanceof BProgram.Bool.Const cb) {
-
             return ca.value == cb.value;
-
         }
-
         if (a instanceof BProgram.Bool.Not na && b instanceof BProgram.Bool.Not nb) {
-
             return sameBool(na.inner, nb.inner);
-
         }
-
         if (a instanceof BProgram.Bool.And aa && b instanceof BProgram.Bool.And ab) {
-
             return sameBoolList(aa.parts, ab.parts);
-
         }
-
         if (a instanceof BProgram.Bool.Or oa && b instanceof BProgram.Bool.Or ob) {
-
             return sameBoolList(oa.parts, ob.parts);
-
         }
-
         return false;
-
     }
-
-
 
     private static boolean sameBoolList(List<BProgram.Bool> a, List<BProgram.Bool> b) {
-
         if (a.size() != b.size()) return false;
-
         Set<BProgram.Bool> used = new HashSet<>();
-
         for (BProgram.Bool x : a) {
-
             boolean matched = false;
-
             for (int i = 0; i < b.size(); i++) {
-
                 if (used.contains(b.get(i))) continue;
-
                 if (sameBool(x, b.get(i))) {
-
                     used.add(b.get(i));
-
                     matched = true;
-
                     break;
-
                 }
-
             }
-
             if (!matched) return false;
-
         }
-
         return true;
-
     }
-
-
 
     private static boolean sameAccess(BProgram.LabelAccess a, BProgram.LabelAccess b) {
-
         return new HashSet<>(a.labels).equals(new HashSet<>(b.labels))
-
                 && a.roundRobin == b.roundRobin
-
                 && a.eachSide == b.eachSide
-
                 && new HashSet<>(a.sides).equals(new HashSet<>(b.sides))
-
                 && new HashSet<>(a.slots).equals(new HashSet<>(b.slots));
-
     }
-
-
 
     static boolean sameWith(BProgram.WithExpr a, BProgram.WithExpr b) {
-
         if (a instanceof BProgram.WithExpr.Tag ta && b instanceof BProgram.WithExpr.Tag tb) {
-
             return Objects.equals(ta.matcher, tb.matcher);
-
         }
-
         if (a instanceof BProgram.WithExpr.Not na && b instanceof BProgram.WithExpr.Not nb) {
-
             return sameWith(na.inner, nb.inner);
-
         }
-
         if (a instanceof BProgram.WithExpr.And aa && b instanceof BProgram.WithExpr.And ab) {
-
             return sameWithList(aa.parts, ab.parts);
-
         }
-
         if (a instanceof BProgram.WithExpr.Or oa && b instanceof BProgram.WithExpr.Or ob) {
-
             return sameWithList(oa.parts, ob.parts);
-
         }
-
         return false;
-
     }
-
-
 
     /** Order-insensitive matching; a part of {@code a} is consumed at most once. */
-
     private static boolean sameWithList(List<BProgram.WithExpr> a, List<BProgram.WithExpr> b) {
-
         if (a.size() != b.size()) return false;
-
         Set<BProgram.WithExpr> used = new HashSet<>();
-
         for (BProgram.WithExpr x : a) {
-
             boolean matched = false;
-
             for (int i = 0; i < b.size(); i++) {
-
                 if (used.contains(b.get(i))) continue;
-
                 if (sameWith(x, b.get(i))) {
-
                     used.add(b.get(i));
-
                     matched = true;
-
                     break;
-
                 }
-
             }
-
             if (!matched) return false;
-
         }
-
         return true;
-
     }
-
-
 
     private static void checkWith(BProgram.WithExpr expr, String path, List<Issue> issues) {
-
         if (expr == null) {
-
-            error(issues, path, new Loc("gui.sfmfactorystudio.diag.with_missing", "缺少资源标签条件").getString(), null, null, null);
-
+            error(issues, path, E_WITH_MISSING.getString(), null, null, null);
         } else if (expr instanceof BProgram.WithExpr.Tag tag) {
-
             // 与序列化共用 SfmlSyntax 白名单：拦截的与报错的永远一致
-
             String matcher = tag.matcher == null ? "" : tag.matcher.trim().replaceFirst("^#+", "");
-
             if (!SfmlSyntax.isEncodableTag(matcher)) {
-
-                error(issues, path, "资源标签格式不正确", null, null, null);
-
+                error(issues, path, E_WITH_FORMAT.getString(), null, null, null);
             }
-
         } else if (expr instanceof BProgram.WithExpr.Not not) {
-
             checkWith(not.inner, path, issues);
-
         } else if (expr instanceof BProgram.WithExpr.And and) {
-
-            if (and.parts.size() < 2) error(issues, path, new Loc("gui.sfmfactorystudio.diag.with_and_size", "资源标签的“且”至少需要两项").getString(), null, null, null);
-
+            if (and.parts.size() < 2) error(issues, path, E_WITH_AND.getString(), null, null, null);
             for (BProgram.WithExpr part : and.parts) checkWith(part, path, issues);
-
         } else if (expr instanceof BProgram.WithExpr.Or or) {
-
-            if (or.parts.size() < 2) error(issues, path, new Loc("gui.sfmfactorystudio.diag.with_or_size", "资源标签的“或”至少需要两项").getString(), null, null, null);
-
+            if (or.parts.size() < 2) error(issues, path, E_WITH_OR.getString(), null, null, null);
             for (BProgram.WithExpr part : or.parts) checkWith(part, path, issues);
-
         }
-
     }
-
-
 
     private static boolean validStatementFragment(String text) {
-
         if (text == null || text.isBlank()) return false;
-
         return SfmlToBlocks.parse("every 20 ticks do\n" + text + "\nend\n").ok();
-
     }
-
-
 
     private static boolean validBoolFragment(String text) {
-
         if (text == null || text.isBlank()) return false;
-
         return SfmlToBlocks.parse("every 20 ticks do\nif " + text + " then\nend\nend\n").ok();
-
     }
 
+    private static String unit(BProgram.TimerTrigger timer) {
+        return timer.unit == BProgram.TimerTrigger.Unit.TICKS ? U_TICKS.getString() : U_SECONDS.getString();
+    }
 
+    private static String ruleHint(BProgram.TimerTrigger timer) {
+        return TimerRules.usesOnlyEnergyIO(timer.body) ? M_RULE_ENERGY.getString() : M_RULE_SERVER.getString();
+    }
 
     private static void error(List<Issue> issues, String path, String message) {
-
         issues.add(new Issue(Severity.ERROR, path, message, null, null, null, -1));
-
     }
-
-
 
     private static void error(List<Issue> issues, String path, String message,
-
                               Object block, String fixLabel, Runnable fix) {
-
         issues.add(new Issue(Severity.ERROR, path, message, block, fixLabel, fix, blockIdOf(block)));
-
     }
-
-
 
     private static void warning(List<Issue> issues, String path, String message,
-
                                 Object block, String fixLabel, Runnable fix) {
-
         issues.add(new Issue(Severity.WARNING, path, message, block, fixLabel, fix, blockIdOf(block)));
-
     }
-
-
 
     /** Stable session id of the block an issue points at (-1 when null). */
-
     public static long blockIdOf(Object block) {
-
         if (block instanceof BProgram.Statement s) return s.id;
-
         if (block instanceof BProgram.Trigger t) return t.id;
-
         return -1;
-
     }
-
 }
