@@ -58,7 +58,10 @@ public final class SlotPickerScreen extends Screen {
     private SlotNumbering.ViewLayout view = new SlotNumbering.ViewLayout(1f, CELL * 9, CELL, 0, 0);
     private enum CapState { PENDING, READY, FAILED }
     private CapState capState = CapState.PENDING;
-    private boolean capabilityMissing = false;   // 服务端回报没有能力面（区别于超时/未装）
+    private boolean capabilityMissing = false;   // 服务端确认所有朝向都没有物品能力面
+    private boolean tooFar = false;              // 方块不存在或超出读取距离
+    private String sideFallbackDir = null;       // 限定方向无槽位，实际按该朝向编号（null 面 = "null"）
+    private final String sidesCode;              // 语句的侧面限定（请求校准用）
     private boolean initialApplied = false;      // 已写槽号区间是否已映射为选中
     private int ticksElapsed;
     private boolean selectionTouched = false;
@@ -77,12 +80,13 @@ public final class SlotPickerScreen extends Screen {
     private static final Map<BlockPos, SlotPickerScreen> WAITERS = new ConcurrentHashMap<>();
 
     public SlotPickerScreen(Screen parent, BlockPos requestedPos, BlockPos containerPos,
-                            SlotLayoutData.Layout layout,
+                            SlotLayoutData.Layout layout, String sidesCode,
                             List<BProgram.SlotRange> initialRanges, ResultCallback onResult) {
         super(Component.literal(L_TITLE.getString()));
         this.parent = parent;
         this.requestedPos = requestedPos;
         this.containerPos = containerPos;
+        this.sidesCode = sidesCode == null || sidesCode.isBlank() ? "null" : sidesCode;
         this.initialRanges = initialRanges == null ? List.of() : List.copyOf(initialRanges);
         this.onResult = onResult;
         List<SlotNumbering.MenuSlot> slots = new ArrayList<>();
@@ -97,15 +101,43 @@ public final class SlotPickerScreen extends Screen {
         this.numbering = SlotNumbering.compute(menuSlots, null, null);
     }
 
-    /** 服务端校准数据入口（BlockEditorScreen.acceptSlotCapability 转发，主线程）。 */
-    public static void onCapabilityData(BlockPos pos, int total, List<String> items, List<Integer> counts) {
-        SlotPickerScreen picker = pos == null ? null : WAITERS.get(pos);
-        if (picker != null) picker.applyCapability(total, items, counts);
+    /**
+     * 语句侧面限定 → 请求编码（SFML 侧面名，逗号分隔）。
+     * each side = 全部 7 面（与 SFML 解析 SideQualifier.ALL 一致）；
+     * 显式侧面 = 用户选的面；什么都没写 = "null"（SFM 默认 = 无侧面查询）。
+     */
+    public static String sidesCode(BProgram.LabelAccess access) {
+        if (access == null) return "null";
+        if (access.eachSide) return "top,bottom,north,south,east,west,null";
+        if (!access.sides.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            for (BProgram.Side s : access.sides) {
+                if (sb.length() > 0) sb.append(',');
+                sb.append(s.sfml());
+            }
+            return sb.toString();
+        }
+        return "null";
     }
 
-    private void applyCapability(int total, List<String> items, List<Integer> counts) {
+    /** 服务端校准数据入口（BlockEditorScreen.acceptSlotCapability 转发，主线程）。 */
+    public static void onCapabilityData(BlockPos pos, int state, String refDir, int total,
+                                        List<String> items, List<Integer> counts) {
+        SlotPickerScreen picker = pos == null ? null : WAITERS.get(pos);
+        if (picker != null) picker.applyCapability(state, refDir, total, items, counts);
+    }
+
+    private void applyCapability(int state, String refDir, int total, List<String> items, List<Integer> counts) {
         if (capState != CapState.PENDING) return;
-        capabilityMissing = total <= 0;
+        if (state < 0) {
+            // 方块不存在或距离过远：无法校准（横幅单独提示）
+            tooFar = true;
+            capState = CapState.FAILED;
+            applyInitialSelection();
+            return;
+        }
+        capabilityMissing = state == 2;
+        sideFallbackDir = state == 1 ? refDir : null;
         List<SlotNumbering.CapSlot> caps = new ArrayList<>();
         if (total > 0 && items != null) {
             for (int i = 0; i < total; i++) {
@@ -148,7 +180,8 @@ public final class SlotPickerScreen extends Screen {
         WAITERS.put(containerPos, this);
         boolean sent = io.github.xianynomial.sfmfactorystudio.net.SFMGuiNetwork
                 .sendToServerBestEffortChecked(
-                        new io.github.xianynomial.sfmfactorystudio.net.SlotCapabilityRequestPayload(containerPos));
+                        new io.github.xianynomial.sfmfactorystudio.net.SlotCapabilityRequestPayload(
+                                containerPos, sidesCode));
         if (!sent) {
             capState = CapState.FAILED;   // 服务端未装附属：横幅明示未校准
             applyInitialSelection();
@@ -392,8 +425,15 @@ public final class SlotPickerScreen extends Screen {
     }
 
     private String bannerText() {
+        if (capState == CapState.FAILED && tooFar) {
+            return L_TOO_FAR.getString();
+        }
         if (capState == CapState.FAILED && capabilityMissing) {
             return L_NO_CAPABILITY.getString();
+        }
+        if (capState == CapState.READY && sideFallbackDir != null) {
+            return L_SIDE_FALLBACK.getString(
+                    sideFallbackDir.equals("null") ? L_DIR_NULL.getString() : sideFallbackDir);
         }
         return switch (capState) {
             case PENDING -> L_CALIBRATING.getString();
@@ -413,6 +453,7 @@ public final class SlotPickerScreen extends Screen {
     }
 
     private int bannerColor() {
+        if (capState == CapState.READY && sideFallbackDir != null) return 0xFFE8B339;
         return switch (capState) {
             case PENDING -> 0xFF9AA3B2;
             case READY -> 0xFF4CC38A;
@@ -557,4 +598,7 @@ public final class SlotPickerScreen extends Screen {
     private static final Loc L_TARGET = new Loc("gui.sfmfactorystudio.slot.slot_target", "目标");
     private static final Loc L_MULTI = new Loc("gui.sfmfactorystudio.slot.slot_multi_hint", "该标签绑定多台机器，显示的是有布局记录的一台");
     private static final Loc L_DROPPED = new Loc("gui.sfmfactorystudio.slot.slot_dropped", "（已剔除 %s 个不可寻址格）");
+    private static final Loc L_TOO_FAR = new Loc("gui.sfmfactorystudio.slot.slot_too_far", "⚠ 距离太远或方块不存在，无法读取槽位——靠近到 64 格内再打开");
+    private static final Loc L_SIDE_FALLBACK = new Loc("gui.sfmfactorystudio.slot.slot_side_fallback", "⚠ 所选侧面没有槽位，编号按 %s 面显示——SFM 访问此机器需要写侧面限定（如 each side）");
+    private static final Loc L_DIR_NULL = new Loc("gui.sfmfactorystudio.slot.slot_dir_null", "无侧面");
 }

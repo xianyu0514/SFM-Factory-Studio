@@ -523,11 +523,12 @@ public class BlockEditorScreen extends Screen {
     private static volatile boolean SLOT_CAP_PROBED = false;
 
     /** 服务端能力槽内容回包入口（SlotCapabilityPayload）。转发给打开中的选择器。 */
-    public static void acceptSlotCapability(net.minecraft.core.BlockPos pos, int total,
+    public static void acceptSlotCapability(net.minecraft.core.BlockPos pos, int state,
+                                            String refDir, int total,
                                             List<String> items, List<Integer> counts) {
         SLOT_CAP_PROBED = true;   // 能收到回包 = 服务端装了附属 → β 入口解锁
         slotLayoutServerSeen = true;
-        SlotPickerScreen.onCapabilityData(pos, total, items, counts);
+        SlotPickerScreen.onCapabilityData(pos, state, refDir, total, items, counts);
     }
 
     public static void acceptLabels(List<UpdateLabelsPayload.LabelInfo> labels) {
@@ -861,7 +862,7 @@ public class BlockEditorScreen extends Screen {
         // 但只要收到回包就证明服务端装了 → β 入口解锁）
         if (!SLOT_CAP_PROBED) {
             SFMGuiNetwork.sendToServerBestEffortChecked(
-                    new io.github.xianynomial.sfmfactorystudio.net.SlotCapabilityRequestPayload(menu.MANAGER_POSITION));
+                    new io.github.xianynomial.sfmfactorystudio.net.SlotCapabilityRequestPayload(menu.MANAGER_POSITION, "null"));
         }
         layoutDirty = true;
         // 注意不要重置 fitted：选择器切屏返回会重跑 init()，重置会导致视角被抢去自动适配
@@ -2559,7 +2560,7 @@ public class BlockEditorScreen extends Screen {
      * 槽位可视化（beta）：按容器坐标查捕获布局并打开选择器。
      * 无捕获时打开引导模式（提示先右键打开一次该容器界面）。
      */
-    private void openSlotBetaPicker(net.minecraft.core.BlockPos pos, List<String> labelTexts, List<BProgram.SlotRange> target) {
+    private void openSlotBetaPicker(net.minecraft.core.BlockPos pos, BProgram.LabelAccess access) {
         if (pos == null) {
             showStatus(NEED_LABEL_LOCATE.getString(), 0xFFD13438);
             return;
@@ -2568,7 +2569,7 @@ public class BlockEditorScreen extends Screen {
         var holder = LabelPositionHolder.from(menu.getDisk());
         net.minecraft.core.BlockPos targetPos = pos;
         if (ClientGuiLayoutCache.get(pos) == null) {
-            for (String label : labelTexts) {
+            for (String label : access.labels) {
                 var set = holder.getPositions(label);
                 if (set == null) continue;
                 var it = set.longIterator();
@@ -2581,10 +2582,11 @@ public class BlockEditorScreen extends Screen {
         }
         var captured = ClientGuiLayoutCache.get(targetPos);
         Minecraft.getInstance().setScreen(new SlotPickerScreen(
-                this, pos, targetPos, captured, new ArrayList<>(target),
+                this, pos, targetPos, captured, SlotPickerScreen.sidesCode(access),
+                new ArrayList<>(access.slots),
                 (text, calibratedTotal) -> {
                     if (calibratedTotal != null) slotLayoutTotal = calibratedTotal;
-                    setSlotsFromText(target, text);
+                    setSlotsFromText(access.slots, text);
                     layoutDirty = true;
                     refreshIssues(); // 成本角标联动
                 }));
@@ -5426,7 +5428,7 @@ public class BlockEditorScreen extends Screen {
                 g.drawString(this.font, "beta", fx + (34 - this.font.width("beta")) / 2, y + 6,
                         0xFFB45309, false);
                 hits.add(hit(fx, y + 2, 34, BAR_H - 6, K_CLICK, null, () ->
-                        openSlotBetaPicker(vpos, access.labels, access.slots)));
+                        openSlotBetaPicker(vpos, access)));
                 fx += 38;
             }
             drawIcon(g, x + w - 18, y, "✕", () -> {
@@ -5833,14 +5835,14 @@ public class BlockEditorScreen extends Screen {
                 });
                 case "sides" -> openSideEditor(x, y, access);
                 case "slots_beta" ->
-                        openSlotBetaPicker(firstBoundBlockPos(access.labels), access.labels, access.slots);
+                        openSlotBetaPicker(firstBoundBlockPos(access.labels), access);
                 case "slots" -> {
                     // 默认聚焦输入框（实时预览）；旁边 beta 按钮打开可视化
                     var firstPos = firstBoundBlockPos(access.labels);
                     setPopup(Popup.TextPopup.withButton(
                             this, sX(x), sY(y) + BAR_H - 3, 150, "",
                             value -> setSlotsFromText(access.slots, value),
-                            () -> openSlotBetaPicker(firstPos, access.labels, access.slots),
+                            () -> openSlotBetaPicker(firstPos, access),
                             null, "beta",
                             input -> {
                                 String v = input == null ? "" : input.trim();
