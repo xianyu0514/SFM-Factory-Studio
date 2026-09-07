@@ -517,48 +517,17 @@ public class BlockEditorScreen extends Screen {
     private static final List<String> SERVER_LABELS = new ArrayList<>();
     private static final Map<String, Integer> SERVER_LABEL_COUNTS = new LinkedHashMap<>();
 
-    // ---- 槽位可视化（beta）：布局快照接收 --------------------------------
+    // ---- 槽位可视化（beta）：服务端能力槽校准数据接收 --------------------
 
-    /** 当前正在可视化选槽的容器位置（null = 没在选）。 */
-    public interface SlotLayoutCallback {
-        void accept(int total, List<int[]> slots, String menuClass);
-    }
+    /** 服务端是否具备能力槽校准能力（双端安装探测，收到任意回包即置真）。 */
+    private static volatile boolean SLOT_CAP_PROBED = false;
 
-    private static final java.util.concurrent.ConcurrentHashMap<net.minecraft.core.BlockPos, SlotLayoutCallback> SLOT_LAYOUT_WAITERS =
-            new java.util.concurrent.ConcurrentHashMap<>();
-    private static final java.util.concurrent.ConcurrentHashMap<net.minecraft.core.BlockPos, int[]> SLOT_LAYOUT_CACHE =
-            new java.util.concurrent.ConcurrentHashMap<>();   // pos -> [total, hasLayout]
-
-    /** 服务端布局回包入口（SlotLayoutPayload）。 */
-    private static volatile boolean SLOT_LAYOUT_PROBED = false;
-
-    public static void acceptSlotLayout(net.minecraft.core.BlockPos pos, int total, List<int[]> slots, String menuClass) {
-        SLOT_LAYOUT_PROBED = true;   // 能收到回包 = 服务端装了附属 → β 入口解锁
+    /** 服务端能力槽内容回包入口（SlotCapabilityPayload）。转发给打开中的选择器。 */
+    public static void acceptSlotCapability(net.minecraft.core.BlockPos pos, int total,
+                                            List<String> items, List<Integer> counts) {
+        SLOT_CAP_PROBED = true;   // 能收到回包 = 服务端装了附属 → β 入口解锁
         slotLayoutServerSeen = true;
-        SLOT_LAYOUT_CACHE.put(pos, new int[]{total, slots.isEmpty() ? 0 : 1});
-        var waiter = SLOT_LAYOUT_WAITERS.remove(pos);
-        if (waiter != null) waiter.accept(total, slots, menuClass);
-    }
-
-    /**
-     * 请求容器布局并在回包后回调（fail-safe：1 秒无回应视为服务端未装，
-     * 回调 total=-1）。回调线程 = 主线程。
-     */
-    public static void requestSlotLayout(net.minecraft.core.BlockPos pos,
-                                         SlotLayoutCallback onResult) {
-        SLOT_LAYOUT_WAITERS.put(pos, onResult);
-        boolean sent = SFMGuiNetwork.sendToServerBestEffortChecked(new io.github.xianynomial.sfmfactorystudio.net.SlotLayoutRequestPayload(pos));
-        if (!sent) {
-            SLOT_LAYOUT_WAITERS.remove(pos);
-            onResult.accept(-1, List.of(), "");
-            return;
-        }
-        // 1 秒超时：optional 通道下原版 SFM 服务端会静默丢弃请求
-        new Thread(() -> {
-            try { Thread.sleep(1000); } catch (InterruptedException ignored) { }
-            var waiter = SLOT_LAYOUT_WAITERS.remove(pos);
-            if (waiter != null) Minecraft.getInstance().execute(() -> waiter.accept(-1, List.of(), ""));
-        }, "sfmjimu-slot-layout-timeout").start();
+        SlotPickerScreen.onCapabilityData(pos, total, items, counts);
     }
 
     public static void acceptLabels(List<UpdateLabelsPayload.LabelInfo> labels) {
@@ -824,8 +793,6 @@ public class BlockEditorScreen extends Screen {
     /** 资源槽右键复制的资源（跨卡片可用，会话内保留）。 */
     /** 槽位可视化：当前选中容器的总槽数（服务端推送；-1 = 未知/未装）。 */
     private int slotLayoutTotal = -1;
-    /** 槽位可视化：服务端是否具备布局推送能力（双端安装探测）。 */
-    private boolean slotLayoutAvailable = false;
     private static volatile boolean slotLayoutServerSeen = false;
     /** 标签药丸右键复制的标签组（跨卡片可用）。 */
     /** 资源标签药丸右键复制的匹配串。 */
@@ -892,9 +859,9 @@ public class BlockEditorScreen extends Screen {
                 new io.github.xianynomial.sfmfactorystudio.net.RequestLabelsPayload(menu.MANAGER_POSITION));
         // 槽位可视化探测：开机即向管理器自身发一次（管理器非容器，回 total=-1，
         // 但只要收到回包就证明服务端装了 → β 入口解锁）
-        if (!SLOT_LAYOUT_PROBED) {
+        if (!SLOT_CAP_PROBED) {
             SFMGuiNetwork.sendToServerBestEffortChecked(
-                    new io.github.xianynomial.sfmfactorystudio.net.SlotLayoutRequestPayload(menu.MANAGER_POSITION));
+                    new io.github.xianynomial.sfmfactorystudio.net.SlotCapabilityRequestPayload(menu.MANAGER_POSITION));
         }
         layoutDirty = true;
         // 注意不要重置 fitted：选择器切屏返回会重跑 init()，重置会导致视角被抢去自动适配
@@ -2592,29 +2559,35 @@ public class BlockEditorScreen extends Screen {
      * 槽位可视化（beta）：按容器坐标查捕获布局并打开选择器。
      * 无捕获时打开引导模式（提示先右键打开一次该容器界面）。
      */
-    private void openSlotBetaPicker(net.minecraft.core.BlockPos pos, List<BProgram.SlotRange> target) {
+    private void openSlotBetaPicker(net.minecraft.core.BlockPos pos, List<String> labelTexts, List<BProgram.SlotRange> target) {
         if (pos == null) {
             showStatus(NEED_LABEL_LOCATE.getString(), 0xFFD13438);
             return;
         }
-        var captured = ClientGuiLayoutCache.get(pos);
-        int total = captured != null ? captured.totalSlots() : -1;
-        List<int[]> coords = captured != null ? captured.slots() : List.of();
-        slotLayoutTotal = total;   // 输入校验的超界提示依赖它
-        List<Integer> initialSel = new ArrayList<>();
-        for (BProgram.SlotRange r : target) {
-            for (long v = r.first(); v <= r.last() && v < (total < 0 ? Long.MAX_VALUE : total); v++) {
-                initialSel.add((int) v);
+        // 多绑定标签自动优选：pos 无捕获记录时，尝试该标签下其他绑定方块
+        var holder = LabelPositionHolder.from(menu.getDisk());
+        net.minecraft.core.BlockPos targetPos = pos;
+        if (ClientGuiLayoutCache.get(pos) == null) {
+            for (String label : labelTexts) {
+                var set = holder.getPositions(label);
+                if (set == null) continue;
+                var it = set.longIterator();
+                while (it.hasNext()) {
+                    var bp = net.minecraft.core.BlockPos.of(it.nextLong());
+                    if (ClientGuiLayoutCache.get(bp) != null) { targetPos = bp; break; }
+                }
+                if (targetPos != pos) break;
             }
         }
+        var captured = ClientGuiLayoutCache.get(targetPos);
         Minecraft.getInstance().setScreen(new SlotPickerScreen(
-                this, total, coords, initialSel, picked -> {
-                    setSlotsFromText(target, picked.stream()
-                            .map(String::valueOf)
-                            .collect(java.util.stream.Collectors.joining(",")));
+                this, targetPos, captured, new ArrayList<>(target),
+                (text, calibratedTotal) -> {
+                    if (calibratedTotal != null) slotLayoutTotal = calibratedTotal;
+                    setSlotsFromText(target, text);
                     layoutDirty = true;
                     refreshIssues(); // 成本角标联动
-                }, pos));
+                }));
     }
 
     private List<String> labelsOf(BProgram.Statement s) {
@@ -5442,14 +5415,8 @@ public class BlockEditorScreen extends Screen {
             // 槽位可视化（beta）：仅双端安装时显示（服务端未装直接隐藏）
             // 槽位可视化（beta）：双端安装且该语句至少有一个标签可定位时显示
             var visualPos = firstBoundBlockPos(access.labels);
-            if ((slotLayoutAvailable || slotLayoutServerSeen) && visualPos != null) {
+            if (slotLayoutServerSeen && visualPos != null) {
                 final net.minecraft.core.BlockPos vpos = visualPos;
-                final java.util.function.Consumer<List<Integer>> apply = sel -> {
-                    setSlotsFromText(access.slots, sel.stream().map(String::valueOf)
-                            .collect(java.util.stream.Collectors.joining(",")));
-                    layoutDirty = true;
-                    refreshIssues(); // 成本角标联动：指定槽位后负载实时刷新
-                };
                 boolean vbHover = overField(mx, my, fx, y + 2, 34, BAR_H - 6);
                 // 橙色胶囊（与「＋ 或…」同风格）：beta = 测试含义
                 int vbBg = vbHover ? 0xFFFDF0DC : 0xFFFBEDD5;
@@ -5458,22 +5425,8 @@ public class BlockEditorScreen extends Screen {
                 border(g, fx, y + 2, 34, BAR_H - 4, vbBorder);
                 g.drawString(this.font, "beta", fx + (34 - this.font.width("beta")) / 2, y + 6,
                         0xFFB45309, false);
-                hits.add(hit(fx, y + 2, 34, BAR_H - 6, K_CLICK, null, () -> {
-                    // 直接读客户端捕获缓存（按方块坐标键）：
-                    // 玩家打开过该容器界面 = 有真实布局；没打开过 = 引导提示
-                    var captured = ClientGuiLayoutCache.get(vpos);
-                    int total = captured != null ? captured.totalSlots() : -1;
-                    List<int[]> slots = captured != null ? captured.slots() : List.of();
-                    slotLayoutTotal = total;   // 输入校验的超界提示依赖它
-                    List<Integer> initialSel = new ArrayList<>();
-                    for (BProgram.SlotRange r : access.slots) {
-                        for (long v = r.first(); v <= r.last() && v < (total < 0 ? Long.MAX_VALUE : total); v++) {
-                            initialSel.add((int) v);
-                        }
-                    }
-                    Minecraft.getInstance().setScreen(new SlotPickerScreen(
-                            this, total, slots, initialSel, apply, vpos));
-                }));
+                hits.add(hit(fx, y + 2, 34, BAR_H - 6, K_CLICK, null, () ->
+                        openSlotBetaPicker(vpos, access.labels, access.slots)));
                 fx += 38;
             }
             drawIcon(g, x + w - 18, y, "✕", () -> {
@@ -5879,30 +5832,15 @@ public class BlockEditorScreen extends Screen {
                     layoutDirty = true;
                 });
                 case "sides" -> openSideEditor(x, y, access);
-                case "slots_beta" -> {
-                    var firstPos = firstBoundBlockPos(access.labels);
-                    if (firstPos == null) {
-                        showStatus(NEED_LABEL_LOCATE.getString(), 0xFFD13438);
-                        return;
-                    }
-                    slotLayoutTotal = -1;
-                    Minecraft.getInstance().setScreen(new SlotPickerScreen(
-                            this, -1, List.of(), new ArrayList<>(), picked2 -> {
-                                pushUndo();
-                                setSlotsFromText(access.slots, picked2.stream()
-                                        .map(String::valueOf)
-                                        .collect(java.util.stream.Collectors.joining(",")));
-                                layoutDirty = true;
-                                refreshIssues();
-                            }, firstPos));
-                }
+                case "slots_beta" ->
+                        openSlotBetaPicker(firstBoundBlockPos(access.labels), access.labels, access.slots);
                 case "slots" -> {
                     // 默认聚焦输入框（实时预览）；旁边 beta 按钮打开可视化
                     var firstPos = firstBoundBlockPos(access.labels);
                     setPopup(Popup.TextPopup.withButton(
                             this, sX(x), sY(y) + BAR_H - 3, 150, "",
                             value -> setSlotsFromText(access.slots, value),
-                            () -> openSlotBetaPicker(firstPos, access.slots),
+                            () -> openSlotBetaPicker(firstPos, access.labels, access.slots),
                             null, "beta",
                             input -> {
                                 String v = input == null ? "" : input.trim();
