@@ -46,10 +46,10 @@ public final class SFMGuiNetwork {
         );
         // SFM fork 的能力宣告（原版 SFM 服不会发，收到才解锁 NBT 区分等功能）
         SfmCapabilitiesPayload.registerClient(registrar);
-        // 槽位可视化（beta）：双端安装才有数据；只装客户端时请求无回应，
-        // 编辑器据超时隐藏可视化入口
-        SlotLayoutRequestPayload.registerServer(registrar);
-        SlotLayoutPayload.registerClient(registrar);
+        // 槽位可视化（beta）编号校准：客户端请求能力槽内容，服务端只读回包。
+        // 只装客户端时请求无回应，选择器按超时降级为"未校准"模式并明示。
+        SlotCapabilityRequestPayload.registerServer(registrar);
+        SlotCapabilityPayload.registerClient(registrar);
     }
 
     /** 换服/断线时能力集清空：所有服务端门控功能回到默认隐藏。 */
