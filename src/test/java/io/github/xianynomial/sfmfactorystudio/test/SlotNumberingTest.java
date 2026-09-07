@@ -185,6 +185,50 @@ public class SlotNumberingTest {
                 SlotNumbering.selectionForRanges(r, List.of(new BProgram.SlotRange(7, 9))));
     }
 
+    // ---- 视图布局：归一化 + 防重叠 ----
+
+    @Test
+    public void viewNormalizesNegativeOrigins() {
+        // 个别模组 GUI 槽位坐标带负数：必须平移到 0,0 起，不画出背景框外
+        List<SlotNumbering.MenuSlot> slots = new ArrayList<>();
+        slots.add(slot(0, -40, -20, "", 0, null));
+        slots.add(slot(1, -20, -20, "", 0, null));
+        slots.add(slot(2, -40, 0, "", 0, null));
+        SlotNumbering.ViewLayout vl = SlotNumbering.computeView(20, slots, 400, 300);
+        assertEquals(40, vl.shiftX());
+        assertEquals(20, vl.shiftY());
+        assertTrue(vl.contentW() > 0);
+        assertTrue(vl.contentH() > 0);
+    }
+
+    @Test
+    public void viewScaleNeverProducesOverlappingCells() {
+        // 134 格抽屉（15 行）在很小的可用区里：缩放被下限托住，格距永 ≥ 格边长
+        List<SlotNumbering.MenuSlot> slots = new ArrayList<>();
+        for (int i = 0; i < 134; i++) {
+            slots.add(slot(i, (i % 9) * 20, (i / 9) * 20, "", 0, null));
+        }
+        SlotNumbering.ViewLayout vl = SlotNumbering.computeView(20, slots, 300, 100);
+        assertEquals(SlotNumbering.MIN_CELL_PX / 20f, vl.scale(), 0.0001f);
+        // 内容尺寸按该缩放单调：相邻格间距(px) = 20*scale ≥ MIN_CELL_PX
+        assertTrue(20 * vl.scale() >= SlotNumbering.MIN_CELL_PX);
+        // 内容超出可用区 → 视口需要滚动（这正是滚动条存在的条件）
+        assertTrue(vl.contentH() > 100);
+    }
+
+    @Test
+    public void viewFitsWithoutScrollWhenPossible() {
+        // 27 格箱子在常规可用区：1:1 显示，内容不超可用区
+        List<SlotNumbering.MenuSlot> slots = new ArrayList<>();
+        for (int i = 0; i < 27; i++) {
+            slots.add(slot(i, (i % 9) * 20, (i / 9) * 20, "", 0, null));
+        }
+        SlotNumbering.ViewLayout vl = SlotNumbering.computeView(20, slots, 400, 300);
+        assertEquals(1f, vl.scale(), 0.0001f);
+        assertTrue(vl.contentW() <= 400);
+        assertTrue(vl.contentH() <= 300);
+    }
+
     // ---- 压缩文本 ----
 
     @Test

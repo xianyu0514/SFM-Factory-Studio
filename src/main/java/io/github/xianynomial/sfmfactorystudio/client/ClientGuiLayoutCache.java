@@ -116,9 +116,13 @@ public final class ClientGuiLayoutCache {
         Inventory playerInv = Minecraft.getInstance().player != null
                 ? Minecraft.getInstance().player.getInventory() : null;
         List<SlotLayoutData.SlotCapture> all = new ArrayList<>();
+        java.util.Set<Long> seenCoords = new java.util.HashSet<>();
         for (Slot slot : menu.slots) {
             if (playerInv != null && slot.container == playerInv) continue;
             if (!slot.isActive()) continue;
+            // 完全同坐标的重复格（异常菜单）：只保留一个，防止选择器叠画
+            long coordKey = ((long) slot.x << 32) | (slot.y & 0xFFFFFFFFL);
+            if (!seenCoords.add(coordKey)) continue;
             Integer capIndex = null;
             if (capability != null && slot.container == capability) {
                 capIndex = slot.getContainerSlot();

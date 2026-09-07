@@ -2581,7 +2581,7 @@ public class BlockEditorScreen extends Screen {
         }
         var captured = ClientGuiLayoutCache.get(targetPos);
         Minecraft.getInstance().setScreen(new SlotPickerScreen(
-                this, targetPos, captured, new ArrayList<>(target),
+                this, pos, targetPos, captured, new ArrayList<>(target),
                 (text, calibratedTotal) -> {
                     if (calibratedTotal != null) slotLayoutTotal = calibratedTotal;
                     setSlotsFromText(target, text);
