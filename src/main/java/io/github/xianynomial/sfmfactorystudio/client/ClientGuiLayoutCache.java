@@ -90,6 +90,11 @@ public final class ClientGuiLayoutCache {
         lastClickedPos = null;
         if (!fresh) return;
         PENDING.put(screen, new Pending(pos, RECAPTURE_FRAMES));
+        // 开启操作学习会话：玩家在该界面里的每次真实点击，服务端都会用能力面
+        // 差分证实"视觉格 ↔ 真实槽位"，锚点回存到捕获缓存（对一切模组生效）
+        io.github.xianynomial.sfmfactorystudio.net.SFMGuiNetwork.sendToServerBestEffort(
+                new io.github.xianynomial.sfmfactorystudio.net.SlotCalibrationBeginPayload(
+                        pos, screen.getMenu() != null ? screen.getMenu().containerId : -1));
         try {
             capture(pos, screen);   // 尽早尝试；渲染期会持续补捕
         } catch (Throwable t) {
@@ -168,12 +173,23 @@ public final class ClientGuiLayoutCache {
         all.sort((a, b) -> a.y() != b.y() ? Integer.compare(a.y(), b.y())
                 : Integer.compare(a.x(), b.x()));
 
-        // 更完整/更新鲜的捕获才覆盖（格子更多，或打平时内容签名更多）
+        // 更完整/更新鲜的捕获才覆盖（格子更多，或打平时内容签名更多）；已学锚点保留
         var existing = BY_POS.get(key(pos));
         if (!SlotLayoutData.preferCapture(all, existing == null ? null : existing.slots())) return;
 
         String title = screen.getTitle() != null ? screen.getTitle().getString() : "";
-        BY_POS.put(key(pos), new SlotLayoutData.Layout(title, all));
+        BY_POS.put(key(pos), new SlotLayoutData.Layout(title, all,
+                SlotLayoutData.mergeAnchors(existing == null ? null : existing.anchors(), null)));
+        save();
+    }
+
+    /** 应用一个操作学习锚点（服务端差分证实"这个视觉格 = 这个真实槽位"）。 */
+    public static void applyAnchor(BlockPos pos, int dir, int containerSlot, int x, int y, int capIndex) {
+        ensureLoaded();
+        SlotLayoutData.Layout layout = BY_POS.get(key(pos));
+        if (layout == null) return;
+        BY_POS.put(key(pos), SlotLayoutData.withAnchor(layout,
+                new SlotLayoutData.SlotAnchor(dir, containerSlot, x, y, capIndex)));
         save();
     }
 

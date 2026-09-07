@@ -30,10 +30,81 @@ public final class SlotLayoutData {
         }
     }
 
-    /** 一个容器的布局快照。 */
-    public record Layout(String title, List<SlotCapture> slots) {
+    /**
+     * 操作学习锚点：玩家在机器界面的一次真实点击改变了能力槽 capIndex 的内容
+     * ——"这个视觉格 = 这个真实槽位"由实际数据流证实，是最高优先级证据。
+     * dir = 七朝向索引（0=无侧面，1..6=down,up,north,south,west,east）。
+     */
+    public record SlotAnchor(int dir, int containerSlot, int x, int y, int capIndex) {
+    }
+
+    /** 一个容器的布局快照（anchors = 操作学习累积的锚点，与捕获相互独立）。 */
+    public record Layout(String title, List<SlotCapture> slots, List<SlotAnchor> anchors) {
+        public Layout(String title, List<SlotCapture> slots) {
+            this(title, slots, List.of());
+        }
+
         public int menuSlotCount() {
             return slots.size();
+        }
+    }
+
+    /** 按（朝向, 容器内索引）去重合并锚点：已有学习不丢失。 */
+    public static List<SlotAnchor> mergeAnchors(List<SlotAnchor> old, List<SlotAnchor> fresh) {
+        List<SlotAnchor> out = new ArrayList<>(old == null ? List.of() : old);
+        if (fresh != null) {
+            for (SlotAnchor a : fresh) {
+                boolean exists = false;
+                for (SlotAnchor b : out) {
+                    if (b.dir() == a.dir() && b.containerSlot() == a.containerSlot()) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) out.add(a);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 在布局上应用一个学习锚点：锚点表按（朝向, 容器内索引）去重更新，
+     * 并把 capIndex 写到对应的捕获格上（containerSlot 优先，坐标兜底）。
+     */
+    public static Layout withAnchor(Layout layout, SlotAnchor anchor) {
+        List<SlotAnchor> anchors = new ArrayList<>();
+        for (SlotAnchor b : layout.anchors()) {
+            if (b.dir() == anchor.dir() && b.containerSlot() == anchor.containerSlot()) continue;
+            anchors.add(b);
+        }
+        anchors.add(anchor);
+        List<SlotCapture> slots = new ArrayList<>();
+        for (SlotCapture s : layout.slots()) {
+            if (matchesAnchor(s, anchor)) {
+                slots.add(new SlotCapture(s.x(), s.y(), s.containerSlot(), s.item(), s.count(), anchor.capIndex()));
+            } else {
+                slots.add(s);
+            }
+        }
+        return new Layout(layout.title(), slots, anchors);
+    }
+
+    private static boolean matchesAnchor(SlotCapture s, SlotAnchor a) {
+        if (a.containerSlot() >= 0 && s.containerSlot() == a.containerSlot()) return true;
+        return s.x() == a.x() && s.y() == a.y();
+    }
+
+    /** 参照方向（refDir 名）→ 七朝向索引（"null"=0，其余 = Direction.ordinal()+1）。 */
+    public static int refDirIndex(String refDir) {
+        if (refDir == null || refDir.isEmpty() || refDir.equals("null")) return 0;
+        switch (refDir) {
+            case "down": return 1;
+            case "up": return 2;
+            case "north": return 3;
+            case "south": return 4;
+            case "west": return 5;
+            case "east": return 6;
+            default: return 0;
         }
     }
 
@@ -64,6 +135,19 @@ public final class SlotLayoutData {
             arr.add(e);
         }
         o.add("slots", arr);
+        if (!layout.anchors().isEmpty()) {
+            JsonArray anchors = new JsonArray();
+            for (SlotAnchor a : layout.anchors()) {
+                JsonObject e = new JsonObject();
+                e.addProperty("d", a.dir());
+                e.addProperty("cs", a.containerSlot());
+                e.addProperty("x", a.x());
+                e.addProperty("y", a.y());
+                e.addProperty("cap", a.capIndex());
+                anchors.add(e);
+            }
+            o.add("anchors", anchors);
+        }
         return o;
     }
 
@@ -101,7 +185,29 @@ public final class SlotLayoutData {
                 if (c != null) slots.add(c);
             }
         }
-        return new Layout(title, slots);
+        List<SlotAnchor> anchors = new ArrayList<>();
+        if (o.has("anchors") && o.get("anchors").isJsonArray()) {
+            for (JsonElement el : o.getAsJsonArray("anchors")) {
+                SlotAnchor a = readAnchor(el);
+                if (a != null) anchors.add(a);
+            }
+        }
+        return new Layout(title, slots, anchors);
+    }
+
+    private static SlotAnchor readAnchor(JsonElement el) {
+        try {
+            if (!el.isJsonObject()) return null;
+            JsonObject o = el.getAsJsonObject();
+            if (!o.has("d") || !o.has("cap")) return null;
+            return new SlotAnchor(o.get("d").getAsInt(),
+                    o.has("cs") ? o.get("cs").getAsInt() : -1,
+                    o.has("x") ? o.get("x").getAsInt() : Integer.MIN_VALUE,
+                    o.has("y") ? o.get("y").getAsInt() : Integer.MIN_VALUE,
+                    o.get("cap").getAsInt());
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     private static SlotCapture readCapture(JsonElement el) {

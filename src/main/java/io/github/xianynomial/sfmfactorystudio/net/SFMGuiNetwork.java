@@ -50,6 +50,9 @@ public final class SFMGuiNetwork {
         // 只装客户端时请求无回应，选择器按超时降级为"未校准"模式并明示。
         SlotCapabilityRequestPayload.registerServer(registrar);
         SlotCapabilityPayload.registerClient(registrar);
+        // 操作学习：会话登记（C2S）+ 差分锚点回传（S2C）
+        SlotCalibrationBeginPayload.registerServer(registrar);
+        SlotAnchorPayload.registerClient(registrar);
     }
 
     /** 换服/断线时能力集清空：所有服务端门控功能回到默认隐藏。 */
