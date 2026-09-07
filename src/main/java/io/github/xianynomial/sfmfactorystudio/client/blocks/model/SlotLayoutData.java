@@ -38,10 +38,14 @@ public final class SlotLayoutData {
     public record SlotAnchor(int dir, int containerSlot, int x, int y, int capIndex) {
     }
 
-    /** 一个容器的布局快照（anchors = 操作学习累积的锚点，与捕获相互独立）。 */
-    public record Layout(String title, List<SlotCapture> slots, List<SlotAnchor> anchors) {
+    /** 一个容器的布局快照（anchors = 操作学习累积的锚点；noExposure = 学习判定"槽位未暴露"）。 */
+    public record Layout(String title, List<SlotCapture> slots, List<SlotAnchor> anchors, boolean noExposure) {
         public Layout(String title, List<SlotCapture> slots) {
-            this(title, slots, List.of());
+            this(title, slots, List.of(), false);
+        }
+
+        public Layout(String title, List<SlotCapture> slots, List<SlotAnchor> anchors) {
+            this(title, slots, anchors, false);
         }
 
         public int menuSlotCount() {
@@ -86,12 +90,17 @@ public final class SlotLayoutData {
                 slots.add(s);
             }
         }
-        return new Layout(layout.title(), slots, anchors);
+        return new Layout(layout.title(), slots, anchors, layout.noExposure());
     }
 
     private static boolean matchesAnchor(SlotCapture s, SlotAnchor a) {
         if (a.containerSlot() >= 0 && s.containerSlot() == a.containerSlot()) return true;
         return s.x() == a.x() && s.y() == a.y();
+    }
+
+    /** 标记"槽位未暴露"诊断（学习发现界面在变化而能力面无变化）。 */
+    public static Layout withNoExposure(Layout layout, boolean value) {
+        return new Layout(layout.title(), layout.slots(), layout.anchors(), value);
     }
 
     /** 参照方向（refDir 名）→ 七朝向索引（"null"=0，其余 = Direction.ordinal()+1）。 */
@@ -148,6 +157,7 @@ public final class SlotLayoutData {
             }
             o.add("anchors", anchors);
         }
+        if (layout.noExposure()) o.addProperty("nx", 1);
         return o;
     }
 
@@ -192,7 +202,8 @@ public final class SlotLayoutData {
                 if (a != null) anchors.add(a);
             }
         }
-        return new Layout(title, slots, anchors);
+        boolean noExposure = o.has("nx") && o.get("nx").isJsonPrimitive() && o.get("nx").getAsInt() != 0;
+        return new Layout(title, slots, anchors, noExposure);
     }
 
     private static SlotAnchor readAnchor(JsonElement el) {

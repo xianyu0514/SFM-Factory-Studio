@@ -2064,6 +2064,15 @@ public class BlockEditorScreen extends Screen {
         SlotPickerScreen.onCapabilityData(pos, state, refDir, total, dirTotals, items, counts);
     }
 
+    /** 操作学习诊断回包入口（SlotCalibrationInfoPayload）。 */
+    public static void acceptSlotCalibrationInfo(net.minecraft.core.BlockPos pos, int hint) {
+        SLOT_CAP_PROBED = true;
+        slotLayoutServerSeen = true;
+        if (hint == io.github.xianynomial.sfmfactorystudio.net.SlotCalibrationInfoPayload.INFO_NO_EXPOSURE) {
+            ClientGuiLayoutCache.setNoExposure(pos);
+        }
+    }
+
     /** 操作学习锚点回包入口（SlotAnchorPayload）。写入捕获缓存持久化。 */
     public static void acceptSlotAnchor(net.minecraft.core.BlockPos pos, int dir,
                                         int containerSlot, int x, int y, int capIndex) {

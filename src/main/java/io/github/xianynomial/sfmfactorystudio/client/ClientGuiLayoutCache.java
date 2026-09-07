@@ -193,6 +193,15 @@ public final class ClientGuiLayoutCache {
         save();
     }
 
+    /** 标记"槽位未暴露"诊断（学习发现界面槽位在变化而能力面无变化）。 */
+    public static void setNoExposure(BlockPos pos) {
+        ensureLoaded();
+        SlotLayoutData.Layout layout = BY_POS.get(key(pos));
+        if (layout == null || layout.noExposure()) return;
+        BY_POS.put(key(pos), SlotLayoutData.withNoExposure(layout, true));
+        save();
+    }
+
     /** 按方块坐标查询捕获的布局；玩家没打开过该容器返回 null。 */
     public static SlotLayoutData.Layout get(BlockPos pos) {
         ensureLoaded();

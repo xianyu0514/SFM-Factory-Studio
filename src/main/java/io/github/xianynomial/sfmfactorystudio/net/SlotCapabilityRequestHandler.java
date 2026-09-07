@@ -91,8 +91,8 @@ public final class SlotCapabilityRequestHandler {
                 }
             }
 
-            // ② 限定方向全空：扫其余朝向，区分"机器真没槽"和"槽位在其他面"
-            Direction other = firstPresentDirection(level, itemType, pos, directions);
+            // ② 限定方向全空：兜底到暴露槽位最多的朝向（所见即所得优先给全貌）
+            Direction other = bestPresentDirection(level, itemType, pos, directions);
             if (other == null) {
                 send(player, pos, STATE_NO_CAPABILITY, "", 0, dirTotals, List.of(), List.of());
                 return;
@@ -129,16 +129,20 @@ public final class SlotCapabilityRequestHandler {
         }
     }
 
-    /** 限定方向之外，第一个有物品能力面的朝向（用于精确报错与兜底编号）。 */
-    private static Direction firstPresentDirection(Level level, ItemResourceType itemType,
-                                                   BlockPos pos, List<Direction> exclude) {
+    /** 限定方向之外，暴露槽位最多的朝向（多个同取先出现者；用于兜底编号）。 */
+    private static Direction bestPresentDirection(Level level, ItemResourceType itemType,
+                                                  BlockPos pos, List<Direction> exclude) {
+        Direction best = null;
+        int bestSlots = -1;
         for (Direction dir : Direction.values()) {
             if (exclude.contains(dir)) continue;
-            SFMBlockCapabilityResult<?> result =
-                    SFMBlockCapabilityDiscovery.discoverCapabilityFromLevel(level, itemType.capabilityKind(), pos, dir);
-            if (result != null && result.isPresent()) return dir;
+            int total = probeTotal(itemType, level, pos, dir);
+            if (total > bestSlots) {
+                bestSlots = total;
+                best = dir;
+            }
         }
-        return null;
+        return best;
     }
 
     /** 每槽内容签名；单个槽读取失败按空槽处理，不炸整次校准。 */
