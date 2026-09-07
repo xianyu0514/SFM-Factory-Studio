@@ -8,9 +8,10 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**
  * 客户端 → 服务端：请求目标方块的能力槽内容（槽位可视化编号校准）。
- * 服务端只读能力面（不构造菜单、不改任何状态），回包见 {@link SlotCapabilityPayload}。
+ * sides = 语句当前的侧面限定（SFML 侧面名，逗号分隔，如 "null" / "top,bottom" /
+ * "each side" 的全部 7 面）——服务端用它走与 SFM 本体完全一致的解析路径。
  */
-public record SlotCapabilityRequestPayload(BlockPos pos) implements CustomPacketPayload {
+public record SlotCapabilityRequestPayload(BlockPos pos, String sides) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<SlotCapabilityRequestPayload> TYPE =
             new CustomPacketPayload.Type<>(net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(
                     "sfmfactorystudio", "slot_capability_request"));
@@ -20,11 +21,12 @@ public record SlotCapabilityRequestPayload(BlockPos pos) implements CustomPacket
             SlotCapabilityRequestPayload::read);
 
     private static SlotCapabilityRequestPayload read(FriendlyByteBuf buf) {
-        return new SlotCapabilityRequestPayload(BlockPos.of(buf.readLong()));
+        return new SlotCapabilityRequestPayload(BlockPos.of(buf.readLong()), buf.readUtf());
     }
 
     private void write(FriendlyByteBuf buf) {
         buf.writeLong(pos.asLong());
+        buf.writeUtf(sides == null ? "null" : sides);
     }
 
     public static void registerServer(PayloadRegistrar registrar) {

@@ -2056,11 +2056,12 @@ public class BlockEditorScreen extends Screen {
     private static volatile boolean SLOT_CAP_PROBED = false;
 
     /** 服务端能力槽内容回包入口（SlotCapabilityPayload）。转发给打开中的选择器。 */
-    public static void acceptSlotCapability(net.minecraft.core.BlockPos pos, int total,
+    public static void acceptSlotCapability(net.minecraft.core.BlockPos pos, int state,
+                                            String refDir, int total,
                                             List<String> items, List<Integer> counts) {
         SLOT_CAP_PROBED = true;   // 能收到回包 = 服务端装了附属 → β 入口解锁
         slotLayoutServerSeen = true;
-        SlotPickerScreen.onCapabilityData(pos, total, items, counts);
+        SlotPickerScreen.onCapabilityData(pos, state, refDir, total, items, counts);
     }
 
 
@@ -3214,7 +3215,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                    new io.github.xianynomial.sfmfactorystudio.net.SlotCapabilityRequestPayload(menu.MANAGER_POSITION));
+                    new io.github.xianynomial.sfmfactorystudio.net.SlotCapabilityRequestPayload(menu.MANAGER_POSITION, "null"));
 
 
 
@@ -10006,7 +10007,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-    private void openSlotBetaPicker(net.minecraft.core.BlockPos pos, List<String> labelTexts, List<BProgram.SlotRange> target) {
+    private void openSlotBetaPicker(net.minecraft.core.BlockPos pos, BProgram.LabelAccess access) {
         if (pos == null) {
             showStatus(NEED_LABEL_LOCATE.getString(), 0xFFD13438);
             return;
@@ -10015,7 +10016,7 @@ public class BlockEditorScreen extends Screen {
         var holder = LabelPositionHolder.from(menu.getDisk());
         net.minecraft.core.BlockPos targetPos = pos;
         if (ClientGuiLayoutCache.get(pos) == null) {
-            for (String label : labelTexts) {
+            for (String label : access.labels) {
                 var set = holder.getPositions(label);
                 if (set == null) continue;
                 var it = set.longIterator();
@@ -10028,10 +10029,11 @@ public class BlockEditorScreen extends Screen {
         }
         var captured = ClientGuiLayoutCache.get(targetPos);
         Minecraft.getInstance().setScreen(new SlotPickerScreen(
-                this, pos, targetPos, captured, new ArrayList<>(target),
+                this, pos, targetPos, captured, SlotPickerScreen.sidesCode(access),
+                new ArrayList<>(access.slots),
                 (text, calibratedTotal) -> {
                     if (calibratedTotal != null) slotLayoutTotal = calibratedTotal;
-                    setSlotsFromText(target, text);
+                    setSlotsFromText(access.slots, text);
                     layoutDirty = true;
                     refreshIssues(); // 成本角标联动
                 }));
@@ -20812,7 +20814,7 @@ public class BlockEditorScreen extends Screen {
 
 
                     hits.add(hit(fx, y + 2, 34, BAR_H - 6, K_CLICK, null, () ->
-                            openSlotBetaPicker(vpos, access.labels, access.slots)));
+                            openSlotBetaPicker(vpos, access)));
 
 
 
@@ -22429,7 +22431,7 @@ public class BlockEditorScreen extends Screen {
 
 
                 case "slots_beta" ->
-                        openSlotBetaPicker(firstBoundBlockPos(access.labels), access.labels, access.slots);
+                        openSlotBetaPicker(firstBoundBlockPos(access.labels), access);
 
 
 
@@ -22458,7 +22460,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                            () -> openSlotBetaPicker(firstPos, access.labels, access.slots),
+                            () -> openSlotBetaPicker(firstPos, access),
 
 
 
