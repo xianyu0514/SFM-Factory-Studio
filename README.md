@@ -1,7 +1,7 @@
 # SFM Factory Studio（SFM 智造工坊）
 
 一个为 [Super Factory Manager 4 (SFM)](https://github.com/TeamDman/SuperFactoryManager) 打造的
-**中文可视化工厂编程附属**：用积木快速搭建自动化，与 SFML 源码同屏双向编辑，
+**中英文可视化工厂编程附属**：用积木快速搭建自动化，与 SFML 源码同屏双向编辑，
 保存到磁盘的始终是标准 SFML——不装本模组的人也能打开你的程序。
 
 - **Minecraft**: 1.21.1
