@@ -217,4 +217,45 @@ public final class SlotNumbering {
         if (start.equals(end)) sb.append(start);
         else sb.append(start).append('-').append(end);
     }
+
+    // ---- 视图布局（纯逻辑可单测）：归一化 + 防重叠缩放 ----
+
+    /** 格子渲染的最小边长（px）。缩放下限 = 此值/格距，保证格子永不互相重叠。 */
+    public static final float MIN_CELL_PX = 8f;
+
+    /**
+     * 视图布局结果。shiftX/shiftY = 坐标归一化位移（把最小坐标平移到 0,0，
+     * 兼容负数/偏移原点的模组 GUI）；scale ≥ MIN_CELL_PX/格距（防重叠下限），
+     * contentW/H = 归一化后按 scale 缩放的内容尺寸（可能大于可用区 → 需要滚动）。
+     */
+    public record ViewLayout(float scale, int contentW, int contentH, int shiftX, int shiftY) {
+    }
+
+    /**
+     * 计算选择器视图布局。
+     *
+     * @param cell   格子逻辑边长（选择器 CELL 常量）
+     * @param availW 可用区宽度（已含边距下限）
+     * @param availH 可用区高度（已含边距下限）
+     */
+    public static ViewLayout computeView(int cell, List<MenuSlot> slots, int availW, int availH) {
+        if (slots.isEmpty()) {
+            return new ViewLayout(1f, cell * 9, cell, 0, 0);
+        }
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
+        for (MenuSlot s : slots) {
+            minX = Math.min(minX, s.x());
+            minY = Math.min(minY, s.y());
+            maxX = Math.max(maxX, s.x() + cell);
+            maxY = Math.max(maxY, s.y() + cell);
+        }
+        int rawW = Math.max(maxX - minX, cell * 9);   // 最小宽度兜底：空旷布局也协调
+        int rawH = Math.max(maxY - minY, cell);
+        float fit = Math.min(1f, Math.min(availW / (float) rawW, availH / (float) rawH));
+        float scale = Math.max(fit, MIN_CELL_PX / cell);
+        return new ViewLayout(scale,
+                Math.round(rawW * scale), Math.round(rawH * scale),
+                -minX, -minY);
+    }
 }

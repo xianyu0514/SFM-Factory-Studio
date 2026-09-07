@@ -24,18 +24,23 @@ import java.util.concurrent.ConcurrentHashMap;
  * <ul>
  * <li>校准成功 —— 每格显示的编号就是 SFM 实际寻址的能力槽索引，所见即所得；
  * 不可寻址的格子（升级卡等）置灰不可选，绿字横幅明示。</li>
+ * <li>校准中 —— 格子不显示编号（避免先显示空间序号再跳变）；「确认」暂不可用。</li>
  * <li>校准失败（服务端未装/超时/无能力面）—— 退回屏幕顺序编号，琥珀色横幅
  * 明示偏差风险，绝不静默装作没问题。</li>
  * </ul>
  *
- * <p>交互：单击选中/取消；按住拖动刷选；Shift+点击范围选中；「清空」；
- * 「确认」把选中槽号压缩成 1,3-9 形式回写（空选择 = 不限制 = 全部槽位）。
- * 悬停格子显示编号与捕获到的内容。
+ * <p>显示保证：格子永不互相重叠（缩放有下限）、坐标归一化（负数/偏移原点的
+ * 模组 GUI 不会画出背景框）、内容超出视口时滚轮/拖动滚动且按钮永远钉在屏内、
+ * 全部文字超宽自动缩小适配（4K + 高 GUI 缩放也不出屏）。
+ *
+ * <p>交互：单击选中/取消；按住拖动刷选；Shift+点击范围选中；滚轮滚动、
+ * Shift+滚轮横向滚动；「确认」把选中槽号压缩成 1,3-9 形式回写
+ * （空选择 = 不限制 = 全部槽位）。
  */
 public final class SlotPickerScreen extends Screen {
     private static final int CELL = 20;
-    private static final int COLS = 9;                       // 仅缩放兜底用；真实布局来自捕获
     private static final int CALIBRATE_TIMEOUT_TICKS = 60;   // 3 秒无回包 = 未校准
+    private static final int SCROLL_STEP = 32;
 
     /** 选槽结果：slotText = "1,3-9"（空 = 全部）；calibratedTotal = 校准出的能力槽总数（未校准 null）。 */
     public interface ResultCallback {
@@ -43,15 +48,18 @@ public final class SlotPickerScreen extends Screen {
     }
 
     private final Screen parent;
-    private final BlockPos containerPos;
+    private final BlockPos requestedPos;   // 语句标签第一台机器（多机优选前）
+    private final BlockPos containerPos;   // 实际显示布局的机器
     private final List<SlotNumbering.MenuSlot> menuSlots;
     private final List<BProgram.SlotRange> initialRanges;
     private final ResultCallback onResult;
 
     private SlotNumbering.Result numbering;
+    private SlotNumbering.ViewLayout view = new SlotNumbering.ViewLayout(1f, CELL * 9, CELL, 0, 0);
     private enum CapState { PENDING, READY, FAILED }
     private CapState capState = CapState.PENDING;
     private boolean capabilityMissing = false;   // 服务端回报没有能力面（区别于超时/未装）
+    private boolean initialApplied = false;      // 已写槽号区间是否已映射为选中
     private int ticksElapsed;
     private boolean selectionTouched = false;
     private int droppedFromCalibration = 0;
@@ -59,16 +67,21 @@ public final class SlotPickerScreen extends Screen {
     private final TreeSet<Integer> selected = new TreeSet<>();   // 菜单格 seq
     private int brushFrom = -1;
 
-    private float viewScale = 1.0f;
-    private int gridW, gridH, gridX, gridY;
+    private int availW, availH;
+    private int vpW, vpH;                    // 视口（背景框）尺寸
+    private int gridX, gridY;                // 视口左上
+    private int resultY, buttonY;            // 钉在屏内的结果行/按钮行
+    private int scrollX, scrollY;
 
     /** 打开中的选择器（按容器坐标），接收服务端校准回包。 */
     private static final Map<BlockPos, SlotPickerScreen> WAITERS = new ConcurrentHashMap<>();
 
-    public SlotPickerScreen(Screen parent, BlockPos containerPos, SlotLayoutData.Layout layout,
+    public SlotPickerScreen(Screen parent, BlockPos requestedPos, BlockPos containerPos,
+                            SlotLayoutData.Layout layout,
                             List<BProgram.SlotRange> initialRanges, ResultCallback onResult) {
         super(Component.literal(L_TITLE.getString()));
         this.parent = parent;
+        this.requestedPos = requestedPos;
         this.containerPos = containerPos;
         this.initialRanges = initialRanges == null ? List.of() : List.copyOf(initialRanges);
         this.onResult = onResult;
@@ -80,9 +93,8 @@ public final class SlotPickerScreen extends Screen {
             }
         }
         this.menuSlots = slots;
-        // 先以兜底编号（屏幕顺序）显示，校准回包到达后原位换算成真实序号
+        // 先以兜底编号占位（校准期间不显示任何编号，避免数字跳变的观感）
         this.numbering = SlotNumbering.compute(menuSlots, null, null);
-        this.selected.addAll(SlotNumbering.selectionForRanges(this.numbering, this.initialRanges));
     }
 
     /** 服务端校准数据入口（BlockEditorScreen.acceptSlotCapability 转发，主线程）。 */
@@ -106,17 +118,20 @@ public final class SlotPickerScreen extends Screen {
         TreeSet<Integer> before = new TreeSet<>(selected);
         this.numbering = SlotNumbering.compute(menuSlots, hasCapability ? caps : null,
                 hasCapability ? total : null);
-        if (selectionTouched) {
-            // 玩家已手动调整过：保留物理格子选择，只剔除新判定的不可寻址格
-            selected.removeIf(seq -> !numbering.isAddressable(seq));
-        } else {
-            // 玩家没动过：已写的槽号区间按校准后的真实编号重新解释
-            selected.clear();
-            selected.addAll(SlotNumbering.selectionForRanges(this.numbering, this.initialRanges));
-            selected.removeIf(seq -> !numbering.isAddressable(seq));
+        if (!selectionTouched) {
+            // 玩家没动过：已写的槽号区间按（校准后的）真实编号重新解释
+            applyInitialSelection();
         }
+        selected.removeIf(seq -> !numbering.isAddressable(seq));
         droppedFromCalibration = countDropped(before);
         capState = hasCapability ? CapState.READY : CapState.FAILED;
+    }
+
+    private void applyInitialSelection() {
+        if (initialApplied) return;
+        initialApplied = true;
+        selected.clear();
+        selected.addAll(SlotNumbering.selectionForRanges(this.numbering, this.initialRanges));
     }
 
     private int countDropped(TreeSet<Integer> before) {
@@ -134,16 +149,19 @@ public final class SlotPickerScreen extends Screen {
         boolean sent = io.github.xianynomial.sfmfactorystudio.net.SFMGuiNetwork
                 .sendToServerBestEffortChecked(
                         new io.github.xianynomial.sfmfactorystudio.net.SlotCapabilityRequestPayload(containerPos));
-        if (!sent) capState = CapState.FAILED;   // 服务端未装附属：横幅明示未校准
+        if (!sent) {
+            capState = CapState.FAILED;   // 服务端未装附属：横幅明示未校准
+            applyInitialSelection();
+        }
     }
 
     @Override
     protected void init() {
-        relayoutGrid();
         if (containerPos != null && capState == CapState.PENDING && ticksElapsed == 0
                 && WAITERS.get(containerPos) != this) {
             requestCalibration();   // 只发一次；窗口 resize 重跑 init 不会重发
         }
+        relayout();
     }
 
     @Override
@@ -155,32 +173,51 @@ public final class SlotPickerScreen extends Screen {
     public void tick() {
         if (capState == CapState.PENDING && ++ticksElapsed > CALIBRATE_TIMEOUT_TICKS) {
             capState = CapState.FAILED;   // 编号保持兜底模式，横幅明示未校准
+            applyInitialSelection();
         }
     }
 
-    // ---- 布局与命中（渲染与点击共用同一份几何数据，永不漂移）----
+    // ---- 布局（渲染与点击共用同一份几何数据，永不漂移）----
 
-    private void relayoutGrid() {
-        int maxX = 0, maxY = 0;
-        for (SlotNumbering.MenuSlot s : menuSlots) {
-            maxX = Math.max(maxX, s.x() + CELL);
-            maxY = Math.max(maxY, s.y() + CELL);
-        }
-        int rawW = Math.max(maxX, COLS * CELL);
-        int rawH = Math.max(maxY, CELL);
-        float availW = width - 40, availH = height - 170;
-        viewScale = Math.min(1.0f, Math.min(availW / rawW, availH / rawH));
-        gridW = Math.round(rawW * viewScale);
-        gridH = Math.round(rawH * viewScale);
-        gridX = (width - gridW) / 2;
-        gridY = Math.max(64, height / 2 - gridH / 2);
+    private void relayout() {
+        availW = Math.max(60, width - 40);
+        availH = Math.max(60, height - 170);
+        view = SlotNumbering.computeView(CELL, menuSlots, availW, availH);
+        vpW = Math.min(view.contentW(), availW);
+        vpH = Math.min(view.contentH(), availH);
+        gridX = (width - vpW) / 2;
+        gridY = Math.max(66, height / 2 - vpH / 2);
+        scrollX = clampScroll(scrollX, view.contentW(), vpW);
+        scrollY = clampScroll(scrollY, view.contentH(), vpH);
+        int bottom = gridY + vpH;
+        resultY = Math.min(bottom + 12, height - 44);
+        buttonY = Math.min(bottom + 26, height - 24);
+        if (buttonY < resultY + 8) buttonY = resultY + 8;
+    }
+
+    private static int clampScroll(int value, int content, int viewport) {
+        int max = Math.max(0, content - viewport);
+        return Math.max(0, Math.min(value, max));
+    }
+
+    /** 格子在屏幕上的位置（含归一化、缩放、滚动）。渲染与命中共用。 */
+    private int drawX(SlotNumbering.MenuSlot s) {
+        return gridX + Math.round((s.x() + view.shiftX()) * view.scale()) - scrollX;
+    }
+
+    private int drawY(SlotNumbering.MenuSlot s) {
+        return gridY + Math.round((s.y() + view.shiftY()) * view.scale()) - scrollY;
+    }
+
+    private int cellSize() {
+        return Math.max(Math.round(SlotNumbering.MIN_CELL_PX), Math.round(CELL * view.scale()));
     }
 
     private int seqAt(double mx, double my) {
-        int sz = Math.max(8, Math.round(CELL * viewScale));
+        int sz = cellSize();
         for (SlotNumbering.MenuSlot s : menuSlots) {
-            int x = gridX + Math.round(s.x() * viewScale);
-            int y = gridY + Math.round(s.y() * viewScale);
+            int x = drawX(s);
+            int y = drawY(s);
             if (mx >= x && mx < x + sz && my >= y && my < y + sz) return s.seq();
         }
         return -1;
@@ -203,6 +240,7 @@ public final class SlotPickerScreen extends Screen {
             }
             int seq = seqAt(mx, my);
             if (seq >= 0) {
+                if (capState == CapState.PENDING) return true;   // 校准中编号未定
                 if (!numbering.isAddressable(seq)) return true;   // 置灰格不可选
                 selectionTouched = true;
                 droppedFromCalibration = 0;
@@ -224,7 +262,7 @@ public final class SlotPickerScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
-        if (button == 0 && brushFrom >= 0) {
+        if (button == 0 && brushFrom >= 0 && capState != CapState.PENDING) {
             int seq = seqAt(mx, my);
             if (seq >= 0 && numbering.isAddressable(seq)) {
                 selectionTouched = true;
@@ -243,6 +281,18 @@ public final class SlotPickerScreen extends Screen {
         return super.mouseReleased(mx, my, button);
     }
 
+    @Override
+    public boolean mouseScrolled(double mx, double my, double scrollXAxis, double scrollYAxis) {
+        int dx = hasShiftDown() ? (int) Math.round(-scrollYAxis * SCROLL_STEP) : (int) Math.round(scrollXAxis * SCROLL_STEP);
+        int dy = hasShiftDown() ? 0 : (int) Math.round(-scrollYAxis * SCROLL_STEP);
+        if (dx != 0 || dy != 0) {
+            scrollX = clampScroll(scrollX + dx, view.contentW(), vpW);
+            scrollY = clampScroll(scrollY + dy, view.contentH(), vpH);
+            return true;
+        }
+        return super.mouseScrolled(mx, my, scrollXAxis, scrollYAxis);
+    }
+
     // ---- 渲染 ----
 
     @Override
@@ -254,60 +304,92 @@ public final class SlotPickerScreen extends Screen {
             return;
         }
 
-        g.drawCenteredString(this.font, L_TITLE.getString(), width / 2, 22, 0xFFFFFFFF);
-        g.drawCenteredString(this.font, L_HINT.getString(), width / 2, 36, 0xFF909090);
-        g.drawCenteredString(this.font, bannerText(), width / 2, 50, bannerColor());
+        drawFittedCentered(g, L_TITLE.getString(), 20, 0xFFFFFFFF);
+        drawFittedCentered(g, L_HINT.getString(), 31, 0xFF8A93A5);
+        drawFittedCentered(g, targetText(), 42, 0xFF8A93A5);
+        drawFittedCentered(g, bannerText(), 53, bannerColor());
 
-        relayoutGrid();
-        g.fill(gridX - 4, gridY - 4, gridX + gridW + 4, gridY + gridH + 4, 0xFF2A2A2E);
+        relayout();
+        g.fill(gridX - 4, gridY - 4, gridX + vpW + 4, gridY + vpH + 4, 0xFF2A2A2E);
 
-        int cellSize = Math.max(8, Math.round(CELL * viewScale));
+        boolean calibrating = capState == CapState.PENDING;
+        int sz = cellSize();
         int hoverSeq = seqAt(mx, my);
-        for (SlotNumbering.MenuSlot s : menuSlots) {
-            int x = gridX + Math.round(s.x() * viewScale);
-            int y = gridY + Math.round(s.y() * viewScale);
-            boolean addressable = numbering.isAddressable(s.seq());
-            boolean sel = selected.contains(s.seq());
-            boolean hover = s.seq() == hoverSeq;
-            int body = !addressable ? 0xFF151517 : sel ? 0xFF3A6FD8 : 0xFF1B1B1E;
-            int frame = !addressable ? 0xFF3A3A40 : sel ? 0xFF7FA8FF : hover ? 0xFF9AA3B2 : 0xFF55555C;
-            g.fill(x + 1, y + 1, x + cellSize - 1, y + cellSize - 1, body);
-            border(g, x, y, cellSize, cellSize, frame);
-            int num = numbering.number(s.seq());
-            if (addressable && num >= 0 && cellSize >= 14 && this.font.width(String.valueOf(num)) <= cellSize - 6) {
-                g.drawCenteredString(this.font, String.valueOf(num), x + cellSize / 2, y + cellSize / 2 - 4,
-                        sel ? 0xFFEAF2FF : 0xFF8A8A92);
+        g.enableScissor(gridX - 2, gridY - 2, gridX + vpW + 2, gridY + vpH + 2);
+        try {
+            for (SlotNumbering.MenuSlot s : menuSlots) {
+                int x = drawX(s);
+                int y = drawY(s);
+                if (x + sz < gridX || x > gridX + vpW || y + sz < gridY || y > gridY + vpH) continue;   // 视口剔除
+                boolean addressable = numbering.isAddressable(s.seq());
+                boolean sel = selected.contains(s.seq());
+                boolean hover = s.seq() == hoverSeq;
+                // 校准中：所有格子一律普通外观（编号/置灰判定未定，不得提前示色）
+                int body = calibrating ? 0xFF1B1B1E : !addressable ? 0xFF151517 : sel ? 0xFF3A6FD8 : 0xFF1B1B1E;
+                int frame = calibrating ? 0xFF55555C : !addressable ? 0xFF3A3A40 : sel ? 0xFF7FA8FF : hover ? 0xFF9AA3B2 : 0xFF55555C;
+                g.fill(x + 1, y + 1, x + sz - 1, y + sz - 1, body);
+                border(g, x, y, sz, sz, frame);
+                if (!calibrating && addressable) {
+                    int num = numbering.number(s.seq());
+                    if (num >= 0 && sz >= 14 && this.font.width(String.valueOf(num)) <= sz - 6) {
+                        g.drawCenteredString(this.font, String.valueOf(num), x + sz / 2, y + sz / 2 - 4,
+                                sel ? 0xFFEAF2FF : 0xFF8A8A92);
+                    }
+                } else if (!calibrating && !addressable && sz >= 14) {
+                    g.drawCenteredString(this.font, "·", x + sz / 2, y + sz / 2 - 4, 0xFF6A6A72);
+                }
             }
-            if (!addressable && cellSize >= 14) {
-                g.drawCenteredString(this.font, "·", x + cellSize / 2, y + cellSize / 2 - 4, 0xFF6A6A72);
-            }
+        } finally {
+            g.disableScissor();
         }
 
-        // 结果行 + 按钮（矩形由 render 与 mouseClicked 共用）
-        String result = SlotNumbering.numbersOf(numbering, selected);
-        g.drawCenteredString(this.font, result.isEmpty() ? L_NONE.getString() : "slots " + result,
-                width / 2, gridY + gridH + 12, selected.isEmpty() ? 0xFF909090 : 0xFF7FA8FF);
-        int by = gridY + gridH + 26;
+        renderScrollbars(g);
+
+        // 结果行 + 按钮（矩形由 render 与 mouseClicked 共用；永远钉在屏内）
+        String result = calibrating ? "" : SlotNumbering.numbersOf(numbering, selected);
+        if (!calibrating && droppedFromCalibration > 0) {
+            result = result.isEmpty() ? "" : result + "  " + L_DROPPED.getString(droppedFromCalibration);
+        }
+        String resultText = result.isEmpty() ? L_NONE.getString() : "slots " + result;
+        int resultColor = calibrating ? 0xFF9AA3B2 : selected.isEmpty() ? 0xFF909090 : 0xFF7FA8FF;
+        drawFittedCentered(g, resultText, resultY, resultColor);
+
         buttonRects.clear();
         buttonActions.clear();
-        addButton(g, width / 2 - 110, by, 70, L_OK.getString(), 0xFF2FA84F, this::confirm, mx, my);
-        addButton(g, width / 2 - 35, by, 70, L_CLEAR.getString(), 0xFF5B6472, () -> {
-            selected.clear();
-            selectionTouched = true;
-            droppedFromCalibration = 0;
+        boolean confirmReady = capState != CapState.PENDING;
+        addButton(g, width / 2 - 110, buttonY, 70, L_OK.getString(),
+                confirmReady ? 0xFF2FA84F : 0xFF3C5A46, confirmReady ? this::confirm : () -> {
+                }, mx, my);
+        addButton(g, width / 2 - 35, buttonY, 70, L_CLEAR.getString(), 0xFF5B6472, () -> {
+            if (capState != CapState.PENDING) {
+                selected.clear();
+                selectionTouched = true;
+                droppedFromCalibration = 0;
+            }
         }, mx, my);
-        addButton(g, width / 2 + 40, by, 70, L_CLOSE.getString(), 0xFF5B6472, this::onClose, mx, my);
+        addButton(g, width / 2 + 40, buttonY, 70, L_CLOSE.getString(), 0xFF5B6472, this::onClose, mx, my);
 
         renderTooltip(g, hoverSeq, mx, my);
     }
 
-    private void renderGuidance(GuiGraphics g) {
-        g.drawCenteredString(this.font, L_TITLE.getString(), width / 2, height / 2 - 44, 0xFFFFFFFF);
-        g.drawCenteredString(this.font, L_NO_RECORD.getString(), width / 2, height / 2 - 20, 0xFFE0E0E0);
-        g.drawCenteredString(this.font, L_STEP1.getString(), width / 2, height / 2 - 2, 0xFFE0E0E0);
-        g.drawCenteredString(this.font, L_STEP2.getString(), width / 2, height / 2 + 14, 0xFFE0E0E0);
-        g.drawCenteredString(this.font, L_STEP3.getString(), width / 2, height / 2 + 30, 0xFF909090);
-        g.drawCenteredString(this.font, L_STEP4.getString(), width / 2, height / 2 + 48, 0xFF909090);
+    /** 目标机器行：标题 + 坐标；多机优选换过机器时明示。 */
+    private String targetText() {
+        SlotLayoutData.Layout captured = null;
+        String title = "";
+        int x = 0, y = 0, z = 0;
+        if (containerPos != null) {
+            x = containerPos.getX();
+            y = containerPos.getY();
+            z = containerPos.getZ();
+            captured = ClientGuiLayoutCache.get(containerPos);
+            title = captured != null && captured.title() != null ? captured.title() : "";
+        }
+        String base = L_TARGET.getString() + "：" + (title.isEmpty() ? "—" : title)
+                + " (" + x + ", " + y + ", " + z + ")";
+        if (requestedPos != null && containerPos != null && !requestedPos.equals(containerPos)) {
+            base += "  ·  " + L_MULTI.getString();
+        }
+        return base;
     }
 
     private String bannerText() {
@@ -339,9 +421,38 @@ public final class SlotPickerScreen extends Screen {
         };
     }
 
+    /** 内容超出视口时画细滚动条（右缘=纵向，下缘=横向）。 */
+    private void renderScrollbars(GuiGraphics g) {
+        if (view.contentH() > vpH) {
+            int trackX = gridX + vpW + 2;
+            float ratio = (float) vpH / view.contentH();
+            int thumbH = Math.max(12, Math.round(vpH * ratio));
+            int thumbY = gridY + Math.round((vpH - thumbH) * (scrollY / (float) Math.max(1, view.contentH() - vpH)));
+            g.fill(trackX, gridY, trackX + 2, gridY + vpH, 0xFF3A3A40);
+            g.fill(trackX, thumbY, trackX + 2, thumbY + thumbH, 0xFF8A93A5);
+        }
+        if (view.contentW() > vpW) {
+            int trackY = gridY + vpH + 2;
+            float ratio = (float) vpW / view.contentW();
+            int thumbW = Math.max(12, Math.round(vpW * ratio));
+            int thumbX = gridX + Math.round((vpW - thumbW) * (scrollX / (float) Math.max(1, view.contentW() - vpW)));
+            g.fill(gridX, trackY, gridX + vpW, trackY + 2, 0xFF3A3A40);
+            g.fill(thumbX, trackY, thumbX + thumbW, trackY + 2, 0xFF8A93A5);
+        }
+    }
+
+    private void renderGuidance(GuiGraphics g) {
+        drawFittedCentered(g, L_TITLE.getString(), height / 2 - 44, 0xFFFFFFFF);
+        drawFittedCentered(g, L_NO_RECORD.getString(), height / 2 - 20, 0xFFE0E0E0);
+        drawFittedCentered(g, L_STEP1.getString(), height / 2 - 2, 0xFFE0E0E0);
+        drawFittedCentered(g, L_STEP2.getString(), height / 2 + 14, 0xFFE0E0E0);
+        drawFittedCentered(g, L_STEP3.getString(), height / 2 + 30, 0xFF909090);
+        drawFittedCentered(g, L_STEP4.getString(), height / 2 + 48, 0xFF909090);
+    }
+
     /** 悬停提示：灰格说明不可寻址；可选格显示编号与捕获时的内容。 */
     private void renderTooltip(GuiGraphics g, int seq, int mx, int my) {
-        if (seq < 0) return;
+        if (seq < 0 || capState == CapState.PENDING) return;
         String text;
         if (!numbering.isAddressable(seq)) {
             text = L_GREY_HOVER.getString();
@@ -383,27 +494,25 @@ public final class SlotPickerScreen extends Screen {
         else mc.setScreen(null);
     }
 
-    // ---- 双语文案 ----
-    private static final Loc L_TITLE = new Loc("gui.sfmfactorystudio.slot.slot_title", "选择槽位（beta）");
-    private static final Loc L_HINT = new Loc("gui.sfmfactorystudio.slot.slot_hint", "单击选中 · 拖动刷选 · Shift+点击选范围");
-    private static final Loc L_CALIBRATING = new Loc("gui.sfmfactorystudio.slot.slot_calibrating", "正在向服务端校准槽位序号…");
-    private static final Loc L_CALIBRATED = new Loc("gui.sfmfactorystudio.slot.slot_calibrated", "✓ 已校准：编号 = 实际槽位序号，所见即所得");
-    private static final Loc L_UNCALIBRATED = new Loc("gui.sfmfactorystudio.slot.slot_uncalibrated", "⚠ 未校准：编号为屏幕顺序，多容器机器可能与实际序号有偏差（建议先放 1 个物品试运行）");
-    private static final Loc L_NO_CAPABILITY = new Loc("gui.sfmfactorystudio.slot.slot_no_capability", "⚠ 该方块没有可寻址的物品槽，指定的槽位不会生效");
-    private static final Loc L_GREY_NOTE = new Loc("gui.sfmfactorystudio.slot.slot_grey_note", "灰格 = 不可寻址（如升级卡槽）");
-    private static final Loc L_HIDDEN_CAPS = new Loc("gui.sfmfactorystudio.slot.slot_hidden_caps", "另有 %s 个实际槽位不在此界面显示");
-    private static final Loc L_GREY_HOVER = new Loc("gui.sfmfactorystudio.slot.slot_grey_hover", "此格不对应实际可寻址槽位");
-    private static final Loc L_NO_RECORD = new Loc("gui.sfmfactorystudio.slot.slot_no_record", "还没有这个容器的布局记录");
-    private static final Loc L_STEP1 = new Loc("gui.sfmfactorystudio.slot.slot_step1", "① 返回游戏，右键打开一次该容器的界面");
-    private static final Loc L_STEP2 = new Loc("gui.sfmfactorystudio.slot.slot_step2", "② 再回到这里，就会还原成和原版一样的布局");
-    private static final Loc L_STEP3 = new Loc("gui.sfmfactorystudio.slot.slot_step3", "③ 也可以直接关闭后输入槽位数字");
-    private static final Loc L_STEP4 = new Loc("gui.sfmfactorystudio.slot.slot_step4", "打开过容器界面后，编号会自动校准成实际槽位序号");
-    private static final Loc L_NONE = new Loc("gui.sfmfactorystudio.slot.slot_none", "未选择（=全部槽位）");
-    private static final Loc L_OK = new Loc("gui.sfmfactorystudio.slot.slot_ok", "确认");
-    private static final Loc L_CLEAR = new Loc("gui.sfmfactorystudio.slot.slot_clear", "清空");
-    private static final Loc L_CLOSE = new Loc("gui.sfmfactorystudio.slot.slot_close", "关闭");
+    // ---- 文本与绘制助手 ----
 
-    // ---- 绘制助手 ----
+    /** 居中文字；超出屏宽时整体缩小到恰好放下（4K 高 GUI 缩放也不出屏）。 */
+    private void drawFittedCentered(GuiGraphics g, String text, int y, int color) {
+        int w = this.font.width(text);
+        int maxW = width - 12;
+        if (w <= maxW) {
+            g.drawCenteredString(this.font, text, width / 2, y, color);
+            return;
+        }
+        float scale = maxW / (float) w;
+        var pose = g.pose();
+        pose.pushPose();
+        pose.translate(width / 2f, y + 4.5f, 0);
+        pose.scale(scale, scale, 1);
+        pose.translate(-width / 2f, -(y + 4.5f), 0);
+        g.drawCenteredString(this.font, text, width / 2, y, color);
+        pose.popPose();
+    }
 
     private void addButton(GuiGraphics g, int x, int y, int w, String label, int color, Runnable onClick, double mx, double my) {
         boolean hover = mx >= x && mx < x + w && my >= y && my < y + 18;
@@ -426,4 +535,27 @@ public final class SlotPickerScreen extends Screen {
         g.fill(x, y, x + 1, y + h, color);
         g.fill(x + w - 1, y, x + w, y + h, color);
     }
+
+    // ---- 双语文案 ----
+    private static final Loc L_TITLE = new Loc("gui.sfmfactorystudio.slot.slot_title", "选择槽位（beta）");
+    private static final Loc L_HINT = new Loc("gui.sfmfactorystudio.slot.slot_hint", "单击选中 · 拖动刷选 · Shift+点击选范围");
+    private static final Loc L_CALIBRATING = new Loc("gui.sfmfactorystudio.slot.slot_calibrating", "正在向服务端校准槽位序号…");
+    private static final Loc L_CALIBRATED = new Loc("gui.sfmfactorystudio.slot.slot_calibrated", "✓ 已校准：编号 = 实际槽位序号，所见即所得");
+    private static final Loc L_UNCALIBRATED = new Loc("gui.sfmfactorystudio.slot.slot_uncalibrated", "⚠ 未校准：编号为屏幕顺序，多容器机器可能与实际序号有偏差（建议先放 1 个物品试运行）");
+    private static final Loc L_NO_CAPABILITY = new Loc("gui.sfmfactorystudio.slot.slot_no_capability", "⚠ 该方块没有可寻址的物品槽，指定的槽位不会生效");
+    private static final Loc L_GREY_NOTE = new Loc("gui.sfmfactorystudio.slot.slot_grey_note", "灰格 = 不可寻址（如升级卡槽）");
+    private static final Loc L_HIDDEN_CAPS = new Loc("gui.sfmfactorystudio.slot.slot_hidden_caps", "另有 %s 个实际槽位不在此界面显示");
+    private static final Loc L_GREY_HOVER = new Loc("gui.sfmfactorystudio.slot.slot_grey_hover", "此格不对应实际可寻址槽位");
+    private static final Loc L_NO_RECORD = new Loc("gui.sfmfactorystudio.slot.slot_no_record", "还没有这个容器的布局记录");
+    private static final Loc L_STEP1 = new Loc("gui.sfmfactorystudio.slot.slot_step1", "① 返回游戏，右键打开一次该容器的界面");
+    private static final Loc L_STEP2 = new Loc("gui.sfmfactorystudio.slot.slot_step2", "② 再回到这里，就会还原成和原版一样的布局");
+    private static final Loc L_STEP3 = new Loc("gui.sfmfactorystudio.slot.slot_step3", "③ 也可以直接关闭后输入槽位数字");
+    private static final Loc L_STEP4 = new Loc("gui.sfmfactorystudio.slot.slot_step4", "打开过容器界面后，编号会自动校准成实际槽位序号");
+    private static final Loc L_NONE = new Loc("gui.sfmfactorystudio.slot.slot_none", "未选择（=全部槽位）");
+    private static final Loc L_OK = new Loc("gui.sfmfactorystudio.slot.slot_ok", "确认");
+    private static final Loc L_CLEAR = new Loc("gui.sfmfactorystudio.slot.slot_clear", "清空");
+    private static final Loc L_CLOSE = new Loc("gui.sfmfactorystudio.slot.slot_close", "关闭");
+    private static final Loc L_TARGET = new Loc("gui.sfmfactorystudio.slot.slot_target", "目标");
+    private static final Loc L_MULTI = new Loc("gui.sfmfactorystudio.slot.slot_multi_hint", "该标签绑定多台机器，显示的是有布局记录的一台");
+    private static final Loc L_DROPPED = new Loc("gui.sfmfactorystudio.slot.slot_dropped", "（已剔除 %s 个不可寻址格）");
 }
