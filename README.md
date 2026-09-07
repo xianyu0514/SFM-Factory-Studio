@@ -3,7 +3,7 @@
 本分支是 [SFM Factory Studio](https://github.com/xianyu0514/SFM-Factory-Studio)（默认 `main` 分支，1.21.1 NeoForge）的 **Minecraft 1.20.1 Forge 移植**，功能与 main 分支保持同步：积木编辑器、同屏 SFML 双向编辑、中文诊断、资源标签、NBT 组件筛选、JEI 联动、双语界面（跟随 Minecraft 语言设置）。
 
 **完整文档（中英双语）见 [main 分支 README](https://github.com/xianyu0514/SFM-Factory-Studio#readme)**：
-[English](https://github.com/xianyu0514/SFM-Factory-Studio/blob/main/README.md) | [简体中文](https://github.com/xianyu0514/SFM-Factory-Studio/blob/main/README_zh.md)
+[简体中文](https://github.com/xianyu0514/SFM-Factory-Studio#readme) | [English](https://github.com/xianyu0514/SFM-Factory-Studio/blob/main/README_en.md)
 
 ## 安装（1.20.1 Forge）
 
