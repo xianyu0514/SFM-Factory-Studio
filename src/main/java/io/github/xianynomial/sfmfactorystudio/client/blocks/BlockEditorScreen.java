@@ -10174,29 +10174,38 @@ public class BlockEditorScreen extends Screen {
 
 
 
-    private void openSlotBetaPicker(net.minecraft.core.BlockPos pos, List<BProgram.SlotRange> target) {
-
+    private void openSlotBetaPicker(net.minecraft.core.BlockPos pos, List<String> labelTexts, List<BProgram.SlotRange> target) {
 
 
         if (pos == null) {
 
 
-
             showStatus(NEED_LABEL_LOCATE.getString(), 0xFFD13438);
-
 
 
             return;
 
 
-
         }
 
 
+        // 有捕获的绑定机器自动优选：pos 无记录时，尝试该标签下其他绑定方块
+        var holder = LabelPositionHolder.from(menu.getDisk());
+        net.minecraft.core.BlockPos targetPos = pos;
+        if (ClientGuiLayoutCache.get(pos) == null) {
+            for (String label : labelTexts) {
+                var set = holder.getPositions(label);
+                if (set == null) continue;
+                var it = set.longIterator();
+                while (it.hasNext()) {
+                    var bp = net.minecraft.core.BlockPos.of(it.nextLong());
+                    if (ClientGuiLayoutCache.get(bp) != null) { targetPos = bp; break; }
+                }
+                if (targetPos != pos) break;
+            }
+        }
 
-        var captured = ClientGuiLayoutCache.get(pos);
-
-
+        var captured = ClientGuiLayoutCache.get(targetPos);
 
         int total = captured != null ? captured.totalSlots() : -1;
 
@@ -10237,9 +10246,7 @@ public class BlockEditorScreen extends Screen {
         Minecraft.getInstance().setScreen(new SlotPickerScreen(
 
 
-
                 this, total, coords, initialSel, picked -> {
-
 
 
                     setSlotsFromText(target, picked.stream()
@@ -22843,7 +22850,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                            () -> openSlotBetaPicker(firstPos, access.slots),
+                            () -> openSlotBetaPicker(firstPos, access.labels, access.slots),
 
 
 
