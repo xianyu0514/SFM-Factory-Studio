@@ -229,6 +229,33 @@ public class SlotNumberingTest {
         assertTrue(vl.contentH() <= 300);
     }
 
+    // ---- 隐藏能力槽补显：没有任何界面格认领的能力槽要能找出来 ----
+
+    @Test
+    public void unclaimedCapIndexesFindsSlotsMissingFromGui() {
+        // 截图场景：能力面 4 槽，GUI 只显示其中 2 个（0、1），另 2 个（内部缓冲，
+        // 内容与任何界面格都对不上）必须被找出来
+        List<SlotNumbering.MenuSlot> slots = row(8, i -> i < 2 ? "minecraft:item_" + i : "",
+                i -> i < 2 ? 1 : 0);
+        SlotNumbering.Result r = SlotNumbering.compute(slots,
+                List.of(cap(0, "minecraft:item_0", 1), cap(1, "minecraft:item_1", 1),
+                        cap(2, "minecraft:buffer_a", 8), cap(3, "minecraft:buffer_b", 4)), 4);
+        assertTrue(r.calibrated());
+        assertEquals(2, r.hiddenCaps());
+        assertEquals(List.of(2, 3), SlotNumbering.unclaimedCapIndexes(r, 4));
+        // 显示 0、1 的两个格子之外，其余 GUI 格都是不可寻址
+        for (int i = 2; i < 8; i++) assertFalse(r.isAddressable(i));
+    }
+
+    @Test
+    public void unclaimedCapIndexesEmptyWhenAllCapsShown() {
+        List<SlotNumbering.MenuSlot> slots = row(3, i -> "minecraft:item_" + i, i -> 1);
+        SlotNumbering.Result r = SlotNumbering.compute(slots,
+                List.of(cap(0, "minecraft:item_0", 1), cap(1, "minecraft:item_1", 1),
+                        cap(2, "minecraft:item_2", 1)), 3);
+        assertTrue(SlotNumbering.unclaimedCapIndexes(r, 3).isEmpty());
+    }
+
     // ---- 压缩文本 ----
 
     @Test

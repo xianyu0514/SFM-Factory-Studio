@@ -39,6 +39,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class SlotPickerScreen extends Screen {
     private static final int CELL = 20;
+    private static final int HIDDEN_COLS = 9;                // 合成区每行格数
     private static final int CALIBRATE_TIMEOUT_TICKS = 60;   // 3 秒无回包 = 未校准
     private static final int SCROLL_STEP = 32;
 
@@ -50,7 +51,10 @@ public final class SlotPickerScreen extends Screen {
     private final Screen parent;
     private final BlockPos requestedPos;   // 语句标签第一台机器（多机优选前）
     private final BlockPos containerPos;   // 实际显示布局的机器
-    private final List<SlotNumbering.MenuSlot> menuSlots;
+    private final List<SlotNumbering.MenuSlot> capturedSlots;   // 捕获的界面格（不变）
+    private List<SlotNumbering.MenuSlot> menuSlots;             // 显示列表 = 捕获格 + 隐藏槽合成格
+    private int syntheticFrom = -1;        // 合成格起始 seq（-1 = 无）
+    private int labelRawX, labelRawY;      // 合成区标签的内容坐标
     private final List<BProgram.SlotRange> initialRanges;
     private final ResultCallback onResult;
 
@@ -96,6 +100,7 @@ public final class SlotPickerScreen extends Screen {
                 slots.add(new SlotNumbering.MenuSlot(seq++, c.x(), c.y(), c.item(), c.count(), c.capIndex()));
             }
         }
+        this.capturedSlots = slots;
         this.menuSlots = slots;
         // 先以兜底编号占位（校准期间不显示任何编号，避免数字跳变的观感）
         this.numbering = SlotNumbering.compute(menuSlots, null, null);
@@ -148,6 +153,11 @@ public final class SlotPickerScreen extends Screen {
         }
         boolean hasCapability = total > 0;
         TreeSet<Integer> before = new TreeSet<>(selected);
+        // 第一遍：捕获格与能力槽配对，找出"GUI 里没画出来的能力槽"
+        SlotNumbering.Result firstPass = SlotNumbering.compute(capturedSlots,
+                hasCapability ? caps : null, hasCapability ? total : null);
+        rebuildDisplaySlots(firstPass, hasCapability ? caps : null, hasCapability ? total : 0);
+        // 第二遍：含合成格的完整显示列表（合成格靠 capHint 精确认领真实序号）
         this.numbering = SlotNumbering.compute(menuSlots, hasCapability ? caps : null,
                 hasCapability ? total : null);
         if (!selectionTouched) {
@@ -157,6 +167,39 @@ public final class SlotPickerScreen extends Screen {
         selected.removeIf(seq -> !numbering.isAddressable(seq));
         droppedFromCalibration = countDropped(before);
         capState = hasCapability ? CapState.READY : CapState.FAILED;
+    }
+
+    /** 隐藏能力槽（SFM 可寻址但 GUI 没画）以合成格补显在布局下方，真实编号可选。 */
+    private void rebuildDisplaySlots(SlotNumbering.Result firstPass, List<SlotNumbering.CapSlot> caps, int total) {
+        if (caps == null || total <= 0) {
+            syntheticFrom = -1;
+            menuSlots = capturedSlots;
+            return;
+        }
+        List<Integer> hidden = SlotNumbering.unclaimedCapIndexes(firstPass, total);
+        if (hidden.isEmpty()) {
+            syntheticFrom = -1;
+            menuSlots = capturedSlots;
+            return;
+        }
+        int minX = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
+        for (SlotNumbering.MenuSlot s : capturedSlots) {
+            minX = Math.min(minX, s.x());
+            maxY = Math.max(maxY, s.y() + CELL);
+        }
+        labelRawX = minX;
+        labelRawY = maxY + CELL + 2;
+        syntheticFrom = capturedSlots.size();
+        List<SlotNumbering.MenuSlot> all = new ArrayList<>(capturedSlots);
+        int synthY = maxY + CELL + 14;
+        for (int k = 0; k < hidden.size(); k++) {
+            int capIndex = hidden.get(k);
+            SlotNumbering.CapSlot c = caps.get(capIndex);
+            all.add(new SlotNumbering.MenuSlot(all.size(),
+                    minX + (k % HIDDEN_COLS) * CELL, synthY + (k / HIDDEN_COLS) * CELL,
+                    c.item(), c.count(), capIndex));
+        }
+        menuSlots = all;
     }
 
     private void applyInitialSelection() {
@@ -235,11 +278,19 @@ public final class SlotPickerScreen extends Screen {
 
     /** 格子在屏幕上的位置（含归一化、缩放、滚动）。渲染与命中共用。 */
     private int drawX(SlotNumbering.MenuSlot s) {
-        return gridX + Math.round((s.x() + view.shiftX()) * view.scale()) - scrollX;
+        return coordX(s.x());
     }
 
     private int drawY(SlotNumbering.MenuSlot s) {
-        return gridY + Math.round((s.y() + view.shiftY()) * view.scale()) - scrollY;
+        return coordY(s.y());
+    }
+
+    private int coordX(int rawX) {
+        return gridX + Math.round((rawX + view.shiftX()) * view.scale()) - scrollX;
+    }
+
+    private int coordY(int rawY) {
+        return gridY + Math.round((rawY + view.shiftY()) * view.scale()) - scrollY;
     }
 
     private int cellSize() {
@@ -350,6 +401,10 @@ public final class SlotPickerScreen extends Screen {
         int hoverSeq = seqAt(mx, my);
         g.enableScissor(gridX - 2, gridY - 2, gridX + vpW + 2, gridY + vpH + 2);
         try {
+            if (syntheticFrom >= 0) {
+                g.drawString(this.font, L_HIDDEN_SECTION.getString(),
+                        coordX(labelRawX), coordY(labelRawY), 0xFF8A93A5, false);
+            }
             for (SlotNumbering.MenuSlot s : menuSlots) {
                 int x = drawX(s);
                 int y = drawY(s);
@@ -601,4 +656,5 @@ public final class SlotPickerScreen extends Screen {
     private static final Loc L_TOO_FAR = new Loc("gui.sfmfactorystudio.slot.slot_too_far", "⚠ 距离太远或方块不存在，无法读取槽位——靠近到 64 格内再打开");
     private static final Loc L_SIDE_FALLBACK = new Loc("gui.sfmfactorystudio.slot.slot_side_fallback", "⚠ 所选侧面没有槽位，编号按 %s 面显示——SFM 访问此机器需要写侧面限定（如 each side）");
     private static final Loc L_DIR_NULL = new Loc("gui.sfmfactorystudio.slot.slot_dir_null", "无侧面");
+    private static final Loc L_HIDDEN_SECTION = new Loc("gui.sfmfactorystudio.slot.slot_hidden_section", "▼ 此界面未显示的槽位（编号即真实槽位序号）");
 }
