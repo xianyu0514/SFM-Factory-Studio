@@ -108,4 +108,27 @@ public class SlotLayoutDataTest {
         // 旧缓存为空时一律接受
         assertTrue(SlotLayoutData.preferCapture(few, null));
     }
+
+    @Test
+    public void anchorsMergeDedupeAndApplyToSlots() {
+        SlotLayoutData.Layout l = new SlotLayoutData.Layout("Factory", List.of(
+                new SlotLayoutData.SlotCapture(0, 0, 2, "", 0, null),
+                new SlotLayoutData.SlotCapture(20, 0, 3, "", 0, null)));
+        SlotLayoutData.Layout l2 = SlotLayoutData.withAnchor(l, new SlotLayoutData.SlotAnchor(0, 2, 0, 0, 5));
+        assertEquals(5, l2.slots().get(0).capIndex());
+        assertEquals(1, l2.anchors().size());
+        // 同朝向同索引再次学习 = 覆盖
+        SlotLayoutData.Layout l3 = SlotLayoutData.withAnchor(l2, new SlotLayoutData.SlotAnchor(0, 2, 0, 0, 7));
+        assertEquals(7, l3.slots().get(0).capIndex());
+        assertEquals(1, l3.anchors().size());
+        assertNull(l3.slots().get(1).capIndex());   // 另一格不受影响
+        // merge：旧锚点保留、新锚点补充
+        assertEquals(2, SlotLayoutData.mergeAnchors(l2.anchors(),
+                List.of(new SlotLayoutData.SlotAnchor(0, 3, 20, 0, 9))).size());
+        // 旧格式条目（containerSlot=-1）按坐标兜底匹配
+        SlotLayoutData.Layout legacy = new SlotLayoutData.Layout("t",
+                List.of(new SlotLayoutData.SlotCapture(9, 9, -1, "", 0, null)));
+        SlotLayoutData.Layout legacy2 = SlotLayoutData.withAnchor(legacy, new SlotLayoutData.SlotAnchor(0, -1, 9, 9, 4));
+        assertEquals(4, legacy2.slots().get(0).capIndex());
+    }
 }

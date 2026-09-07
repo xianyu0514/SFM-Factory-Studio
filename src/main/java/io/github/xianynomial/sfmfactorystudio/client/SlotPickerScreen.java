@@ -51,8 +51,11 @@ public final class SlotPickerScreen extends Screen {
     private final Screen parent;
     private final BlockPos requestedPos;   // 语句标签第一台机器（多机优选前）
     private final BlockPos containerPos;   // 实际显示布局的机器
-    private final List<SlotNumbering.MenuSlot> capturedSlots;   // 捕获的界面格（不变）
+    private final List<SlotLayoutData.SlotCapture> captures;    // 捕获原始条目（含 containerSlot，锚点匹配键）
+    private final List<SlotLayoutData.SlotAnchor> anchors;      // 操作学习锚点（最高优先级证据）
+    private List<SlotNumbering.MenuSlot> capturedSlots;         // 捕获的界面格（应用锚点提示后）
     private List<SlotNumbering.MenuSlot> menuSlots;             // 显示列表 = 捕获格 + 隐藏槽合成格
+    private int learnedAnchors = 0;                             // 本次校准被锚点证实的格子数
     private int syntheticFrom = -1;        // 合成格起始 seq（-1 = 无）
     private int labelRawX, labelRawY;      // 合成区标签的内容坐标
     private final List<BProgram.SlotRange> initialRanges;
@@ -94,10 +97,12 @@ public final class SlotPickerScreen extends Screen {
         this.sidesCode = sidesCode == null || sidesCode.isBlank() ? "null" : sidesCode;
         this.initialRanges = initialRanges == null ? List.of() : List.copyOf(initialRanges);
         this.onResult = onResult;
+        this.captures = layout != null ? layout.slots() : List.<SlotLayoutData.SlotCapture>of();
+        this.anchors = layout != null && layout.anchors() != null ? layout.anchors() : List.of();
         List<SlotNumbering.MenuSlot> slots = new ArrayList<>();
         if (layout != null) {
             int seq = 0;
-            for (SlotLayoutData.SlotCapture c : layout.slots()) {
+            for (SlotLayoutData.SlotCapture c : this.captures) {
                 slots.add(new SlotNumbering.MenuSlot(seq++, c.x(), c.y(), c.item(), c.count(), c.capIndex()));
             }
         }
@@ -156,6 +161,29 @@ public final class SlotPickerScreen extends Screen {
         }
         boolean hasCapability = total > 0;
         TreeSet<Integer> before = new TreeSet<>(selected);
+        // 锚点提示（最高优先级）：操作学习证实的"视觉格 = 真实槽位"直接锁死编号，
+        // 覆盖实例匹配/内容签名等一切推断证据
+        int refIdx = SlotLayoutData.refDirIndex(refDir);
+        learnedAnchors = 0;
+        if (!anchors.isEmpty()) {
+            List<SlotNumbering.MenuSlot> hinted = new ArrayList<>();
+            int seq = 0;
+            for (SlotLayoutData.SlotCapture c : captures) {
+                Integer hint = c.capIndex();
+                for (SlotLayoutData.SlotAnchor a : anchors) {
+                    if (a.dir() != refIdx) continue;
+                    boolean match = (a.containerSlot() >= 0 && a.containerSlot() == c.containerSlot())
+                            || (a.containerSlot() < 0 && a.x() == c.x() && a.y() == c.y());
+                    if (match) {
+                        if (hint == null || hint != a.capIndex()) learnedAnchors++;
+                        hint = a.capIndex();
+                        break;
+                    }
+                }
+                hinted.add(new SlotNumbering.MenuSlot(seq++, c.x(), c.y(), c.item(), c.count(), hint));
+            }
+            capturedSlots = hinted;
+        }
         // 第一遍：捕获格与能力槽配对，找出"GUI 里没画出来的能力槽"
         SlotNumbering.Result firstPass = SlotNumbering.compute(capturedSlots,
                 hasCapability ? caps : null, hasCapability ? total : null);
@@ -498,6 +526,9 @@ public final class SlotPickerScreen extends Screen {
         if (capState == CapState.READY && numbering.zipClaims() > 0) {
             return L_PARTIAL.getString(numbering.zipClaims());
         }
+        if (capState == CapState.READY && learnedAnchors > 0) {
+            return L_CALIBRATED.getString() + "  " + L_LEARNED.getString(learnedAnchors);
+        }
         return switch (capState) {
             case PENDING -> L_CALIBRATING.getString();
             case READY -> {
@@ -680,5 +711,6 @@ public final class SlotPickerScreen extends Screen {
     private static final Loc L_DIR_NULL = new Loc("gui.sfmfactorystudio.slot.slot_dir_null", "无侧面");
     private static final Loc L_PARTIAL = new Loc("gui.sfmfactorystudio.slot.slot_partial", "✓ 已校准：%s 个格子的编号按屏幕顺序推断（存在歧义），建议先放 1 个物品试运行验证");
     private static final Loc L_SIDE_GUIDE = new Loc("gui.sfmfactorystudio.slot.slot_side_guide", "该机器各朝向槽位数不同（当前 %s，其他朝向最多 %s）——给积木写侧面限定（如 each side）可访问更多槽位");
+    private static final Loc L_LEARNED = new Loc("gui.sfmfactorystudio.slot.slot_learned", "（%s 个槽位已由你的实际操作学习证实）");
     private static final Loc L_HIDDEN_SECTION = new Loc("gui.sfmfactorystudio.slot.slot_hidden_section", "▼ 此界面未显示的槽位（编号即真实槽位序号）");
 }

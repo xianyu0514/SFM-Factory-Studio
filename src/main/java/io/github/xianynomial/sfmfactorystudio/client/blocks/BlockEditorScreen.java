@@ -523,7 +523,15 @@ public class BlockEditorScreen extends Screen {
     private static volatile boolean SLOT_CAP_PROBED = false;
 
     /** 服务端能力槽内容回包入口（SlotCapabilityPayload）。转发给打开中的选择器。 */
-    public static void acceptSlotCapability(net.minecraft.core.BlockPos pos, int state,
+    public static void acceptSlotAnchor(net.minecraft.core.BlockPos pos, int dir,
+                                        int containerSlot, int x, int y, int capIndex) {
+        SLOT_CAP_PROBED = true;
+        slotLayoutServerSeen = true;
+        ClientGuiLayoutCache.applyAnchor(pos, dir, containerSlot, x, y, capIndex);
+    }
+
+    /** 服务端能力槽内容回包入口（SlotCapabilityPayload）。转发给打开中的选择器。 */
+        public static void acceptSlotCapability(net.minecraft.core.BlockPos pos, int state,
                                             String refDir, int total, int[] dirTotals,
                                             List<String> items, List<Integer> counts) {
         SLOT_CAP_PROBED = true;   // 能收到回包 = 服务端装了附属 → β 入口解锁

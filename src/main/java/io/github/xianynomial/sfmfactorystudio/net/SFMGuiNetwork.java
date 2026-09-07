@@ -44,6 +44,10 @@ public final class SFMGuiNetwork {
                     RequestLabelsPayload::encode,
                     RequestLabelsPayload::decode,
                     RequestLabelsHandler::handle);
+            CHANNEL.registerMessage(id++, SlotCalibrationBeginPayload.class,
+                    SlotCalibrationBeginPayload::encode,
+                    SlotCalibrationBeginPayload::decode,
+                    SlotCalibrationBeginPayload::handle);
             CHANNEL.registerMessage(id++, SlotCapabilityRequestPayload.class,
                     SlotCapabilityRequestPayload::encode,
                     SlotCapabilityRequestPayload::decode,
@@ -59,6 +63,12 @@ public final class SFMGuiNetwork {
                     SfmCapabilitiesPayload::encode,
                     SfmCapabilitiesPayload::decode,
                     SfmCapabilitiesPayload::handle,
+                    java.util.Optional.of(net.minecraftforge.network.NetworkDirection.PLAY_TO_CLIENT));
+            // 操作学习锚点（服务端 → 客户端）
+            CHANNEL.registerMessage(id++, SlotAnchorPayload.class,
+                    SlotAnchorPayload::encode,
+                    SlotAnchorPayload::decode,
+                    SlotAnchorPayload::handle,
                     java.util.Optional.of(net.minecraftforge.network.NetworkDirection.PLAY_TO_CLIENT));
             // 槽位能力槽内容（服务端 → 客户端，槽位可视化编号校准）
             CHANNEL.registerMessage(id++, SlotCapabilityPayload.class,
