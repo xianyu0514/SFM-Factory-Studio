@@ -14268,7 +14268,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        toolbarRows = panelW < 620 ? 2 : 1;
+        toolbarRows = panelW < 560 ? 2 : (panelW < 380 ? 3 : 1);
         canvasX = panelX + PALETTE_W + 16;
 
 
@@ -16398,380 +16398,117 @@ public class BlockEditorScreen extends Screen {
     }
 
     private void renderToolbar(GuiGraphics g, int mx, int my) {
-
-
-
         rounded(g, panelX, panelY, panelW, toolbarH(), 10, 0xFAFFFFFF);
-
-
-
         g.fill(panelX, panelY + toolbarH() - 1, panelX + panelW, panelY + toolbarH(), G_BORDER_SOFT);
-
-
-
         text(g, T_NAME.getString(), panelX + 10, panelY + 10, C_TEXT_SUB);
-
-
-
-        // 程序名整体贴面板左侧（用户拍板 2026-09-02）：右侧留给按钮组，永不重叠。
-
-
-
-        // light pill behind the borderless name box
-
-
-
         rounded(g, namePillX(), panelY + 5, 120, 19, 5, 0xF2FFFFFF);
-
-
-
         border(g, namePillX(), panelY + 5, 120, 19, nameBox.isFocused() ? C_SELECT : G_BORDER);
 
-
-
-
-
-
-
-        // buttons right-to-left: 保存 | 代码 | 撤销 | 适配 | 问题 | 关闭 | [存为模板]
-
-
-
+        // 按钮右→左排布；面板窄时自动折到第二行；行高联动 toolbarH()
         int bh = 20;
+        int minBx = namePillX() + 126;
+        int rowY = panelY + 4;
+        int curX = panelX + panelW - 8;
 
+        // -- 保存 --
+        curX -= 86;
+        button(g, curX, rowY, 86, bh, "⬤ " + T_SAVE.getString(), C_SAVE, C_SAVE_H, this::save, mx, my);
 
-
-        tbBx = panelX + panelW - 8;
-        tbRowY = panelY + 4;
-        int bx = tbBx;
-
-
-
-        bx -= 86;
-
-
-
-        button(g, tbBx, tbRowY, 86, bh, "⬤ " + T_SAVE.getString(), C_SAVE, C_SAVE_H, this::save, mx, my);
-
-
-
-        tbWrap();
-        tbBx -= 4 + 52;
-
-
-
-        button(g, tbBx, tbRowY, 52, bh, T_PREVIEW.getString(),
-
-
-
+        // -- 代码 --
+        curX -= 4 + 52;
+        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 52; }
+        button(g, curX, rowY, 52, bh, T_PREVIEW.getString(),
                 previewMode ? 0xCC2F6FED : 0xCC5B6472,
-
-
-
                 previewMode ? 0xCC2459C4 : 0xCC49525E, this::toggleCodeEditor, mx, my);
 
+        // -- 撤销 --
+        curX -= 4 + 48;
+        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 48; }
+        button(g, curX, rowY, 48, bh, T_UNDO.getString(), 0xCC5B6472, 0xCC49525E, this::undo, mx, my);
 
+        // -- 重做 --
+        curX -= 4 + 46;
+        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 46; }
+        button(g, curX, rowY, 46, bh, T_REDO.getString(), 0xCC5B6472, 0xCC49525E, this::redo, mx, my);
 
-        tbWrap();
-        tbBx -= 4 + 48;
-
-
-
-        button(g, tbBx, tbRowY, 48, bh, T_UNDO.getString(), 0xCC5B6472, 0xCC49525E, this::undo, mx, my);
-
-
-
-        tbWrap();
-        tbBx -= 4 + 46;
-
-
-
-        button(g, tbBx, tbRowY, 44, bh, T_REDO.getString(), 0xCC5B6472, 0xCC49525E, this::redo, mx, my);
-
-
-
-        tbWrap();
-        tbBx -= 4 + 42;
-
-
-
-        button(g, tbBx, tbRowY, 42, bh, T_FIT.getString(), 0xCC5B6472, 0xCC49525E, () -> {
-
-
-
+        // -- 适配 --
+        curX -= 4 + 44;
+        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 44; }
+        button(g, curX, rowY, 44, bh, T_FIT.getString(), 0xCC5B6472, 0xCC49525E, () -> {
             fitted = false;
-
-
-
             showStatus(S_FITTED_ALL.getString(), C_SELECT);
-
-
-
         }, mx, my);
 
-
-
-        tbWrap();
-        tbBx -= 4 + 40;
-
-
-
-        button(g, tbBx, tbRowY, 40, bh, T_ZONES.getString(), zoneDrawing ? 0xCC2F6FED : 0xCC5B6472,
-
-
-
+        // -- 分区 --
+        curX -= 4 + 42;
+        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 42; }
+        button(g, curX, rowY, 42, bh, T_ZONES.getString(), zoneDrawing ? 0xCC2F6FED : 0xCC5B6472,
                 zoneDrawing ? 0xCC2459C4 : 0xCC49525E, () -> {
-
-
-
                     zoneDrawing = !zoneDrawing;
-
-
-
                     if (zoneDrawing) showStatus(S_ZONE_DRAW_HINT.getString(), C_SELECT);
-
-
-
                 }, mx, my);
 
-
-
-        // 相位均衡：多台管理器/多个定时触发器在同一刻集中执行会造成 MSPT
-
-
-
-        // 尖刺（吞吐量不变，只挪触发时刻）。按序分配 plus 偏移摊平负载。
-
-
-
-        button(g, bx - 4 - 48, panelY + 4, 48, bh, BALANCE_BTN.getString(), 0xCC5B6472, 0xCC49525E,
-
-
-
+        // -- 平衡 --
+        curX -= 4 + 48;
+        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 48; }
+        button(g, curX, rowY, 48, bh, BALANCE_BTN.getString(), 0xCC5B6472, 0xCC49525E,
                 this::balanceTriggerPhases, mx, my);
 
-
-
-        tbWrap();
-        tbBx -= 4 + 48;
-
-
-
-        // 问题按钮：文案固定两字（错误/提醒）或四字（问题检查），宽度按文字
-
-
-
-        // 实际宽度 + 余量计算，任何缩放下都不会超出按钮；数量在面板里看。
-
-
-
+        // -- 问题 --
         long errCount = issueErrCount;
-
-
-
         long warnCount = issueWarnCount;
-
-
-
         String issueLabel = errCount > 0
-
-
-
                 ? T_ISSUES_ERR.getString()
-
-
-
                 : warnCount > 0 ? T_ISSUES_WARN.getString()
-
-
-
                 : T_ISSUES_TITLE.getString();
-
-
-
         int issueColor = errCount > 0 ? 0xCCD13438 : warnCount > 0 ? 0xCCB45309 : 0xCC5B6472;
-
-
-
         int issueHover = errCount > 0 ? 0xCCB02A30 : warnCount > 0 ? 0xCC9C4708 : 0xCC49525E;
-
-
-
         int issueW = Math.max(40, this.font.width(issueLabel) + 14);
-
-
-
-        tbWrap();
-        tbBx -= 4 + issueW;
-
-
-
-        button(g, tbBx, tbRowY, issueW, bh, issueLabel, issueColor, issueHover, () -> {
-
-
-
+        curX -= 4 + issueW;
+        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - issueW; }
+        button(g, curX, rowY, issueW, bh, issueLabel, issueColor, issueHover, () -> {
             issuesOpen = !issuesOpen;
-
-
-
             issuesScroll = 0;
-
-
-
             refreshIssues();
-
-
-
         }, mx, my);
 
+        // -- 关闭 --
+        curX -= 4 + 46;
+        button(g, curX, rowY, 46, bh, T_CLOSE.getString(), 0xCC5B6472, 0xCC49525E, this::closeEditor, mx, my);
 
-
-        tbWrap();
-        tbBx -= 4 + 46;
-
-
-
-        button(g, tbBx, tbRowY, 46, bh, T_CLOSE.getString(), 0xCC5B6472, 0xCC49525E, this::closeEditor, mx, my);
-
-
-
+        // -- 存为模板（有选中时显示）--
         if (!selection.isEmpty() || !selectedTriggers.isEmpty()) {
-
-
-
-            tbWrap();
-        tbBx -= 4 + 68;
-
-
-
-            button(g, tbBx, tbRowY, 68, bh, T_TPL_SAVE.getString(), 0xCC7C3AED, 0xCC6D2FD9, this::saveSelectionAsTemplate, mx, my);
-
-
-
+            curX -= 4 + 68;
+            button(g, curX, rowY, 68, bh, T_TPL_SAVE.getString(), 0xCC7C3AED, 0xCC6D2FD9,
+                    this::saveSelectionAsTemplate, mx, my);
         }
 
-
-
-
-
-
-
-        // title + status sit between the name box and the button group. The
-
-
-
-        // status is right-aligned against the group's left edge so the extra
-
-
-
-        // 存为模板 button (visible while blocks are selected) can never cover
-
-
-
-        // it; the decorative title yields first when space runs out.
-
-
-
+        // title + status
         int titleX = namePillX() + 120 + 12;
-
-
-
-        int groupLeft = tbBx;
-
-
-
+        int groupLeft = curX;
         String status = null;
-
-
-
         int col = C_TEXT_SUB;
-
-
-
         if (statusTicks > 0 && !statusText.isEmpty()) {
-
-
-
             status = statusText;
-
-
-
             col = statusColor;
-
-
-
         } else if (dirty) {
-
-
-
             status = T_DIRTY.getString();
-
-
-
             col = C_DIRTY;
-
-
-
         }
-
-
-
         int statusX = groupLeft - 12 - (status != null ? this.font.width(status) : 0);
-
-
-
         if (status != null && statusX >= titleX) {
-
-
-
             text(g, status, statusX, panelY + 10, col);
-
-
-
         }
-
-
-
         if (titleX + this.font.width(T_TITLE.getString()) + 10 < (status != null ? statusX : groupLeft)) {
-
-
-
             text(g, T_TITLE.getString(), titleX, panelY + 10, C_TEXT);
-
-
-
         }
-
-
-
         if (!program.triggers.isEmpty()) {
-
-
-
             String hint = S_SEARCH_HINT.getString();
-
-
-
             int hintX = groupLeft - 8 - this.font.width(hint);
-
-
-
             if (hintX > titleX) {
-
-
-
                 text(g, hint, hintX, panelY + 10, 0xFF5C6779);
-
-
-
             }
-
-
-
         }
-
-
-
     }
 
 
