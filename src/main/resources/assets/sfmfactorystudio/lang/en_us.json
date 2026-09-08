@@ -69,6 +69,7 @@
   "gui.sfmfactorystudio.blocks.qty_all": "All",
   "gui.sfmfactorystudio.blocks.qty_each_kind": "Each kind",
   "gui.sfmfactorystudio.blocks.qty_total": "Total",
+  "gui.sfmfactorystudio.blocks.qty_ge": "",
   "gui.sfmfactorystudio.blocks.raw": "Raw code",
   "gui.sfmfactorystudio.blocks.res_all": "Resource",
   "gui.sfmfactorystudio.blocks.res_browse": "Browse items…",

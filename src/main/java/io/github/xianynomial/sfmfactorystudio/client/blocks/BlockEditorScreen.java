@@ -5201,9 +5201,28 @@ public class BlockEditorScreen extends Screen {
 
     /** 数量点选：常用值一键即选，免弹键盘；手动输入作为第二入口。 */
     private void openQtyQuickPick(int x, int y, BProgram.ResourceLimit rl) {
-        List<String> values = List.of("1", "16", "32", "64", "all", "manual");
+        List<String> values = new ArrayList<>(List.of("1", "16", "32", "64", "all", "manual"));
         List<String> labels = new ArrayList<>(List.of("1", "16", "32", "64", SLOT_ALL_WORD.getString(), M_QTY_CUSTOM.getString()));
+        if (rl.quantity != null) {
+            // 已设数量：提供 每种/合计 切换（原独立芯片的职责并入菜单）
+            values.add("each");
+            labels.add(T_QTY_EACH_KIND.getString() + (rl.quantityEach ? " ✓" : ""));
+            values.add("total");
+            labels.add(T_QTY_TOTAL.getString() + (rl.quantityEach ? "" : " ✓"));
+        }
         setPopup(new Popup.ChoicePopup(sX(x), sY(y) + BAR_H, 150, values, labels, "", picked -> {
+            if (picked.equals("each")) {
+                pushUndo();
+                rl.quantityEach = true;
+                layoutDirty = true;
+                return;
+            }
+            if (picked.equals("total")) {
+                pushUndo();
+                rl.quantityEach = false;
+                layoutDirty = true;
+                return;
+            }
             if (picked.equals("manual")) {
                 openNumber(x, y, 40, rl.quantity == null ? 0 : rl.quantity, v -> {
                     rl.quantity = v <= 0 ? null : v;   // openNumber 已推撤销；0/清空 = 全部
@@ -5311,18 +5330,14 @@ public class BlockEditorScreen extends Screen {
      */
     private int drawInlineQuantity(GuiGraphics g, int x, int y, BProgram.ResourceLimit rl, int mx, int my) {
         if (rl == null) return x;
-        String qtyDisp = rl.quantity == null ? T_QTY_ALL.getString() : String.valueOf(rl.quantity);
+        // 数量药丸一体显示（2026-09-09 语序批）：限定词进药丸、数词后带量词——
+        // 「取出 每种 64 个 [铁锭]」；此前「64 [合计] 铁锭」的批注式芯片会打断句子
+        String qtyDisp = rl.quantity == null ? T_QTY_ALL.getString()
+                : (rl.quantityEach ? T_QTY_EACH_KIND.getString() : T_QTY_TOTAL.getString())
+                        + " " + rl.quantity + " " + T_QTY_GE.getString();
         final int px = x, py = y;
-        int fx = drawField(g, x, y, qtyDisp, rl.quantity == null ? 30 : Math.max(26, font.width(qtyDisp) + 12),
+        return drawField(g, x, y, qtyDisp, rl.quantity == null ? 30 : Math.max(26, font.width(qtyDisp) + 12),
                 () -> openQtyQuickPick(px, py, rl), mx, my, false);
-        if (rl.quantity != null) {
-            fx = drawField(g, fx, y, rl.quantityEach ? T_QTY_EACH_KIND.getString() : T_QTY_TOTAL.getString(),
-                    34, () -> {
-                        pushUndo();
-                        rl.quantityEach = !rl.quantityEach;
-                    }, mx, my, false);
-        }
-        return fx;
     }
 
     private void renderIOOptions(GuiGraphics g, int x, int y, int mx, int my,
@@ -6277,10 +6292,13 @@ public class BlockEditorScreen extends Screen {
     }
 
     private String condSummary(BProgram.Bool.Has h) {
-        StringBuilder sb = new StringBuilder();
-        if (h.setMode != BProgram.Bool.SetMode.DEFAULT) sb.append(setOpZh(h.setMode)).append(' ');
+        // has 条件语义=「从该标签取出的数量」，句子补出 从/取出 动词才自然：
+        // 当 从 [仓库] 取出 >= 64 铁锭 时：
+        StringBuilder sb = new StringBuilder(T_IO_FROM.getString()).append(' ');
         sb.append(h.access.labels.isEmpty() ? "?" : String.join("+", h.access.labels));
-        sb.append(' ').append(T_HAS.getString()).append(' ').append(h.comparison.symbol()).append(' ').append(h.number);
+        sb.append(' ').append(T_IO_TAKE.getString());
+        if (h.setMode != BProgram.Bool.SetMode.DEFAULT) sb.append(' ').append(setOpZh(h.setMode));
+        sb.append(' ').append(h.comparison.symbol()).append(' ').append(h.number);
         if (!h.resources.isEmpty()) sb.append(' ').append(shortResource(h.resources.get(0)));
         return sb.toString();
     }
