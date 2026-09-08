@@ -178,7 +178,7 @@ public class NbtItemPickerScreen extends Screen {
 
 
 
-    private int panelX() { return width / 2 - PANEL_W / 2; }
+    private int panelX() { return Math.max(4, width / 2 - PANEL_W / 2); }
 
 
 
