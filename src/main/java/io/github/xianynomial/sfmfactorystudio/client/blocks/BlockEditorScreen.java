@@ -3413,8 +3413,8 @@ public class BlockEditorScreen extends Screen {
         }
         // 左侧积木栏：悬停时滚轮滚动（内容超高才有滚动量）
         if (mx >= panelX + 6 && mx < panelX + 6 + PALETTE_W
-                && my >= panelY + TOOLBAR_H + 6 && my < panelY + panelH - 6 && paletteContentH > 0) {
-            int trackTop = panelY + TOOLBAR_H + 8;
+                && my >= panelY + toolbarH() + 6 && my < panelY + panelH - 6 && paletteContentH > 0) {
+            int trackTop = panelY + toolbarH() + 8;
             int trackH = (panelY + panelH - 6) - trackTop - 4;
             int maxScroll = Math.max(0, paletteContentH - trackH);
             if (maxScroll > 0) {
@@ -3573,7 +3573,7 @@ public class BlockEditorScreen extends Screen {
     }
 
     private void renderPalette(GuiGraphics g, int mx, int my) {
-        int px = panelX + 6, py = panelY + TOOLBAR_H + 6;
+        int px = panelX + 6, py = panelY + toolbarH() + 6;
         int pw = PALETTE_W;
         int bottom = panelY + panelH - 6;
         rounded(g, px, py, pw, bottom - py, 8, G_CARD_TRANS);
@@ -3634,7 +3634,7 @@ public class BlockEditorScreen extends Screen {
             g.disableScissor();
         }
         // 滚动条指示（内容超高才显示）
-        int trackTop = panelY + TOOLBAR_H + 8;
+        int trackTop = panelY + toolbarH() + 8;
         int trackH = bottom - trackTop - 4;
         if (paletteContentH > trackH && paletteContentH > 0) {
             int thumbH = Math.max(18, trackH * trackH / paletteContentH);
@@ -3677,12 +3677,13 @@ public class BlockEditorScreen extends Screen {
         rounded(g, panelX, panelY, panelW, panelH, 10, G_PANEL);
         border(g, panelX, panelY, panelW, panelH, G_BORDER_SOFT);
 
+        toolbarRows = panelW < 620 ? 2 : 1;
         canvasX = panelX + PALETTE_W + 16;
-        canvasY = panelY + TOOLBAR_H + 6;
+        canvasY = panelY + toolbarH() + 6;
         int baseCanvasW = panelX + panelW - 8 - canvasX;
         issuesPanelVisible = issuesOpen && baseCanvasW - (ISSUES_W + 10) >= 200;
         canvasW = baseCanvasW - (issuesPanelVisible ? ISSUES_W + 10 : 0);
-        canvasH = panelH - TOOLBAR_H - 12 - (previewMode ? Math.max(112, panelH * 42 / 100) : 0);
+        canvasH = panelH - toolbarH() - 12 - (previewMode ? Math.max(112, panelH * 42 / 100) : 0);
         if (!fitted) {
             fitContent();
             fitted = true;
@@ -4209,9 +4210,27 @@ public class BlockEditorScreen extends Screen {
     private @Nullable List<Component> pendingCostTooltip;
     private int @Nullable [] pendingCostTooltipAt;
 
+    /** 工具栏折行状态：小面板（<620 设计像素）按钮自动换到第二行。 */
+    private int toolbarRows = 1;
+
+    /** 当前工具栏总高（小面板自动折两行时翻倍），画布/问题板/调色板的顶部基准。 */
+    private int toolbarH() {
+        return TOOLBAR_H * toolbarRows;
+    }
+    private int tbBx = 0;
+    private int tbRowY = 0;
+
+    private void tbWrap() {
+        int minBx = namePillX() + 128;
+        if (tbBx < minBx) {
+            tbRowY = panelY + TOOLBAR_H + 4;
+            tbBx = panelX + panelW - 8;
+        }
+    }
+
     private void renderToolbar(GuiGraphics g, int mx, int my) {
-        rounded(g, panelX, panelY, panelW, TOOLBAR_H, 10, 0xFAFFFFFF);
-        g.fill(panelX, panelY + TOOLBAR_H - 1, panelX + panelW, panelY + TOOLBAR_H, G_BORDER_SOFT);
+        rounded(g, panelX, panelY, panelW, toolbarH(), 10, 0xFAFFFFFF);
+        g.fill(panelX, panelY + toolbarH() - 1, panelX + panelW, panelY + toolbarH(), G_BORDER_SOFT);
         text(g, T_NAME.getString(), panelX + 10, panelY + 10, C_TEXT_SUB);
         // 程序名整体贴面板左侧（用户拍板 2026-09-02）：右侧留给按钮组，永不重叠。
         // light pill behind the borderless name box
@@ -4223,7 +4242,9 @@ public class BlockEditorScreen extends Screen {
         // 盖住程序名），并有溢出保护线：放不下的按钮不渲染、不注册命中。
         int bh = 20;
         int minBx = namePillX() + 126; // 程序名 pill 右缘 + 余量
-        int bx = panelX + panelW - 8;
+        tbBx = panelX + panelW - 8;
+        tbRowY = panelY + 4;
+        int bx = tbBx;
         bx = tbButton(g, bx, minBx, bh, "⬤ " + T_SAVE.getString(), 40, C_SAVE, C_SAVE_H, this::save, mx, my);
         bx = tbButton(g, bx, minBx, bh, T_PREVIEW.getString(), 36,
                 previewMode ? 0xCC2F6FED : 0xCC5B6472,
@@ -4241,9 +4262,8 @@ public class BlockEditorScreen extends Screen {
                 }, mx, my);
         // 相位均衡：多台管理器/多个定时触发器在同一刻集中执行会造成 MSPT
         // 尖刺（吞吐量不变，只挪触发时刻）。按序分配 plus 偏移摊平负载。
-        button(g, bx - 4 - 48, panelY + 4, 48, bh, BALANCE_BTN.getString(), 0xCC5B6472, 0xCC49525E,
+        bx = tbButton(g, bx, minBx, bh, BALANCE_BTN.getString(), 48, 0xCC5B6472, 0xCC49525E,
                 this::balanceTriggerPhases, mx, my);
-        bx -= 4 + 48;
         // 问题按钮：文案固定两字（错误/提醒）或四字（问题检查），宽度按文字
         // 实际宽度 + 余量计算，任何缩放下都不会超出按钮；数量在面板里看。
         long errCount = issueErrCount;
@@ -4269,7 +4289,7 @@ public class BlockEditorScreen extends Screen {
         // 存为模板 button (visible while blocks are selected) can never cover
         // it; the decorative title yields first when space runs out.
         int titleX = namePillX() + 120 + 12;
-        int groupLeft = bx;
+        int groupLeft = tbBx;
         String status = null;
         int col = C_TEXT_SUB;
         if (statusTicks > 0 && !statusText.isEmpty()) {
@@ -4412,9 +4432,11 @@ public class BlockEditorScreen extends Screen {
         int w = Math.max(minW, this.font.width(label) + 14);
         int x = bx - w;
         if (x < minBx) {
-            return bx; // 放不下：此按钮及更左的按钮全部省略（右缘对齐，必然后面的也放不下）
+            // 折行到第二行：小面板按钮放不下时自动换行，绝不丢失
+            tbRowY = panelY + TOOLBAR_H + 4;
+            x = panelX + panelW - 8 - w;
         }
-        button(g, x, panelY + 4, w, bh, label, color, hoverColor, action, mx, my);
+        button(g, x, tbRowY, w, bh, label, color, hoverColor, action, mx, my);
         return x - 4;
     }
 
