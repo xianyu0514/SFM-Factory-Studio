@@ -95,6 +95,25 @@ public final class BlockTemplates {
         return List.of(input, output);
     }
 
+    /** 调色板上的四个一键模板类目（拖放与点击路由共用此判定）。 */
+    public static boolean isOneClickTemplate(String kind) {
+        return kind != null && (kind.equals("tpl_smelt") || kind.equals("tpl_sort")
+                || kind.equals("tpl_even") || kind.equals("tpl_fast"));
+    }
+
+    /**
+     * 积木级一键模板 → 语句列表。tpl_fast（高频并行）是触发器级模板，
+     * 不在此列（返回空列表，调用方走 clickAdd 生成三张完整卡）。
+     */
+    public static List<BProgram.Statement> statementsForTemplate(String kind) {
+        return switch (kind) {
+            case "tpl_smelt" -> smeltingLine();
+            case "tpl_sort" -> List.of(fullStackSort());
+            case "tpl_even" -> balancedDistribution();
+            default -> List.of();
+        };
+    }
+
     private static BProgram.Statement.Input input(String label, BProgram.Side... sides) {
         BProgram.Statement.Input input = new BProgram.Statement.Input();
         input.access.labels.add(label);
