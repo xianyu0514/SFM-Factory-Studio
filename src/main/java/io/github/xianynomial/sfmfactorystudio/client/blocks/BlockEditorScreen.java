@@ -523,11 +523,11 @@ public class BlockEditorScreen extends Screen {
     private static volatile boolean SLOT_CAP_PROBED = false;
 
     /** 操作学习锚点回包入口（SlotAnchorPayload）。写入捕获缓存持久化。 */
-    public static void acceptSlotAnchor(net.minecraft.core.BlockPos pos, int dir,
+    public static void acceptSlotAnchor(net.minecraft.core.BlockPos pos, String menuClass, int dir,
                                         int containerSlot, int x, int y, int capIndex) {
         SLOT_CAP_PROBED = true;
         slotLayoutServerSeen = true;
-        ClientGuiLayoutCache.applyAnchor(pos, dir, containerSlot, x, y, capIndex);
+        ClientGuiLayoutCache.applyAnchor(pos, menuClass, dir, containerSlot, x, y, capIndex);
     }
 
     /** 操作学习诊断回包入口（SlotCalibrationInfoPayload）。 */

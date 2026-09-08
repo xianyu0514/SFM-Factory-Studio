@@ -60,6 +60,8 @@ public final class SlotCapabilityRequestHandler {
             }
             ItemResourceType itemType = SFMResourceTypes.ITEM.get();
 
+            SFMGui.LOGGER.info("[sfmjimu-calib] 校准请求: pos {} sides {}", pos, msg.sides);
+
             // 七个朝向各自暴露的槽位数（[0]=无侧面，1..6=down,up,north,south,west,east）
             // ——模组机器（如 Mekanism）各朝向槽位不同，用于客户端的侧面限定引导
             int[] dirTotals = new int[7];
@@ -80,7 +82,9 @@ public final class SlotCapabilityRequestHandler {
                         SFMBlockCapabilityDiscovery.discoverCapabilityFromLevel(level, itemType.capabilityKind(), pos, dir);
                 if (result != null && result.isPresent()) {
                     var handler = (net.minecraftforge.items.IItemHandler) result.unwrap();
-                    send(player, pos, STATE_OK, dirName(dir), readTotal(itemType, handler),
+                    int total = readTotal(itemType, handler);
+                    SFMGui.LOGGER.info("[sfmjimu-calib] 校准结果: pos {} state=OK refDir {} total {}", pos, dirName(dir), total);
+                    send(player, pos, STATE_OK, dirName(dir), total,
                             dirTotals, readItems(itemType, handler), readCounts(itemType, handler));
                     return;
                 }

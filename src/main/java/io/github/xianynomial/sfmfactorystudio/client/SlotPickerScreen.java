@@ -71,6 +71,7 @@ public final class SlotPickerScreen extends Screen {
     private String sideFallbackDir = null;       // 限定方向无槽位，实际按该朝向编号（null 面 = "null"）
     private final String sidesCode;              // 语句的侧面限定（请求校准用）
     private int[] dirTotals;                     // 七朝向槽位数（[0]=无侧面；null=未知）
+    private final int anchorRefDir;              // 操作学习锚点最多的朝向（-1=无；证据驱动参照）
     private boolean initialApplied = false;      // 已写槽号区间是否已映射为选中
     private int ticksElapsed;
     private boolean selectionTouched = false;
@@ -100,6 +101,8 @@ public final class SlotPickerScreen extends Screen {
         this.onResult = onResult;
         this.captures = layout != null ? layout.slots() : List.<SlotLayoutData.SlotCapture>of();
         this.anchors = layout != null && layout.anchors() != null ? layout.anchors() : List.of();
+        this.anchorRefDir = SlotLayoutData.bestAnchorDir(this.anchors,
+                layout != null && layout.menuClass() != null ? layout.menuClass() : "");
         this.noExposure = layout != null && layout.noExposure();
         List<SlotNumbering.MenuSlot> slots = new ArrayList<>();
         if (layout != null) {
@@ -254,10 +257,12 @@ public final class SlotPickerScreen extends Screen {
             return;
         }
         WAITERS.put(containerPos, this);
+        // 证据驱动：有操作学习锚点的朝向 = 玩家实际在用的槽位视图，优先按它校准
+        String requestSides = anchorRefDir >= 0 ? SlotLayoutData.dirIndexName(anchorRefDir) : sidesCode;
         boolean sent = io.github.xianynomial.sfmfactorystudio.net.SFMGuiNetwork
                 .sendToServerBestEffortChecked(
                         new io.github.xianynomial.sfmfactorystudio.net.SlotCapabilityRequestPayload(
-                                containerPos, sidesCode));
+                                containerPos, requestSides));
         if (!sent) {
             capState = CapState.FAILED;   // 服务端未装附属：横幅明示未校准
             applyInitialSelection();
@@ -532,7 +537,10 @@ public final class SlotPickerScreen extends Screen {
             return L_PARTIAL.getString(numbering.zipClaims());
         }
         if (capState == CapState.READY && learnedAnchors > 0) {
-            return L_CALIBRATED.getString() + "  " + L_LEARNED.getString(learnedAnchors);
+            String dirNote = anchorRefDir > 0
+                    ? "  " + L_ANCHOR_DIR.getString(SlotLayoutData.dirIndexName(anchorRefDir))
+                    : "";
+            return L_CALIBRATED.getString() + "  " + L_LEARNED.getString(learnedAnchors) + dirNote;
         }
         return switch (capState) {
             case PENDING -> L_CALIBRATING.getString();
@@ -716,6 +724,7 @@ public final class SlotPickerScreen extends Screen {
     private static final Loc L_DIR_NULL = new Loc("gui.sfmfactorystudio.slot.slot_dir_null", "无侧面");
     private static final Loc L_PARTIAL = new Loc("gui.sfmfactorystudio.slot.slot_partial", "✓ 已校准：%s 个格子的编号按屏幕顺序推断（存在歧义），建议先放 1 个物品试运行验证");
     private static final Loc L_SIDE_GUIDE = new Loc("gui.sfmfactorystudio.slot.slot_side_guide", "该机器各朝向槽位数不同（当前 %s，其他朝向最多 %s）——给积木写侧面限定（如 each side）可访问更多槽位");
+    private static final Loc L_ANCHOR_DIR = new Loc("gui.sfmfactorystudio.slot.slot_anchor_dir", "（依据操作学习按 %s 面编号——语句请写相同的侧面限定）");
     private static final Loc L_LEARNED = new Loc("gui.sfmfactorystudio.slot.slot_learned", "（%s 个槽位已由你的实际操作学习证实）");
     private static final Loc L_NO_EXPOSURE = new Loc("gui.sfmfactorystudio.slot.slot_no_exposure", "该机器的界面槽位在变化，但未暴露给任何朝向的能力面——请在机器的侧面配置中开放输入/输出（如 Mekanism 侧面配置），之后正常存取会自动学习");
     private static final Loc L_HIDDEN_SECTION = new Loc("gui.sfmfactorystudio.slot.slot_hidden_section", "▼ 此界面未显示的槽位（编号即真实槽位序号）");

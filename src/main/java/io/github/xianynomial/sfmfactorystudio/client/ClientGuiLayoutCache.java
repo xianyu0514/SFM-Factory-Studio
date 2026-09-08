@@ -96,7 +96,8 @@ public final class ClientGuiLayoutCache {
         // 差分证实"视觉格 ↔ 真实槽位"，锚点回存到捕获缓存（对一切模组生效）
         io.github.xianynomial.sfmfactorystudio.net.SFMGuiNetwork.sendToServer(
                 new io.github.xianynomial.sfmfactorystudio.net.SlotCalibrationBeginPayload(
-                        pos, screen.getMenu() != null ? screen.getMenu().containerId : -1));
+                        pos, screen.getMenu() != null ? screen.getMenu().containerId : -1,
+                        screen.getMenu() != null ? screen.getMenu().getClass().getSimpleName() : ""));
         try {
             capture(pos, screen);   // 尽早尝试；渲染期会持续补捕
         } catch (Throwable t) {
@@ -180,19 +181,28 @@ public final class ClientGuiLayoutCache {
         if (!SlotLayoutData.preferCapture(all, existing == null ? null : existing.slots())) return;
 
         String title = screen.getTitle() != null ? screen.getTitle().getString() : "";
-        BY_POS.put(key(pos), new SlotLayoutData.Layout(title, all,
-                SlotLayoutData.mergeAnchors(existing == null ? null : existing.anchors(), null)));
+        String menuClass = screen.getMenu() != null ? screen.getMenu().getClass().getSimpleName() : "";
+        BY_POS.put(key(pos), new SlotLayoutData.Layout(title, menuClass, all,
+                SlotLayoutData.mergeAnchors(existing == null ? null : existing.anchors(), null),
+                existing != null && existing.noExposure()));
         save();
     }
 
-    /** 应用一个操作学习锚点（服务端差分证实"这个视觉格 = 这个真实槽位"）。 */
-    public static void applyAnchor(BlockPos pos, int dir, int containerSlot, int x, int y, int capIndex) {
+    /** 应用一个操作学习锚点：按菜单类名应用到所有同类布局（锚点与坐标解耦）。 */
+    public static void applyAnchor(BlockPos pos, String menuClass, int dir,
+                                   int containerSlot, int x, int y, int capIndex) {
         ensureLoaded();
-        SlotLayoutData.Layout layout = BY_POS.get(key(pos));
-        if (layout == null) return;
-        BY_POS.put(key(pos), SlotLayoutData.withAnchor(layout,
-                new SlotLayoutData.SlotAnchor(dir, containerSlot, x, y, capIndex)));
-        save();
+        String mc = menuClass == null ? "" : menuClass;
+        SFMGui.LOGGER.info("[sfmjimu-calib] 锚点入库: 菜单 {} 朝向 {} 容器槽 {} ({},{}) → 能力槽 {}",
+                mc, dir, containerSlot, x, y, capIndex);
+        boolean applied = false;
+        for (Map.Entry<String, SlotLayoutData.Layout> e : BY_POS.entrySet()) {
+            if (!e.getValue().menuClass().equals(mc)) continue;
+            BY_POS.put(e.getKey(), SlotLayoutData.withAnchor(e.getValue(),
+                    new SlotLayoutData.SlotAnchor(mc, dir, containerSlot, x, y, capIndex)));
+            applied = true;
+        }
+        if (applied) save();
     }
 
 
