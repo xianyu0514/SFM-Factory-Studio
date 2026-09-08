@@ -251,7 +251,8 @@ public final class SlotCalibrationManager {
                         if (instantAnchor || jointAnchor) {
                             ps.anchored = true;
                             if (rememberAnchor(s, d, s.menuX.get(j), s.menuY.get(j), k)) {
-                                PacketDistributor.sendToPlayer(player,
+                                SFMGuiNetwork.CHANNEL.send(
+                                        PacketDistributor.PLAYER.with(() -> player),
                                         new SlotAnchorPayload(s.pos, s.menuClass, d,
                                                 s.menuCs.get(j), s.menuX.get(j), s.menuY.get(j), k));
                                 SFMGui.LOGGER.info("[sfmjimu-calib] 被动关联锚定: 菜单 {} 朝向 {} 格 ({},{}) → 能力槽 {}",
