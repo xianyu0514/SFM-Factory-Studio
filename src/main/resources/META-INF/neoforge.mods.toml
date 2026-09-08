@@ -9,16 +9,19 @@ version="${mod_version}"
 displayName="${mod_name}"
 authors="${mod_authors}"
 description='''${mod_description}'''
+# Client-friendly: joining a vanilla-SFM server without this addon is allowed.
+displayTest="IGNORE_ALL_VERSION"
 
 # The [[mixins]] block declares the mixin config to FML so it gets loaded.
 [[mixins]]
 config="sfmfactorystudio.mixins.json"
 
 # This addon requires Super Factory Manager to be installed.
+# Version floor aligned with the 1.20.1 line ([4.30,)); we compile against 4.34.
 [[dependencies.${mod_id}]]
 modId="sfm"
 type="required"
-versionRange="[4.0,)"
+versionRange="[4.30,)"
 ordering="AFTER"
 side="BOTH"
 

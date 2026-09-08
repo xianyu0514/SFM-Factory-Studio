@@ -650,7 +650,7 @@ public class BlockEditorScreen extends Screen {
     private static final int K_CLICK = 0, K_GRIP = 1, K_PALETTE = 2, K_BODY_SEL = 3, K_AB = 4, K_HEAD = 5,
             K_RCLICK = 6;   // 仅响应右键的命中（资源槽复制/粘贴等）
     /** 命中框可视化配色（Ctrl+Shift+D）：按下标对应上面的 K_* 常量。 */
-    private static final int[] DBG = {0xFFFF3B30, 0xFF34C759, 0xFFFF9500, 0xFF5859D6, 0xFFAF52DE, 0xFF007AFF};
+    private static final int[] DBG = {0xFFFF3B30, 0xFF34C759, 0xFF5859D6, 0xFFAF52DE, 0xFF007AFF, 0xFFFF9500, 0xFF00B8A9};
     // floating action bar shown at the mouse after a band selection
     private boolean actionBarVisible = false;
     private int abX, abY;
@@ -778,8 +778,10 @@ public class BlockEditorScreen extends Screen {
     private int edW = 960, edH = 540;
     @Override
     protected void init() {
-        // 虚拟分辨率：逻辑宽不足 480 时等比缩小绘制（edScale < 1）
-        edScale = Math.min(1.0f, Math.max(0.25f, this.width / 480f));
+        // 虚拟分辨率：逻辑宽不足 640 时等比缩小绘制（edScale < 1）。下限取 640：
+        // JEI 让位后面板只剩 74%，480 只剩 ~355px 宽，画布小到积木行点不中；
+        // 640 让极端缩放下画布仍有 ~300px 可用宽度。
+        edScale = Math.min(1.0f, Math.max(0.25f, this.width / 640f));
         edW = Math.round(this.width / edScale);
         edH = Math.round(this.height / edScale);
         this.width = edW;
@@ -2410,10 +2412,10 @@ public class BlockEditorScreen extends Screen {
                 return;
             }
         }
-        // 语句行 → 行菜单（可见反馈）
+        // 语句行 → 行菜单（可见反馈）。openRowMenu 期望内容坐标（内部做 sX/sY）。
         BProgram.Statement s = statementAt(cx, cy);
         if (s != null) {
-            openRowMenu(mx, my, s);
+            openRowMenu(cx, cy, s);
             return;
         }
         // 卡片 / 画布空白 → 卡片菜单
@@ -2547,7 +2549,7 @@ public class BlockEditorScreen extends Screen {
         }
         BProgram.Statement s = statementAt(cx, cy);
         if (s != null) {
-            openRowMenu(mx, my, s);
+            openRowMenu(cx, cy, s);
             return;
         }
         openContextMenu(mx, my);
@@ -3011,7 +3013,7 @@ public class BlockEditorScreen extends Screen {
             showStatus(S_SELECT_TO_SAVE.getString(), 0xFFB45309);
             return;
         }
-        popup = Popup.TextPopup.confirmed(this,
+        setPopup(Popup.TextPopup.confirmed(this,
                 panelX + panelW / 2 - 110, panelY + panelH / 2 - 22, 220,
                 S_MY_TEMPLATES.getString(), T_TPL_NAME.getString(), name -> {
             if (name.isBlank()) {
@@ -3021,7 +3023,7 @@ public class BlockEditorScreen extends Screen {
             } else {
                 showStatus(S_TPL_SAVE_FAILED.getString(), 0xFFD13438);
             }
-        }, null, S_SAVE_TEMPLATE.getString());
+        }, null, S_SAVE_TEMPLATE.getString()));
     }
 
     private record TplEntry(String name, String sfml) {
@@ -3552,7 +3554,10 @@ public class BlockEditorScreen extends Screen {
         rounded(g, panelX + 3, panelY + 4, panelW, panelH, 10, G_SHADOW);
         rounded(g, panelX, panelY, panelW, panelH, 10, G_PANEL);
         border(g, panelX, panelY, panelW, panelH, G_BORDER_SOFT);
-        toolbarRows = panelW < 560 ? 2 : (panelW < 380 ? 3 : 1);
+        // 窄面板按钮需要更多行：按宽度猜一个下限（注意 <380 判断必须在 <560 之前，
+        // 否则三分支永远走不到 3 行），再与 renderToolbar 回写的实际占用行数取最大。
+        // 声明行数 >= 实际行数 ⇒ 按钮永远不会溢出进画布区域吞点击。
+        toolbarRows = Math.max(panelW < 380 ? 3 : (panelW < 560 ? 2 : 1), toolbarRowsUsed);
         canvasX = panelX + PALETTE_W + 16;
         canvasY = panelY + toolbarH() + 6;
         int baseCanvasW = panelX + panelW - 8 - canvasX;
@@ -3737,12 +3742,10 @@ public class BlockEditorScreen extends Screen {
         renderToolbar(g, mx, my);
         renderActionBar(g, mx, my);
         super.render(g, mx, my, partialTick); // program name + live SFML editor
+        // 弹窗不做 scissor 裁剪：位置由 setPopup 统一夹进面板（渲染与命中同源）。
+        // 用裁剪"藏"越界弹窗会让菜单缺项——看不见的菜单项仍然可点（已撤的回归）。
         if (popup != null) {
-            // 弹窗限制在画布区域，防止出现在调色板/屏幕外
-            g.enableScissor(Math.round(canvasX * edScale), Math.round(canvasY * edScale),
-                    Math.round((canvasX + canvasW) * edScale), Math.round((canvasY + canvasH) * edScale));
             popup.render(g, this.font, mx, my);
-            g.disableScissor();
         }
     }
 
@@ -4066,21 +4069,13 @@ public class BlockEditorScreen extends Screen {
 
     private @Nullable List<Component> pendingCostTooltip;
     private int @Nullable [] pendingCostTooltipAt;
-    /** 工具栏折行状态：小面板（<620 设计像素）按钮自动换到第二行。 */
+    /** 工具栏折行状态：按钮放不下时自动换行，行数随之扩展。 */
     private int toolbarRows = 1;
-    private int tbBx = 0;
-    private int tbRowY = 0;
-    /** 当前工具栏总高（小面板自动折两行时翻倍），画布/问题板/调色板的顶部基准。 */
+    /** 上一帧按钮实际占用的行数（renderToolbar 回写）；与按面板宽度猜测的基线取最大。 */
+    private int toolbarRowsUsed = 1;
+    /** 当前工具栏总高（自动折行时按行数扩展），画布/问题板/调色板的顶部基准。 */
     private int toolbarH() {
         return TOOLBAR_H * toolbarRows;
-    }
-
-    private void tbWrap() {
-        int minBx = namePillX() + 128;
-        if (tbBx < minBx) {
-            tbRowY = panelY + TOOLBAR_H + 4;
-            tbBx = panelX + panelW - 8;
-        }
     }
 
     private void renderToolbar(GuiGraphics g, int mx, int my) {
@@ -4089,31 +4084,41 @@ public class BlockEditorScreen extends Screen {
         text(g, T_NAME.getString(), panelX + 10, panelY + 10, C_TEXT_SUB);
         rounded(g, namePillX(), panelY + 5, 120, 19, 5, 0xF2FFFFFF);
         border(g, namePillX(), panelY + 5, 120, 19, nameBox.isFocused() ? C_SELECT : G_BORDER);
-        // 按钮右→左排布；面板窄时自动折到第二行；行高联动 toolbarH()
+        // 按钮右→左排布；放不下就折到下一行。每个按钮（含首尾）都必须做折行检查，
+        // 行数在末尾回写 toolbarRowsUsed 供下帧 toolbarH() 联动——按钮永远不会
+        // 画进工具栏条以外的区域（否则会以 uiHits 吞掉画布顶部的点击）。
         int bh = 20;
         int minBx = namePillX() + 126;
-        int rowY = panelY + 4;
+        int startRowY = panelY + 4;
+        int rowY = startRowY;
         int curX = panelX + panelW - 8;
+        int groupLeft = curX; // 第一行按钮组的左缘，状态字相对它右对齐让位
         // -- 保存 --
         curX -= 86;
+        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 86; }
+        if (rowY == startRowY) groupLeft = curX;
         button(g, curX, rowY, 86, bh, "⬤ " + T_SAVE.getString(), C_SAVE, C_SAVE_H, this::save, mx, my);
         // -- 代码 --
         curX -= 4 + 52;
         if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 52; }
+        if (rowY == startRowY) groupLeft = curX;
         button(g, curX, rowY, 52, bh, T_PREVIEW.getString(),
                 previewMode ? 0xCC2F6FED : 0xCC5B6472,
                 previewMode ? 0xCC2459C4 : 0xCC49525E, this::toggleCodeEditor, mx, my);
         // -- 撤销 --
         curX -= 4 + 48;
         if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 48; }
+        if (rowY == startRowY) groupLeft = curX;
         button(g, curX, rowY, 48, bh, T_UNDO.getString(), 0xCC5B6472, 0xCC49525E, this::undo, mx, my);
         // -- 重做 --
         curX -= 4 + 46;
         if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 46; }
+        if (rowY == startRowY) groupLeft = curX;
         button(g, curX, rowY, 46, bh, T_REDO.getString(), 0xCC5B6472, 0xCC49525E, this::redo, mx, my);
         // -- 适配 --
         curX -= 4 + 44;
         if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 44; }
+        if (rowY == startRowY) groupLeft = curX;
         button(g, curX, rowY, 44, bh, T_FIT.getString(), 0xCC5B6472, 0xCC49525E, () -> {
             fitted = false;
             showStatus(S_FITTED_ALL.getString(), C_SELECT);
@@ -4121,6 +4126,7 @@ public class BlockEditorScreen extends Screen {
         // -- 分区 --
         curX -= 4 + 42;
         if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 42; }
+        if (rowY == startRowY) groupLeft = curX;
         button(g, curX, rowY, 42, bh, T_ZONES.getString(), zoneDrawing ? 0xCC2F6FED : 0xCC5B6472,
                 zoneDrawing ? 0xCC2459C4 : 0xCC49525E, () -> {
                     zoneDrawing = !zoneDrawing;
@@ -4129,6 +4135,7 @@ public class BlockEditorScreen extends Screen {
         // -- 平衡 --
         curX -= 4 + 48;
         if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 48; }
+        if (rowY == startRowY) groupLeft = curX;
         button(g, curX, rowY, 48, bh, BALANCE_BTN.getString(), 0xCC5B6472, 0xCC49525E,
                 this::balanceTriggerPhases, mx, my);
         // -- 问题 --
@@ -4143,6 +4150,7 @@ public class BlockEditorScreen extends Screen {
         int issueW = Math.max(40, this.font.width(issueLabel) + 14);
         curX -= 4 + issueW;
         if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - issueW; }
+        if (rowY == startRowY) groupLeft = curX;
         button(g, curX, rowY, issueW, bh, issueLabel, issueColor, issueHover, () -> {
             issuesOpen = !issuesOpen;
             issuesScroll = 0;
@@ -4150,16 +4158,22 @@ public class BlockEditorScreen extends Screen {
         }, mx, my);
         // -- 关闭 --
         curX -= 4 + 46;
+        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 46; }
+        if (rowY == startRowY) groupLeft = curX;
         button(g, curX, rowY, 46, bh, T_CLOSE.getString(), 0xCC5B6472, 0xCC49525E, this::closeEditor, mx, my);
         // -- 存为模板（有选中时显示）--
         if (!selection.isEmpty() || !selectedTriggers.isEmpty()) {
             curX -= 4 + 68;
+            if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 68; }
+            if (rowY == startRowY) groupLeft = curX;
             button(g, curX, rowY, 68, bh, T_TPL_SAVE.getString(), 0xCC7C3AED, 0xCC6D2FD9,
                     this::saveSelectionAsTemplate, mx, my);
         }
+        // 实际占用行数回写：下帧 canvasY/canvasH/调色板/问题板顶部基准联动，
+        // 保证工具栏条的高度永远包住所有按钮。
+        toolbarRowsUsed = ((rowY - startRowY) / TOOLBAR_H) + 1;
         // title + status
         int titleX = namePillX() + 120 + 12;
-        int groupLeft = curX;
         String status = null;
         int col = C_TEXT_SUB;
         if (statusTicks > 0 && !statusText.isEmpty()) {
@@ -4778,8 +4792,10 @@ public class BlockEditorScreen extends Screen {
 
     private void registerBarGrip(List<BProgram.Statement> list, int index, BProgram.Statement s, int x, int y, int w, String label, int accent) {
         hits.add(hit(x, y, w, BAR_H, K_GRIP, new DragRef(list, s, index, label, accent), null));
-        // 右键任意积木行：复制这一条（SFML 往返深拷贝，Ctrl+V 或右键空白处粘贴）
-        hits.add(hit(x, y, w, BAR_H, K_RCLICK, null, () -> copySingleStatement(s)));
+        // 右键任意积木行：弹可见菜单（复制/标签组/删除）。静默复制只有状态栏
+        // 一行字，玩家感知不到=等于没做；菜单锚定行左缘（内容坐标，openRowMenu
+        // 内部经 sX/sY 转屏幕坐标）。
+        hits.add(hit(x, y, w, BAR_H, K_RCLICK, null, () -> openRowMenu(x, y, s)));
     }
 
     /** 右键复制的单积木深拷贝：先拷贝模型，再用 SFML 往返验证可转换。 */
@@ -7079,7 +7095,7 @@ public class BlockEditorScreen extends Screen {
                 // 落到新行时，事先 capture 的 frx/fry 会指向旧位置——改成统一
                 // 从面板底部弹出（跟其他 pill 的二级弹窗一致）。
                 rx = drawP(g, fnt, rx, String.valueOf(num), 34, () ->
-                        popup = new Popup.TextPopup(BlockEditorScreen.this, x + 6, popY, 90,
+                        setPopup(new Popup.TextPopup(BlockEditorScreen.this, x + 6, popY, 90,
                                 String.valueOf(num), "0..999999",
                                 s -> {
                                     try {
@@ -7087,7 +7103,7 @@ public class BlockEditorScreen extends Screen {
                                         has.number = Math.max(0, Long.parseLong(s.trim()));
                                     } catch (NumberFormatException ignored) {
                                     }
-                                }, null), mx, my);
+                                }, null)), mx, my);
                 BProgram.ResourceRef resource = firstResource(has.resources);
                 rx = drawP(g, fnt, rx, resource.kind().chineseName(), 38,
                         () -> showResourceKindMenu(x + 6, popY, resource, replacement -> {
@@ -7161,7 +7177,7 @@ public class BlockEditorScreen extends Screen {
                         })), mx, my);
                 long num = r.number;
                 rx = drawP(g, fnt, rx, String.valueOf(num), 34, () ->
-                        popup = new Popup.TextPopup(BlockEditorScreen.this, x + 6, popY, 90,
+                        setPopup(new Popup.TextPopup(BlockEditorScreen.this, x + 6, popY, 90,
                                 String.valueOf(num), "0..999999",
                                 s -> {
                                     try {
@@ -7169,7 +7185,7 @@ public class BlockEditorScreen extends Screen {
                                         r.number = Math.max(0, Long.parseLong(s.trim()));
                                     } catch (NumberFormatException ignored) {
                                     }
-                                }, null), mx, my);
+                                }, null)), mx, my);
                 // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx, F_DELETE_COND.getString(), 60, () -> {
                     pushUndo();
@@ -7327,7 +7343,7 @@ public class BlockEditorScreen extends Screen {
                 default -> newConditionHas();
             };
             replaceSelf(replacement);
-            popup = new ConditionPopup(x, y, replacement);
+            setPopup(new ConditionPopup(x, y, replacement));
         }
         private void toggleNot() {
             if (cond instanceof BProgram.Bool.Not n) {
