@@ -3703,7 +3703,7 @@ public class BlockEditorScreen extends Screen {
         rounded(g, panelX, panelY, panelW, panelH, 10, G_PANEL);
         border(g, panelX, panelY, panelW, panelH, G_BORDER_SOFT);
 
-        toolbarRows = panelW < 620 ? 2 : 1;
+        toolbarRows = panelW < 560 ? 2 : (panelW < 380 ? 3 : 1);
         canvasX = panelX + PALETTE_W + 16;
         canvasY = panelY + toolbarH() + 6;
         int baseCanvasW = panelX + panelW - 8 - canvasX;
