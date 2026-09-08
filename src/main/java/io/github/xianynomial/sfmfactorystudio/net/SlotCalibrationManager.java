@@ -52,9 +52,6 @@ public final class SlotCalibrationManager {
     public static final int STATE_NO_CAPABILITY = 2;
     public static final int STATE_UNREACHABLE = -1;
 
-    /** 读取半径（格）。工厂里机器离玩家很远，放宽到 64。 */
-    private static final double MAX_DISTANCE_SQR = 64 * 64;
-
     private static final int MAX_SESSION_TICKS = 20 * 180;      // 会话上限 3 分钟
     private static final int UNIQUE_STREAK = 3;                 // 独特内容连续 3 次采样（150ms）
     private static final int ANCHOR_STREAK = 5;                 // 连续 5 次采样内容一致

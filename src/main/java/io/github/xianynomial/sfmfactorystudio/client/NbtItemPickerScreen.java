@@ -37,8 +37,6 @@ public class NbtItemPickerScreen extends Screen {
     private static final Loc NO_MATCH_INV = T("no_match_inv", "背包里没有匹配的物品");
     private static final Loc TAB_INV = T("tab_inv", "背包物品（%s）");
     private static final Loc TAB_ALL = T("tab_all", "全部物品（%s）");
-    private static final Loc TAB_INV_S = T("tab_inv_s", "背包物品");
-    private static final Loc TAB_ALL_S = T("tab_all_s", "全部物品");
     private static final Loc COMP_COUNT = T("comp_count", "%s 的 NBT（%s 项）");
     private static final Loc BY_NAME = T("by_name", "（按此名称）");
     private static final int SLOT = 20, COLS = 12, GRID_W = COLS * SLOT;
@@ -204,8 +202,10 @@ public class NbtItemPickerScreen extends Screen {
         g.fill(0, 0, width, height, 0x90000000);
         int px = panelX();
         int rows = Math.min(maxRows(), (shownItems.size() + COLS - 1) / COLS);
+        // 组件页可见行数封顶（超长组件列表不再把面板撑出屏幕底），滚轮才能真正滚动
+        int compRows = Math.max(1, Math.min(maxRows(), pickRows.size()));
         int panelH = componentPage
-                ? CONTENT_Y - PANEL_TOP + pickRows.size() * ROW_H + 16
+                ? CONTENT_Y - PANEL_TOP + compRows * ROW_H + 16
                 : CONTENT_Y - PANEL_TOP + rows * SLOT + 16;
         g.fill(px + 3, PANEL_TOP + 3, px + PANEL_W + 3, PANEL_TOP + panelH + 3, 0x30203A5A);
         g.fill(px, PANEL_TOP, px + PANEL_W, PANEL_TOP + panelH, 0xFFF6F8FC);
@@ -219,7 +219,8 @@ public class NbtItemPickerScreen extends Screen {
                     px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
             g.drawString(font, BACK.getString(), px + 10, TAB_Y, 0xFF2F6FED, false);
             g.fill(px + 8, TAB_Y + 16, px + PANEL_W - 8, TAB_Y + 17, 0xFFE0E5EC); // 分隔线
-            int visible = pickRows.size();
+            // 可见行数封顶（超长组件列表不再把面板撑出屏幕），滚轮才能真正滚动
+            int visible = Math.max(1, Math.min(maxRows(), pickRows.size()));
             compScroll = Math.min(compScroll, Math.max(0, pickRows.size() - visible));
             for (int i = 0; i < visible; i++) {
                 PickRow row = pickRows.get(compScroll + i);
@@ -286,7 +287,7 @@ public class NbtItemPickerScreen extends Screen {
             if (my >= TAB_Y - 3 && my < TAB_Y + 14 && mx >= px + 8 && mx < px + 100) {
                 componentPage = false; return true;
             }
-            int visible = pickRows.size();
+            int visible = Math.max(1, Math.min(maxRows(), pickRows.size()));
             for (int i = 0; i < visible; i++) {
                 int ry = CONTENT_Y + i * ROW_H;
                 if (my >= ry && my < ry + ROW_H && mx >= px + 4 && mx < px + PANEL_W - 4) {
@@ -298,7 +299,9 @@ public class NbtItemPickerScreen extends Screen {
             }
             return true;
         }
-        String[] tabs = {TAB_INV_S.getString(), TAB_ALL_S.getString()};
+        // 页签命中与渲染同源：用带计数的同一组文案算宽度（短文案宽度对不上，
+        // 页签右半点击会落空——渲染与命中不同源的同类回归）
+        String[] tabs = {TAB_INV.getString(inventory.size()), TAB_ALL.getString(allItems.size())};
         int tx = px + 10;
         for (int i = 0; i < 2; i++) {
             int tw = font.width(tabs[i]) + 14;

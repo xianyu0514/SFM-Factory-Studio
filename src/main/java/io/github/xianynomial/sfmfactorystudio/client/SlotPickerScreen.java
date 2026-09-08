@@ -302,7 +302,9 @@ public final class SlotPickerScreen extends Screen {
         vpW = Math.min(view.contentW(), availW);
         vpH = Math.min(view.contentH(), availH);
         gridX = (width - vpW) / 2;
-        gridY = Math.max(guideText() != null ? 82 : 66, height / 2 - vpH / 2);
+        // 引导行占位必须与渲染同一判定（effectiveGuide）：否则朝向引导缺席但
+        // noExposure 兜底行在画时，该行会压到网格顶边（渲染与命中/布局不同源回归）
+        gridY = Math.max(effectiveGuide() != null ? 82 : 66, height / 2 - vpH / 2);
         scrollX = clampScroll(scrollX, view.contentW(), vpW);
         scrollY = clampScroll(scrollY, view.contentH(), vpH);
         int bottom = gridY + vpH;
@@ -432,10 +434,7 @@ public final class SlotPickerScreen extends Screen {
         drawFittedCentered(g, L_HINT.getString(), 31, 0xFF8A93A5);
         drawFittedCentered(g, targetText(), 42, 0xFF8A93A5);
         drawFittedCentered(g, bannerText(), 53, bannerColor());
-        String guide = guideText();
-        if (guide == null && noExposure && capState == CapState.READY) {
-            guide = L_NO_EXPOSURE.getString();
-        }
+        String guide = effectiveGuide();
         drawFittedCentered(g, guide == null ? "" : guide, 64, 0xFFE8B339);
 
         relayout();
@@ -572,6 +571,15 @@ public final class SlotPickerScreen extends Screen {
         for (int i = 1; i < 7; i++) maxOther = Math.max(maxOther, dirTotals[i]);
         if (current < 0 || maxOther <= current) return null;
         return L_SIDE_GUIDE.getString(current, maxOther);
+    }
+
+    /** 实际画出的引导行：朝向差异引导，或 noExposure 诊断兜底。布局留白与渲染共用同一判定。 */
+    private String effectiveGuide() {
+        String guide = guideText();
+        if (guide == null && noExposure && capState == CapState.READY) {
+            return L_NO_EXPOSURE.getString();
+        }
+        return guide;
     }
 
     private int bannerColor() {
