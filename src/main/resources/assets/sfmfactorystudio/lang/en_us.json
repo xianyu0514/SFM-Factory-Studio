@@ -270,7 +270,7 @@
   "gui.sfmfactorystudio.ed.multi_set": "✔ Wrote %s resources (rest as alternates)",
   "gui.sfmfactorystudio.blocks.picker.done": "Done",
   "gui.sfmfactorystudio.blocks.picker.clear": "Clear",
-  "gui.sfmfactorystudio.blocks.picker.multi_hint": "+ corner / Shift+click / drag to box-select, then press Done",
+  "gui.sfmfactorystudio.blocks.picker.multi_hint": "Click to select · hold-drag to box-select · press Done",
   "gui.sfmfactorystudio.ed.delete_cond": "✕ Delete condition",
   "gui.sfmfactorystudio.ed.delete_draft": "Delete draft",
   "gui.sfmfactorystudio.ed.delete_item": "Delete this item",

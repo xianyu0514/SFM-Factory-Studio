@@ -25,9 +25,9 @@ import java.util.function.Consumer;
  *
  * 两种模式：
  * 单选（legacy）——点击物品立即返回；
- * 多选（multiPick != null）——右上角 ＋ 角标勾选/Shift+点击/按住拖动框选，
- * 绿色描边标记已选，底部「完成」一次性提交整组（语义=「和」备选链，SFML or 连接）。
- * 无修饰键单击仍是"选这一个立即完成"的最短路径。
+ * 多选（multiPick != null）——左键点击即选中（再点取消）、左键按住拖动框选
+ * 扫过的一切，绿色描边标记已选，底部「完成」一次性提交整组（语义=「和」
+ * 备选链，SFML or 连接）。多选模式永不自动关闭。
  */
 public class ResourcePickerScreen extends Screen {
     private static final Loc SEARCH = new Loc("gui.sfmfactorystudio.blocks.picker.search", "搜索...");
@@ -36,7 +36,7 @@ public class ResourcePickerScreen extends Screen {
     private static final Loc CANCEL = new Loc("gui.sfmfactorystudio.blocks.close", "关闭");
     private static final Loc DONE = new Loc("gui.sfmfactorystudio.blocks.picker.done", "完成");
     private static final Loc CLEAR = new Loc("gui.sfmfactorystudio.blocks.picker.clear", "清空");
-    private static final Loc MULTI_HINT = new Loc("gui.sfmfactorystudio.blocks.picker.multi_hint", "＋勾选 / Shift+点 / 拖框选，完成后点「完成」");
+    private static final Loc MULTI_HINT = new Loc("gui.sfmfactorystudio.blocks.picker.multi_hint", "左键点击选中 · 按住拖动框选 · 点「完成」添加");
 
     private static final int CELL = 22;
     private static final int COLS = 11;
@@ -54,11 +54,13 @@ public class ResourcePickerScreen extends Screen {
     private EditBox searchBox;
     private int scrollRow = 0;
     private ResourceIndex.Entry hoveredEntry;
-    // 多选拖动状态：pressIndex = 按下的格子（-1 无）；bandDragging = 已进入框选
+    // 多选拖动状态：pressIndex = 按下的格子（-1 无）；bandDragging = 已进入框选；
+    // pressWasSelected = 按下时是否已选中（纯点击松手=取消选中；拖动则保持选中并框选）
     private int pressIndex = -1;
     private int bandAnchor = -1;
     private boolean bandDragging = false;
     private int bandCursor = -1;
+    private boolean pressWasSelected = false;
 
     public ResourcePickerScreen(Screen previousScreen, BProgram.ResourceKind resourceKind, Consumer<String> onPick) {
         this(previousScreen, resourceKind, onPick, null);
@@ -218,14 +220,6 @@ public class ResourcePickerScreen extends Screen {
                 border(g, cx + 1, cy + 1, CELL - 2, CELL - 2, GREEN);
                 g.fill(cx + CELL - 6, cy + CELL - 6, cx + CELL - 3, cy + CELL - 3, GREEN);
             }
-            if (multi()) {
-                // 右上角 ＋ 角标（手绘两笔，8×8 内）；已选项画 − 表示可取消
-                int bx = cx + CELL - 10, by = cy + 2;
-                boolean plusHover = mx >= bx && mx < bx + 8 && my >= by && my < by + 8;
-                int pc = picked ? GREEN : (plusHover ? 0xFF2F6FED : 0xFF9AA6B8);
-                g.fill(bx + 3, by + 1, bx + 5, by + 7, pc);
-                if (!picked) g.fill(bx + 1, by + 3, bx + 7, by + 5, pc);
-            }
             if (over) hoveredEntry = entry;
         }
         renderBand(g, left, top);
@@ -263,19 +257,12 @@ public class ResourcePickerScreen extends Screen {
             ResourceIndex.Entry entry = filtered.get(index);
             int cx = gridLeft() + ((index - scrollRow * COLS) % COLS) * CELL;
             int cy = gridTop() + ((index - scrollRow * COLS) / COLS) * CELL;
-            // 右上角 ＋/− 角标：勾选切换，留在本页
-            if (multi() && mx >= cx + CELL - 10 && mx < cx + CELL - 2 && my >= cy + 2 && my < cy + 10) {
-                toggleMulti(entry);
-                return true;
-            }
             if (multi()) {
-                if (hasShiftDown()) {
-                    toggleMulti(entry);
-                    return true;
-                }
-                // 普通按下：先记录，松手时若无拖动才当"选这一个立即完成"
-                //（给按住拖动框选让路）
+                // 左键直接选中（无需快捷键/角标）；已选中项纯点击（松手未拖动）才取消。
+                // 按住拖动=从这格开始框选。
                 pressIndex = index;
+                pressWasSelected = multiSelected.contains(entry.sfmlId());
+                multiSelected.add(entry.sfmlId());
                 bandAnchor = index;
                 bandDragging = false;
                 bandCursor = index;
@@ -341,11 +328,9 @@ public class ResourcePickerScreen extends Screen {
     @Override
     public boolean mouseReleased(double mx, double my, int button) {
         if (multi() && pressIndex >= 0 && button == 0) {
-            if (!bandDragging) {
-                // 没拖动：按"选这一个立即完成"处理（多选回调收到单元素列表）
-                ResourceIndex.Entry entry = filtered.get(pressIndex);
-                multiPick.accept(List.of(entry.sfmlId()));
-                Minecraft.getInstance().setScreen(previousScreen);
+            // 纯点击一个已选中项 = 取消选中（拖动过则保持，框选只加不减）
+            if (!bandDragging && pressWasSelected) {
+                multiSelected.remove(filtered.get(pressIndex).sfmlId());
             }
             pressIndex = -1;
             bandAnchor = -1;
