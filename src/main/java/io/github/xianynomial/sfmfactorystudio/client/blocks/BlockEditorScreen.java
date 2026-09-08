@@ -519,10 +519,33 @@ public class BlockEditorScreen extends Screen {
     private int locateTicks = 0;
     /** 呼吸边框颜色：问题定位=红（C_ERR），新建卡片定位=选中蓝。 */
     private int locateColor = C_ERR;
-    // ---- 新手帮助面板（? 按钮 / 首次打开自动弹）----
+    // ---- 新手帮助面板（? 按钮 / 仅第一次打开自动弹）----
     private boolean helpOpen = false;
     private boolean helpSeen = false;
     private int helpScroll = 0;
+
+    /** 已读标记：独立的小文件，与 layouts.json 的解析/写盘完全解耦（layouts.json
+     *  任何一环异常都会被静默吞掉导致"每次进入都弹"，标记文件没有这类失败面）。 */
+    private static java.nio.file.Path helpFlagFile() {
+        return net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get()
+                .resolve("sfmfactorystudio").resolve("editor-help-seen.flag");
+    }
+
+    private static boolean readHelpFlag() {
+        try {
+            return java.nio.file.Files.exists(helpFlagFile());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static void writeHelpFlag() {
+        try {
+            java.nio.file.Files.createDirectories(helpFlagFile().getParent());
+            java.nio.file.Files.writeString(helpFlagFile(), "seen");
+        } catch (Exception ignored) {
+        }
+    }
     private String generatedCache = "";
 
     private EditBox nameBox;
@@ -877,10 +900,11 @@ public class BlockEditorScreen extends Screen {
         // 仅第一次打开编辑器自动弹帮助；弹出的瞬间就持久化 helpSeen——
         // 之后无论重开程序/空白画布/退出游戏再回来，都不会再自动出现，
         // 只能通过工具栏「?」手动打开（用户拍板 2026-09-09）。
+        if (readHelpFlag()) helpSeen = true;
         helpOpen = !helpSeen;
         if (helpOpen) {
             helpSeen = true;
-            saveLayouts();
+            writeHelpFlag();
         }
         warmupKindOracle();
     }
@@ -4454,14 +4478,14 @@ public class BlockEditorScreen extends Screen {
         helpScroll = 0;
         if (helpOpen && !helpSeen) {
             helpSeen = true;
-            saveLayouts();
+            writeHelpFlag();
         }
     }
 
     private void closeHelp() {
         helpOpen = false;
         helpSeen = true;
-        saveLayouts();
+        writeHelpFlag();
     }
 
     private static final int HELP_LINE = 13;
