@@ -125,6 +125,22 @@ public class BlockEditorScreen extends Screen {
     static final Loc M_DELETE_DUP = E("delete_dup", "删除下方副本");
     static final Loc S_NO_DUPLICATE = E("no_duplicate", "下方没有可删除的副本");
     static final Loc S_CARD_LOCATED = E("card_located", "✔ 已新建任务框，已为你定位");
+    // ---- 主行侧面芯片（句式「从 [标签] 方块 的下面 取出…」）----
+    static final Loc SIDE_CHIP_NONE = E("side_none", "不限面");
+    static final Loc SIDE_CHIP_EACH = E("side_each", "的每一面");
+    static final Loc SIDE_CHIP_OF = E("side_of", "的");
+    static final Loc SIDE_CHIP_AUTO = E("side_auto", "自动每一面");
+    static final Loc M_SIDE_CLEAR = E("side_clear", "清除侧面（恢复不限面）");
+    static final Loc SIDE_CLEARED = E("side_cleared", "✔ 已清除侧面限定");
+    // ---- 行右键命令（重排序/插入的纯鼠标路径）----
+    static final Loc M_ROW_UP = E("row_up", "上移一行");
+    static final Loc M_ROW_DOWN = E("row_down", "下移一行");
+    static final Loc M_ROW_INSERT = E("row_insert", "在下方插入积木…");
+    static final Loc S_ROW_TOP = E("row_top", "已经在最上面了");
+    static final Loc S_ROW_BOTTOM = E("row_bottom", "已经在最下面了");
+    // ---- 物品资源多选 ----
+    static final Loc M_PICK_MULTI = E("pick_multi", "多选资源…");
+    static final Loc S_MULTI_SET = E("multi_set", "✔ 已写入 %s 项资源（其余作「和」备选）");
     static final Loc M_COMMENT = E("comment", "备注");
     static final Loc S_NOTHING_COPY = E("nothing_copy", "没有可复制的积木");
     static final Loc S_COPIED_TRIGGERS = E("copied_triggers", "已复制 %s 个触发器（Ctrl+V 粘贴）");
@@ -2398,6 +2414,56 @@ public class BlockEditorScreen extends Screen {
      * 不放撤销/重做（工具栏已有，用户拍板 2026-09-02）。
      */
     /** 光标下的语句（按布局行矩形反查，含 If 嵌套）；未命中返回 null。 */
+    /** 语句在模型中的位置（列表引用 + 下标，含 If 嵌套分支）；找不到返回 null。 */
+    private record StatementLoc(List<BProgram.Statement> list, int index) {}
+
+    private @Nullable StatementLoc locateStatement(BProgram.Statement target) {
+        var stack = new java.util.ArrayDeque<List<BProgram.Statement>>();
+        for (BProgram.Trigger t : program.triggers) stack.push(t.body);
+        while (!stack.isEmpty()) {
+            var body = stack.pop();
+            for (int i = 0; i < body.size(); i++) {
+                if (body.get(i) == target) return new StatementLoc(body, i);
+                if (body.get(i) instanceof BProgram.Statement.If iff) {
+                    for (BProgram.Branch b : iff.branches) stack.push(b.body);
+                    stack.push(iff.elseBody);
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 上移/下移一行（dir=-1/+1）。纯鼠标重排序路径，拖拽之外的显式命令。 */
+    private void moveStatement(StatementLoc loc, int dir) {
+        int to = loc.index() + dir;
+        if (to < 0 || to >= loc.list().size()) {
+            showStatus(dir < 0 ? S_ROW_TOP.getString() : S_ROW_BOTTOM.getString(), 0xFFB45309);
+            return;
+        }
+        pushUndo();
+        var list = loc.list();
+        var moved = list.remove(loc.index());
+        list.add(to, moved);
+        layout.markBodyDirty(list);
+        layoutDirty = true;
+    }
+
+    /** 「在下方插入积木…」：从行右键选择积木种类，插入点=该行下一条缝隙。 */
+    private void openInsertBelowMenu(StatementLoc loc) {
+        List<String> values = List.of("input", "output", "forget", "if", "comment");
+        List<String> labels = List.of(paletteLabel("input"), paletteLabel("output"),
+                paletteLabel("forget"), paletteLabel("if"), paletteLabel("comment"));
+        setPopup(new Popup.ChoicePopup(sX(0) + 60, sY(0) + 80, 150, values, labels, "", kind -> {
+            pushUndo();
+            BProgram.Statement built = buildBlock(kind);
+            int at = Math.min(loc.index() + 1, loc.list().size());
+            inheritAccess(loc.list(), at, built);
+            loc.list().add(at, built);
+            layout.markBodyDirty(loc.list());
+            layoutDirty = true;
+        }));
+    }
+
     private BProgram.Statement statementAt(double cx, double cy) {
         var stack = new java.util.ArrayDeque<List<BProgram.Statement>>();
         for (BProgram.Trigger t : program.triggers) stack.push(t.body);
@@ -2448,6 +2514,15 @@ public class BlockEditorScreen extends Screen {
         List<String> labels = new ArrayList<>();
         values.add("copy");
         labels.add(COPY_THIS_BLOCK.getString());
+        StatementLoc loc = locateStatement(s);
+        if (loc != null) {
+            values.add("up");
+            labels.add(M_ROW_UP.getString());
+            values.add("down");
+            labels.add(M_ROW_DOWN.getString());
+            values.add("insert_below");
+            labels.add(M_ROW_INSERT.getString());
+        }
         List<String> labelsRef = labelsOf(s);
         if (labelsRef != null) {
             values.add("copy_labels");
@@ -2459,9 +2534,13 @@ public class BlockEditorScreen extends Screen {
         }
         values.add("delete");
         labels.add(DELETE_THIS_BLOCK.getString());
+        final StatementLoc fLoc = loc;
         setPopup(new Popup.ChoicePopup(sX((int) mx), sY((int) my) + 8, 170, values, labels, "", action -> {
             switch (action) {
                 case "copy" -> copySingleStatement(s);
+                case "up" -> moveStatement(fLoc, -1);
+                case "down" -> moveStatement(fLoc, 1);
+                case "insert_below" -> openInsertBelowMenu(fLoc);
                 case "copy_labels" -> {
                     if (labelsRef != null && !labelsRef.isEmpty()) {
                         copiedLabels = new ArrayList<>(labelsRef);
@@ -4840,15 +4919,16 @@ public class BlockEditorScreen extends Screen {
         barBase(g, x, y, w, BAR_H, accent, selected);
         registerBarGrip(list, index, stmt, x, y, w, verb, accent);
         final int sxx = x, syy = y;
-        // 中文语序：从 [标签] 方块取出 [数量] [资源]
+        // 中文语序：从 [标签] [的面] 取出 [数量] [资源]
         int fx = x + 12;
         fx = drawText(g, fx, y, T_IO_FROM.getString());
         String labelDisp = in.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", in.access.labels);
         hits.add(hit(fx, y, 32, BAR_H, K_RCLICK, null, () -> openLabelContext(sxx, syy, in.access.labels)));
         fx = drawField(g, fx, y, labelDisp, 32,
                 () -> openLabelEditor(sxx, syy, in.access.labels), mx, my, false);
-        fx = drawText(g, fx, y, T_IO_TAKE.getString());
         BProgram.ResourceLimit rl = primaryLimit(in.limits);
+        fx = drawSideChip(g, fx, y, in.access, rl, mx, my);
+        fx = drawText(g, fx, y, T_IO_TAKE.getString());
         fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
         // 备选资源延主行显示（用户多次强调不换行）：主槽后直接续排
@@ -4885,7 +4965,7 @@ public class BlockEditorScreen extends Screen {
         barBase(g, x, y, w, BAR_H, accent, selected);
         registerBarGrip(list, index, stmt, x, y, w, verb, accent);
         final int sxx = x, syy = y;
-        // 中文语序：放入 [标签] 方块 [数量] [资源]
+        // 中文语序：放入 [标签] 方块 [的面] [数量] [资源]
         int fx = x + 12;
         fx = drawText(g, fx, y, T_IO_PUT.getString());
         String labelDisp = out.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", out.access.labels);
@@ -4894,6 +4974,7 @@ public class BlockEditorScreen extends Screen {
                 () -> openLabelEditor(sxx, syy, out.access.labels), mx, my, false);
         fx = drawText(g, fx, y, T_IO_BLOCK.getString());
         BProgram.ResourceLimit rl = primaryLimit(out.limits);
+        fx = drawSideChip(g, fx, y, out.access, rl, mx, my);
         fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
         if (rl != null && rl.resources.size() > 1) {
@@ -4920,6 +5001,40 @@ public class BlockEditorScreen extends Screen {
         if (expandedIds.contains(stmt.id)) {
             renderOutputOptions(g, x + INDENT, y + BAR_H, mx, my, out, list, index);
         }
+    }
+
+    /**
+     * 主行侧面芯片（反馈：大多数机器不写侧面不工作，侧面必须是常驻选项）。
+     * 句式设计：设置后显示「的每一面」「的下面」，与前后文连读为
+     * 「从 熔炉 方块 的下面 取出…」；未指定显示灰色「不限面」提示可点；
+     * 能量行未指定显示「自动每一面」——BlocksToSfml 会自动补 each side
+     * （能量默认面=空面的语义坑，见 2026-09-04 修复），芯片如实呈现。
+     */
+    private int drawSideChip(GuiGraphics g, int fx, int y, BProgram.LabelAccess access,
+                             @Nullable BProgram.ResourceLimit rl, int mx, int my) {
+        boolean energyAuto = rl != null && BlocksToSfml.energyOnly(java.util.List.of(rl));
+        String text;
+        boolean set;
+        if (access.eachSide) {
+            text = SIDE_CHIP_EACH.getString();
+            set = true;
+        } else if (!access.sides.isEmpty()) {
+            StringBuilder sb = new StringBuilder(SIDE_CHIP_OF.getString());
+            for (int i = 0; i < access.sides.size(); i++) {
+                sb.append(i == 0 ? "" : "+").append(sideZh(access.sides.get(i)));
+            }
+            text = sb.toString();
+            set = true;
+        } else if (energyAuto) {
+            text = SIDE_CHIP_AUTO.getString();
+            set = false;
+        } else {
+            text = SIDE_CHIP_NONE.getString();
+            set = false;
+        }
+        final int chipX = fx;
+        return drawField(g, fx, y, text, 40,
+                () -> showSideEditor(sX(chipX), sY(y) + BAR_H + 2, access), mx, my, !set);
     }
 
     /** 数量点选：常用值一键即选，免弹键盘；手动输入作为第二入口。 */
@@ -5168,18 +5283,7 @@ public class BlockEditorScreen extends Screen {
             }, mx, my, 0xFFC22B21);
             y += OPT_H;
         }
-        if (access.eachSide || !access.sides.isEmpty()) {
-            int fx = extensionRow(g, x, y, w, accent, F_SIDES.getString());
-            final int fieldX = fx, rowY = y;
-            fx = drawField(g, fx, y, sidesDisp(access), 80, () -> openSideEditor(fieldX, rowY, access), mx, my, false);
-            drawIcon(g, x + w - 18, y, "✕", () -> {
-                pushUndo();
-                access.eachSide = false;
-                access.sides.clear();
-                layoutDirty = true;
-            }, mx, my, 0xFFC22B21);
-            y += OPT_H;
-        }
+        // 侧面已上主行（drawSideChip 芯片）：扩展面板不再重复显示
         if (!access.slots.isEmpty()) {
             int fx = extensionRow(g, x, y, w, accent, M_PICK_SLOTS.getString());
             final int fieldX = fx, rowY = y;
@@ -5525,7 +5629,7 @@ public class BlockEditorScreen extends Screen {
         }
         if (primary != null && primary.retain == null) addChoice(values, labels, "retain:0", M_RETAIN_N.getString());
         addChoice(values, labels, "except", M_EXCEPT_RES.getString());
-        if (!access.eachSide && access.sides.isEmpty()) addChoice(values, labels, "sides", M_PICK_SIDES.getString());
+        // 「指定方块侧面」入口已上主行芯片，菜单不再重复
         if (access.slots.isEmpty()) addChoice(values, labels, "slots", M_PICK_SLOTS.getString());
         if (access.roundRobin == BProgram.RoundRobinMode.NONE) addChoice(values, labels, "round_robin", M_PICK_RR.getString());
         if (!each) addChoice(values, labels, "each", M_EACH_BLOCK.getString());
@@ -5618,7 +5722,6 @@ public class BlockEditorScreen extends Screen {
                     except.add(resource);
                     layoutDirty = true;
                 });
-                case "sides" -> openSideEditor(x, y, access);
                 case "slots_beta" ->
                         openSlotBetaPicker(firstBoundBlockPos(access.labels), access);
                 case "slots" -> {
@@ -6092,22 +6195,60 @@ public class BlockEditorScreen extends Screen {
                 else rl.resources.set(0, picked);
             }
         };
-        return drawResourceSelector(g, x, y, current, setter, mx, my);
+        // 主槽带「多选资源…」入口（备选槽/类别槽保持单选）
+        return drawResourceSelector(g, x, y, current, setter, mx, my,
+                rl == null ? null : () -> openBuiltInCatalogMulti(current.kind(), rl));
     }
 
     private int drawResourceSelector(GuiGraphics g, int x, int y, BProgram.ResourceRef current,
                                      Consumer<BProgram.ResourceRef> setter, int mx, int my) {
+        return drawResourceSelector(g, x, y, current, setter, mx, my, null);
+    }
+
+    private int drawResourceSelector(GuiGraphics g, int x, int y, BProgram.ResourceRef current,
+                                     Consumer<BProgram.ResourceRef> setter, int mx, int my,
+                                     @Nullable Runnable multiBrowse) {
         String category = current.kind() == BProgram.ResourceKind.CUSTOM
                 ? current.typeNamespace + ":" + current.typeName
                 : current.kind().chineseName();
         int fx = drawField(g, x, y, category, 32,
                 () -> openResourceKindMenu(x, y, current, setter), mx, my, false);
-        return drawResourceValueSlot(g, fx, y, current, setter, mx, my);
+        return drawResourceValueSlot(g, fx, y, current, setter, mx, my, multiBrowse);
+    }
+
+    /** 多选资源：整组写入资源列表（首项=主资源，其余=「和」备选，SFML or 连接）。 */
+    private void openBuiltInCatalogMulti(BProgram.ResourceKind kind, BProgram.ResourceLimit rl) {
+        if (kind == BProgram.ResourceKind.CUSTOM) {
+            showStatus(S_CUSTOM_USE_NAME.getString(), 0xFFB45309);
+            return;
+        }
+        Minecraft.getInstance().setScreen(new io.github.xianynomial.sfmfactorystudio.client.ResourcePickerScreen(this, kind, null, picked -> {
+            pushUndo();
+            rl.resources.clear();
+            for (String id : picked) {
+                try {
+                    BProgram.ResourceRef incoming = BProgram.ResourceRef.parse(id);
+                    if (incoming.kind() == kind) rl.resources.add(incoming);
+                } catch (IllegalArgumentException ex) {
+                    // 跳过解析失败项，保持其余资源可用
+                }
+            }
+            if (rl.resources.isEmpty()) rl.resources.add(BProgram.ResourceRef.forKind(kind));
+            layoutDirty = true;
+            refreshIssues();
+            showStatus(S_MULTI_SET.getString(rl.resources.size()), C_SELECT);
+        }));
     }
 
     /** Empty means all resources of the already-selected category. */
     private int drawResourceValueSlot(GuiGraphics g, int x, int y, BProgram.ResourceRef current,
                                       Consumer<BProgram.ResourceRef> setter, int mx, int my) {
+        return drawResourceValueSlot(g, x, y, current, setter, mx, my, null);
+    }
+
+    private int drawResourceValueSlot(GuiGraphics g, int x, int y, BProgram.ResourceRef current,
+                                      Consumer<BProgram.ResourceRef> setter, int mx, int my,
+                                      @Nullable Runnable multiBrowse) {
         int size = BAR_H; // 20px, like an 18px vanilla slot + breathing room
         boolean hover = overField(mx, my, x, y, size, size);
         g.fill(x + 1, y + 1, x + size - 1, y + size - 1, hover ? 0x997080A0 : 0x90606B7E);
@@ -6129,7 +6270,7 @@ public class BlockEditorScreen extends Screen {
         hits.add(hit(x, y, size, size, K_RCLICK, null,
                 () -> openResourceSlotContext(x, y, current, setter)));
         hits.add(hit(x, y, size, size, K_CLICK, null,
-                () -> openResourceValueMenu(x, y, current, setter)));
+                () -> openResourceValueMenu(x, y, current, setter, multiBrowse)));
         addGhostZone(x, y, size, size, current.toString(), dropped -> {
             try {
                 BProgram.ResourceRef incoming = BProgram.ResourceRef.parse(dropped);
@@ -6719,7 +6860,12 @@ public class BlockEditorScreen extends Screen {
 
     private void openResourceValueMenu(int contentX, int contentY, BProgram.ResourceRef current,
                                        Consumer<BProgram.ResourceRef> setter) {
-        showResourceValueMenu(sX(contentX), sY(contentY) + BAR_H + 2, current, setter);
+        openResourceValueMenu(contentX, contentY, current, setter, null);
+    }
+
+    private void openResourceValueMenu(int contentX, int contentY, BProgram.ResourceRef current,
+                                       Consumer<BProgram.ResourceRef> setter, @Nullable Runnable multiBrowse) {
+        showResourceValueMenu(sX(contentX), sY(contentY) + BAR_H + 2, current, setter, multiBrowse);
     }
 
     /**
@@ -6770,12 +6916,23 @@ public class BlockEditorScreen extends Screen {
 
     private void showResourceValueMenu(int screenX, int screenY, BProgram.ResourceRef current,
                                        Consumer<BProgram.ResourceRef> setter) {
+        showResourceValueMenu(screenX, screenY, current, setter, null);
+    }
+
+    private void showResourceValueMenu(int screenX, int screenY, BProgram.ResourceRef current,
+                                       Consumer<BProgram.ResourceRef> setter, @Nullable Runnable multiBrowse) {
+        List<String> values = multiBrowse == null
+                ? List.of("browse", "id", "all")
+                : List.of("browse", "multi", "id", "all");
+        List<String> labels = multiBrowse == null
+                ? List.of(M_BROWSE_KIND.getString(current.kind().chineseName()), M_INPUT_NAME.getString(), M_ALL_OF_KIND.getString())
+                : List.of(M_BROWSE_KIND.getString(current.kind().chineseName()), M_PICK_MULTI.getString(), M_INPUT_NAME.getString(), M_ALL_OF_KIND.getString());
         setPopup(new Popup.ChoicePopup(screenX, screenY, 150,
-                List.of("browse", "id", "all"),
-                List.of(M_BROWSE_KIND.getString(current.kind().chineseName()), M_INPUT_NAME.getString(), M_ALL_OF_KIND.getString()),
+                values, labels,
                 "", action -> {
             switch (action) {
                 case "browse" -> openBuiltInCatalog(current.kind(), setter);
+                case "multi" -> { if (multiBrowse != null) multiBrowse.run(); }
                 case "id" -> setPopup(new Popup.TextPopup(this, screenX, screenY, 220,
                         current.resourcePart(), F_RES_HINT.getString(), value -> {
                     try {
@@ -6869,12 +7026,19 @@ public class BlockEditorScreen extends Screen {
     }
 
     private void showSideEditor(int screenX, int screenY, BProgram.LabelAccess access) {
-        List<String> values = new ArrayList<>(List.of("each", "top", "bottom", "north", "south", "east", "west", "front", "back", "left", "right", "null"));
-        List<String> labels = new ArrayList<>(List.of(V_EACH_SIDE.getString(), V_SIDE_TOP.getString(), V_SIDE_BOTTOM.getString(), V_SIDE_NORTH.getString(), V_SIDE_SOUTH.getString(), V_SIDE_EAST.getString(), V_SIDE_WEST.getString(), V_SIDE_FRONT.getString(), V_SIDE_BACK.getString(), V_SIDE_LEFT.getString(), V_SIDE_RIGHT.getString(), V_SIDE_NULL.getString()));
+        List<String> values = new ArrayList<>(List.of("each", "top", "bottom", "north", "south", "east", "west", "front", "back", "left", "right", "clear"));
+        List<String> labels = new ArrayList<>(List.of(V_EACH_SIDE.getString(), V_SIDE_TOP.getString(), V_SIDE_BOTTOM.getString(), V_SIDE_NORTH.getString(), V_SIDE_SOUTH.getString(), V_SIDE_EAST.getString(), V_SIDE_WEST.getString(), V_SIDE_FRONT.getString(), V_SIDE_BACK.getString(), V_SIDE_LEFT.getString(), V_SIDE_RIGHT.getString(), M_SIDE_CLEAR.getString()));
         setPopup(new Popup.ChoicePopup(screenX, screenY, 90, values, labels,
                 access.eachSide ? "each" : access.sides.isEmpty() ? "" : access.sides.get(0).sfml(),
                 picked -> {
                     pushUndo();
+                    layoutDirty = true;
+                    if (picked.equals("clear")) {
+                        access.eachSide = false;
+                        access.sides.clear();
+                        showStatus(SIDE_CLEARED.getString(), C_SELECT);
+                        return;
+                    }
                     if (picked.equals("each")) {
                         access.eachSide = !access.eachSide;
                         if (access.eachSide) access.sides.clear();

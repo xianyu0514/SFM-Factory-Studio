@@ -259,7 +259,7 @@ public final class BlocksToSfml {
     }
 
     /** 语句的全部资源都是 FE 能量（空资源列表 = 物品通配，不算能量）。 */
-    private static boolean energyOnly(List<ResourceLimit> limits) {
+    public static boolean energyOnly(List<ResourceLimit> limits) {
         boolean any = false;
         for (ResourceLimit rl : limits) {
             if (rl == null) continue;
