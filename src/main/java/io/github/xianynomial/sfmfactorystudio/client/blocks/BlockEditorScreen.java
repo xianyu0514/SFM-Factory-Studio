@@ -12,6 +12,7 @@ import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BlockTemplates
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BlocksToSfml;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.CardLayouts;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorUiMath;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.BodyRef;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.CardL;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.Gap;
@@ -780,10 +781,11 @@ public class BlockEditorScreen extends Screen {
     protected void init() {
         // 虚拟分辨率：逻辑宽不足 640 时等比缩小绘制（edScale < 1）。下限取 640：
         // JEI 让位后面板只剩 74%，480 只剩 ~355px 宽，画布小到积木行点不中；
-        // 640 让极端缩放下画布仍有 ~300px 可用宽度。
-        edScale = Math.min(1.0f, Math.max(0.25f, this.width / 640f));
-        edW = Math.round(this.width / edScale);
-        edH = Math.round(this.height / edScale);
+        // 640 让极端缩放下画布仍有 ~300px 可用宽度。（换算公式在 EditorUiMath，有单测）
+        var frame = EditorUiMath.virtualFrame(this.width, this.height, 640);
+        edScale = frame.scale();
+        edW = frame.width();
+        edH = frame.height();
         this.width = edW;
         this.height = edH;
         // 回显（从标签/NBT 选择器返回会重跑 init）：代码窗没有未提交的编辑时，
@@ -3554,10 +3556,10 @@ public class BlockEditorScreen extends Screen {
         rounded(g, panelX + 3, panelY + 4, panelW, panelH, 10, G_SHADOW);
         rounded(g, panelX, panelY, panelW, panelH, 10, G_PANEL);
         border(g, panelX, panelY, panelW, panelH, G_BORDER_SOFT);
-        // 窄面板按钮需要更多行：按宽度猜一个下限（注意 <380 判断必须在 <560 之前，
-        // 否则三分支永远走不到 3 行），再与 renderToolbar 回写的实际占用行数取最大。
-        // 声明行数 >= 实际行数 ⇒ 按钮永远不会溢出进画布区域吞点击。
-        toolbarRows = Math.max(panelW < 380 ? 3 : (panelW < 560 ? 2 : 1), toolbarRowsUsed);
+        // 窄面板按钮需要更多行：按宽猜下限（EditorUiMath.guessToolbarRows，有单测），
+        // 再与 renderToolbar 回写的实际占用行数取最大。声明行数 >= 实际行数
+        // ⇒ 按钮永远不会溢出进画布区域吞点击。
+        toolbarRows = Math.max(EditorUiMath.guessToolbarRows(panelW), toolbarRowsUsed);
         canvasX = panelX + PALETTE_W + 16;
         canvasY = panelY + toolbarH() + 6;
         int baseCanvasW = panelX + panelW - 8 - canvasX;
@@ -4084,61 +4086,11 @@ public class BlockEditorScreen extends Screen {
         text(g, T_NAME.getString(), panelX + 10, panelY + 10, C_TEXT_SUB);
         rounded(g, namePillX(), panelY + 5, 120, 19, 5, 0xF2FFFFFF);
         border(g, namePillX(), panelY + 5, 120, 19, nameBox.isFocused() ? C_SELECT : G_BORDER);
-        // 按钮右→左排布；放不下就折到下一行。每个按钮（含首尾）都必须做折行检查，
-        // 行数在末尾回写 toolbarRowsUsed 供下帧 toolbarH() 联动——按钮永远不会
+        // 按钮右→左排布；放不下折行（EditorUiMath.placeToolbar 纯逻辑，有单测锁）。
+        // 实际占用行数回写 toolbarRowsUsed 供下帧 toolbarH() 联动——按钮永远不会
         // 画进工具栏条以外的区域（否则会以 uiHits 吞掉画布顶部的点击）。
         int bh = 20;
         int minBx = namePillX() + 126;
-        int startRowY = panelY + 4;
-        int rowY = startRowY;
-        int curX = panelX + panelW - 8;
-        int groupLeft = curX; // 第一行按钮组的左缘，状态字相对它右对齐让位
-        // -- 保存 --
-        curX -= 86;
-        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 86; }
-        if (rowY == startRowY) groupLeft = curX;
-        button(g, curX, rowY, 86, bh, "⬤ " + T_SAVE.getString(), C_SAVE, C_SAVE_H, this::save, mx, my);
-        // -- 代码 --
-        curX -= 4 + 52;
-        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 52; }
-        if (rowY == startRowY) groupLeft = curX;
-        button(g, curX, rowY, 52, bh, T_PREVIEW.getString(),
-                previewMode ? 0xCC2F6FED : 0xCC5B6472,
-                previewMode ? 0xCC2459C4 : 0xCC49525E, this::toggleCodeEditor, mx, my);
-        // -- 撤销 --
-        curX -= 4 + 48;
-        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 48; }
-        if (rowY == startRowY) groupLeft = curX;
-        button(g, curX, rowY, 48, bh, T_UNDO.getString(), 0xCC5B6472, 0xCC49525E, this::undo, mx, my);
-        // -- 重做 --
-        curX -= 4 + 46;
-        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 46; }
-        if (rowY == startRowY) groupLeft = curX;
-        button(g, curX, rowY, 46, bh, T_REDO.getString(), 0xCC5B6472, 0xCC49525E, this::redo, mx, my);
-        // -- 适配 --
-        curX -= 4 + 44;
-        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 44; }
-        if (rowY == startRowY) groupLeft = curX;
-        button(g, curX, rowY, 44, bh, T_FIT.getString(), 0xCC5B6472, 0xCC49525E, () -> {
-            fitted = false;
-            showStatus(S_FITTED_ALL.getString(), C_SELECT);
-        }, mx, my);
-        // -- 分区 --
-        curX -= 4 + 42;
-        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 42; }
-        if (rowY == startRowY) groupLeft = curX;
-        button(g, curX, rowY, 42, bh, T_ZONES.getString(), zoneDrawing ? 0xCC2F6FED : 0xCC5B6472,
-                zoneDrawing ? 0xCC2459C4 : 0xCC49525E, () -> {
-                    zoneDrawing = !zoneDrawing;
-                    if (zoneDrawing) showStatus(S_ZONE_DRAW_HINT.getString(), C_SELECT);
-                }, mx, my);
-        // -- 平衡 --
-        curX -= 4 + 48;
-        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 48; }
-        if (rowY == startRowY) groupLeft = curX;
-        button(g, curX, rowY, 48, bh, BALANCE_BTN.getString(), 0xCC5B6472, 0xCC49525E,
-                this::balanceTriggerPhases, mx, my);
-        // -- 问题 --
         long errCount = issueErrCount;
         long warnCount = issueWarnCount;
         String issueLabel = errCount > 0
@@ -4148,32 +4100,50 @@ public class BlockEditorScreen extends Screen {
         int issueColor = errCount > 0 ? 0xCCD13438 : warnCount > 0 ? 0xCCB45309 : 0xCC5B6472;
         int issueHover = errCount > 0 ? 0xCCB02A30 : warnCount > 0 ? 0xCC9C4708 : 0xCC49525E;
         int issueW = Math.max(40, this.font.width(issueLabel) + 14);
-        curX -= 4 + issueW;
-        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - issueW; }
-        if (rowY == startRowY) groupLeft = curX;
-        button(g, curX, rowY, issueW, bh, issueLabel, issueColor, issueHover, () -> {
+        record Tb(String label, int w, int color, int hover, Runnable action) {}
+        java.util.List<Tb> specs = new ArrayList<>();
+        specs.add(new Tb("⬤ " + T_SAVE.getString(), 86, C_SAVE, C_SAVE_H, this::save));
+        specs.add(new Tb(T_PREVIEW.getString(), 52, previewMode ? 0xCC2F6FED : 0xCC5B6472,
+                previewMode ? 0xCC2459C4 : 0xCC49525E, this::toggleCodeEditor));
+        specs.add(new Tb(T_UNDO.getString(), 48, 0xCC5B6472, 0xCC49525E, this::undo));
+        specs.add(new Tb(T_REDO.getString(), 46, 0xCC5B6472, 0xCC49525E, this::redo));
+        specs.add(new Tb(T_FIT.getString(), 44, 0xCC5B6472, 0xCC49525E, () -> {
+            fitted = false;
+            showStatus(S_FITTED_ALL.getString(), C_SELECT);
+        }));
+        specs.add(new Tb(T_ZONES.getString(), 42, zoneDrawing ? 0xCC2F6FED : 0xCC5B6472,
+                zoneDrawing ? 0xCC2459C4 : 0xCC49525E, () -> {
+                    zoneDrawing = !zoneDrawing;
+                    if (zoneDrawing) showStatus(S_ZONE_DRAW_HINT.getString(), C_SELECT);
+                }));
+        specs.add(new Tb(BALANCE_BTN.getString(), 48, 0xCC5B6472, 0xCC49525E,
+                this::balanceTriggerPhases));
+        specs.add(new Tb(issueLabel, issueW, issueColor, issueHover, () -> {
             issuesOpen = !issuesOpen;
             issuesScroll = 0;
             refreshIssues();
-        }, mx, my);
-        // -- 关闭 --
-        curX -= 4 + 46;
-        if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 46; }
-        if (rowY == startRowY) groupLeft = curX;
-        button(g, curX, rowY, 46, bh, T_CLOSE.getString(), 0xCC5B6472, 0xCC49525E, this::closeEditor, mx, my);
-        // -- 存为模板（有选中时显示）--
+        }));
+        specs.add(new Tb(T_CLOSE.getString(), 46, 0xCC5B6472, 0xCC49525E, this::closeEditor));
         if (!selection.isEmpty() || !selectedTriggers.isEmpty()) {
-            curX -= 4 + 68;
-            if (curX < minBx) { rowY += TOOLBAR_H; curX = panelX + panelW - 8 - 68; }
-            if (rowY == startRowY) groupLeft = curX;
-            button(g, curX, rowY, 68, bh, T_TPL_SAVE.getString(), 0xCC7C3AED, 0xCC6D2FD9,
-                    this::saveSelectionAsTemplate, mx, my);
+            specs.add(new Tb(T_TPL_SAVE.getString(), 68, 0xCC7C3AED, 0xCC6D2FD9,
+                    this::saveSelectionAsTemplate));
         }
-        // 实际占用行数回写：下帧 canvasY/canvasH/调色板/问题板顶部基准联动，
-        // 保证工具栏条的高度永远包住所有按钮。
-        toolbarRowsUsed = ((rowY - startRowY) / TOOLBAR_H) + 1;
+        int n = specs.size();
+        int[] ws = new int[n], xs = new int[n], ys = new int[n];
+        for (int i = 0; i < n; i++) ws[i] = specs.get(i).w();
+        EditorUiMath.Placement placement = EditorUiMath.placeToolbar(
+                panelX, panelW, minBx, panelY + 4, TOOLBAR_H, 4, ws, xs, ys);
+        for (int i = 0; i < n; i++) {
+            Tb b = specs.get(i);
+            button(g, xs[i], ys[i], b.w(), bh, b.label(), b.color(), b.hover(), b.action(), mx, my);
+        }
+        // 实际占用行数回写：下帧 canvasY/canvasH/调色板/问题板顶部基准联动；
+        // 声明行数取猜测下限与实际的最大 ⇒ 工具栏条永远包住所有按钮。
+        toolbarRowsUsed = placement.rows();
+        toolbarRows = Math.max(EditorUiMath.guessToolbarRows(panelW), toolbarRowsUsed);
         // title + status
         int titleX = namePillX() + 120 + 12;
+        int groupLeft = placement.row1Left();
         String status = null;
         int col = C_TEXT_SUB;
         if (statusTicks > 0 && !statusText.isEmpty()) {
