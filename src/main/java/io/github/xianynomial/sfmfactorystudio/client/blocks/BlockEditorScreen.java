@@ -128,6 +128,9 @@ public class BlockEditorScreen extends Screen {
     static final Loc M_NEW_PULSE = E("new_pulse", "新建脉冲触发器");
     static final Loc M_COPY = E("copy", "复制");
     static final Loc M_DELETE = E("delete", "删除");
+    static final Loc M_DELETE_DUP = E("delete_dup", "删除下方副本");
+    static final Loc S_NO_DUPLICATE = E("no_duplicate", "下方没有可删除的副本");
+    static final Loc S_CARD_LOCATED = E("card_located", "✔ 已新建任务框，已为你定位");
     static final Loc M_COMMENT = E("comment", "备注");
     static final Loc S_NOTHING_COPY = E("nothing_copy", "没有可复制的积木");
     static final Loc S_COPIED_TRIGGERS = E("copied_triggers", "已复制 %s 个触发器（Ctrl+V 粘贴）");
@@ -486,6 +489,8 @@ public class BlockEditorScreen extends Screen {
             new java.util.HashMap<>();
     private @Nullable Object locateTarget = null;   // Trigger 或 Statement
     private int locateTicks = 0;
+    /** 呼吸边框颜色：问题定位=红（C_ERR），新建卡片定位=选中蓝。 */
+    private int locateColor = C_ERR;
     private String generatedCache = "";
 
     private EditBox nameBox;
@@ -1671,8 +1676,13 @@ public class BlockEditorScreen extends Screen {
         locateBlock(issue.block());
     }
 
-    /** 相机居中 + 2 秒呼吸边框（问题定位 / 搜索定位共用）。 */
+    /** 相机居中 + 2 秒呼吸边框（问题定位 / 搜索定位共用，红色）。 */
     private void locateBlock(Object block) {
+        locateBlock(block, C_ERR);
+    }
+
+    /** 同上，颜色可指定：问题定位=红，新建卡片=选中蓝（正面反馈）。 */
+    private void locateBlock(Object block, int color) {
         int[] r = contentRectOf(block);
         if (r == null) {
             layoutDirty = true;
@@ -1689,6 +1699,7 @@ public class BlockEditorScreen extends Screen {
         viewY = Math.round(r[1] + r[3] / 2f - canvasH / (2f * zoom));
         locateTarget = block;
         locateTicks = 40;
+        locateColor = color;
     }
 
 
@@ -2706,15 +2717,21 @@ public class BlockEditorScreen extends Screen {
             }
             values.add("copy");
             labels.add(M_COPY.getString());
+            if (copyBelowOf(over) != null) {
+                values.add("delete_dup");
+                labels.add(M_DELETE_DUP.getString());
+            }
             values.add("delete");
             labels.add(M_DELETE.getString());
         }
         if (values.isEmpty()) return;
+        final BProgram.Trigger menuTarget = over;
         setPopup(new Popup.ChoicePopup((int) mx - 30, (int) my - 10, 116, values, labels, "", action -> {
             switch (action) {
                 case "paste" -> pasteClipboard();
                 case "copy" -> copySelection();
                 case "delete" -> deleteSelection();
+                case "delete_dup" -> deleteDuplicateBelow(menuTarget);
                 case "new_timer" -> createCardAt("timer", ccx, ccy);
                 case "new_pulse" -> createCardAt("pulse", ccx, ccy);
             }
@@ -2809,11 +2826,11 @@ public class BlockEditorScreen extends Screen {
     private void clickAdd(String kind) {
         pushUndo();
         switch (kind) {
-            case "timer" -> program.triggers.add(newTriggerCard("timer"));
-            case "pulse" -> program.triggers.add(newTriggerCard("pulse"));
+            case "timer" -> locateNewCard(newTriggerCard("timer"));
+            case "pulse" -> locateNewCard(newTriggerCard("pulse"));
             case "input" -> addInheriting(targetBody(), newInput());
             case "output" -> addInheriting(targetBody(), newOutput());
-            case "energy" -> program.triggers.add(newTriggerCard("energy"));
+            case "energy" -> locateNewCard(newTriggerCard("energy"));
             case "forget" -> targetBody().add(new BProgram.Statement.Forget());
             case "if" -> targetBody().add(newIf());
             case "comment" -> targetBody().add(new BProgram.Statement.Comment(M_COMMENT.getString()));
@@ -2827,6 +2844,17 @@ public class BlockEditorScreen extends Screen {
                 }
             }
         }
+    }
+
+    /**
+     * 新建触发器卡的唯一入口：立即相机居中 + 蓝色呼吸框 + 状态栏播报。
+     * 反馈教训：新卡曾被布局引擎塞进视野外的自动槽位，"毫不知情就创建了"。
+     */
+    private void locateNewCard(BProgram.Trigger t) {
+        program.triggers.add(t);
+        layoutDirty = true;
+        locateBlock(t, C_SELECT);
+        showStatus(S_CARD_LOCATED.getString(), C_SELECT);
     }
 
     private void dropPalette(String kind, double cx, double cy) {
@@ -3820,8 +3848,8 @@ public class BlockEditorScreen extends Screen {
             if (r != null) {
                 float t = (System.currentTimeMillis() % 600) / 600f;
                 int alpha = 0x50 + (int) (0x50 * Math.abs(Math.sin(t * Math.PI)));
-                int fill = (alpha << 24) | (C_ERR & 0xFFFFFF);
-                int line = (0xFF << 24) | (C_ERR & 0xFFFFFF);
+                int fill = (alpha << 24) | (locateColor & 0xFFFFFF);
+                int line = (0xFF << 24) | (locateColor & 0xFFFFFF);
                 g.fill(r[0] - 2, r[1] - 2, r[0] + r[2] + 2, r[1] + r[3] + 2, fill);
                 border(g, r[0] - 2, r[1] - 2, r[2] + 4, r[3] + 4, line);
                 border(g, r[0] - 1, r[1] - 1, r[2] + 2, r[3] + 2, line);
@@ -3862,6 +3890,19 @@ public class BlockEditorScreen extends Screen {
             for (Hit h : hits) {
                 border(g, h.x, h.y, h.w, h.h, DBG[Math.max(0, Math.min(h.kind, DBG.length - 1))]);
             }
+        }
+
+        // 拖拽插入指示线：高亮当前落点缝隙。注意此处仍在内容(zoom+pan)变换
+        // 里，必须用内容坐标（sX/sY 会被二次变换）；线宽按缩放保底，远焦也可见。
+        // 反馈教训：拖动其实一直支持实时缝隙重排，但没有任何可见指示，
+        // 玩家根本不知道"拖动=重排序"。
+        if (dropGap != null && (dragGroup != null || dragPaletteKind != null)) {
+            int lw = Math.max(1, Math.round(2f / zoom));
+            int ex = Math.max(1, Math.round(3f / zoom));
+            int gx1 = dropGap.x(), gy = dropGap.y(), gx2 = dropGap.x() + dropGap.w();
+            g.fill(gx1, gy - lw, gx2, gy + lw, 0xFF2F6FED);
+            g.fill(gx1, gy - ex, gx1 + ex, gy + ex, 0xFF2F6FED);           // 左端点
+            g.fill(gx2 - ex, gy - ex, gx2, gy + ex, 0xFF2F6FED);           // 右端点
         }
 
         g.pose().popPose();
@@ -4311,10 +4352,8 @@ public class BlockEditorScreen extends Screen {
             refreshIssues();
         }));
         specs.add(new Tb(T_CLOSE.getString(), 34, 0xCC5B6472, 0xCC49525E, this::closeEditor));
-        if (!selection.isEmpty() || !selectedTriggers.isEmpty()) {
-            specs.add(new Tb(T_TPL_SAVE.getString(), 40, 0xCC7C3AED, 0xCC6D2FD9,
-                    this::saveSelectionAsTemplate));
-        }
+        // 「存为模板」只在框选动作条（renderActionBar）出现——工具栏不再放
+        // 条件按钮，标题区拥挤和折行压力一并解决（用户拍板 2026-09-08）。
         int n = specs.size();
         int[] ws = new int[n], xs = new int[n], ys = new int[n];
         for (int i = 0; i < n; i++) ws[i] = Math.max(specs.get(i).minW(), this.font.width(specs.get(i).label()) + 14);
@@ -4722,17 +4761,23 @@ public class BlockEditorScreen extends Screen {
 
         rounded(g, x + 2, y + 3, w, h - 3, 8, G_SHADOW);
         rounded(g, x, y, w, h - 3, 8, G_CARD);
+        // 标题栏质感（用户反馈：只有顶部能拖但看不出来）：悬停/拖动中整条变亮，
+        // 顶部 1px 高光线，让"按住这里拖"不教自明。行高/命中区不变。
         int headBg = mix(G_CARD, accent, 26);
+        boolean headHot = overField(mx, my, x, y, w, HEAD_H) || t == dragTrigger;
+        if (headHot) headBg = mix(G_CARD, accent, 42);
         rounded(g, x, y, w, HEAD_H, 8, headBg);
         g.fill(x, y + HEAD_H / 2, x + w, y + HEAD_H, headBg);
+        g.fill(x + 1, y + 1, x + w - 1, y + 2, mix(headBg, 0xFFFFFFFF, 45));
         rounded(g, x, y, 6, HEAD_H, 3, accent);
         border(g, x, y, w, h - 3, G_BORDER);
 
         // 成本角标：抓手左侧的 6px 色点（绿/黄/红），悬停看明细
         renderCostBadge(g, t, x + w - 13, y + h / 2 - 3, mx, my);
 
-        // 头部抓手：3×2 点阵，提示"这里可以拖"。画在 accent 条右侧，不占额外宽度。
-        int gripC = mix(accent, 0xFFFFFFFF, 120);
+        // 头部抓手：3×2 点阵（手绘 fill，不用 ≡ 字形——不在已验证字形集），
+        // 悬停/拖动时提亮，强化"这里是把手"。
+        int gripC = mix(accent, 0xFFFFFFFF, headHot ? 170 : 120);
         for (int r = 0; r < 3; r++) {
             for (int c2 = 0; c2 < 2; c2++) {
                 g.fill(x + 8 + c2 * 3, y + 9 + r * 4, x + 10 + c2 * 3, y + 11 + r * 4, gripC);
@@ -4870,14 +4915,15 @@ public class BlockEditorScreen extends Screen {
             renderBody(g, t.body, x + CARD_INNER, by, mx, my);
         }
 
-        // footer: [−] removes the complete run card; [＋] makes a deep copy of it.
+        // footer: [−] collapses this card (visual convention: − = minimize);
+        // [＋] makes a deep copy of it. 破坏性的"删副本"只在右键菜单且存在副本时出现。
         if (!collapsedCards.contains(t.id) && zoom >= LOD_ZOOM) {
             int duplicateX = x + w - 28;
             int removeX = duplicateX - 24;
             int actionY = y + h - FOOT_H;
             g.fill(x + 6, y + h - 10, removeX - 5, y + h - 4, mix(G_CARD, accent, 22));
-            drawTriggerFooterButton(g, removeX, actionY, "−", 0xFFC22B21,
-                    () -> deleteTriggerSmart(t), mx, my);
+            drawTriggerFooterButton(g, removeX, actionY, "−", 0xFF5B6472,
+                    () -> toggleCardCollapse(t), mx, my);
             drawTriggerFooterButton(g, duplicateX, actionY, "＋", accent,
                     () -> duplicateTriggerBelow(t, h), mx, my);
         }
@@ -4943,13 +4989,17 @@ public class BlockEditorScreen extends Screen {
     }
 
     /**
-     * 底部 − 的语义（用户拍板）：同指纹的“副本”堆在正下方时，删掉最近复制
-     * 的那个副本（后进先出，像计数器减一）；独立卡没有副本可删，才删自己。
-     * 要删“这一张”卡永远用头部左上角 ✕。
+     * 删除下方副本（卡片右键菜单项，仅当存在副本时显示）。守卫：找不到副本
+     * 时绝不退化为"删自己"——删整张卡的唯一途径是头部左上角 ✕
+     * （用户拍板 2026-09-08：底部 − 曾伪装成删除钮，误触率过高）。
      */
-    private void deleteTriggerSmart(BProgram.Trigger t) {
+    private void deleteDuplicateBelow(BProgram.Trigger t) {
         BProgram.Trigger copy = copyBelowOf(t);
-        deleteTrigger(copy != null ? copy : t);
+        if (copy == null) {
+            showStatus(S_NO_DUPLICATE.getString(), 0xFFB45309);
+            return;
+        }
+        deleteTrigger(copy);
     }
 
     /** 同列、贴在本卡下方、同触发头指纹的最近一张卡（＋复制出来的副本）。 */
