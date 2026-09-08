@@ -2880,8 +2880,10 @@ public class BlockEditorScreen extends Screen {
             layoutDirty = true;
             return;
         }
-        if (kind.startsWith("mytpl:")) {
-            // templates always append to the target body
+        if (kind.startsWith("mytpl:") || kind.equals("tpl_fast")) {
+            // 玩家模板与触发器级模板（高频并行）总是追加到目标体/程序，没有缝隙
+            // 语义。buildBlock 只认识基础积木，模板类目漏判会落到它的 default
+            // 分支只插一条"备注"注释（"官方模板拖出来只有注释"反馈的根因）
             clickAdd(kind);
             return;
         }
@@ -2889,8 +2891,15 @@ public class BlockEditorScreen extends Screen {
         if (g != null) {
             pushUndo();
             List<BProgram.Statement> list = g.body().list();
-            BProgram.Statement built = buildBlock(kind);
             int at = Math.max(0, Math.min(g.index(), list.size()));
+            if (BlockTemplates.isOneClickTemplate(kind)) {
+                // 一键模板自带完整标签语义（原料箱/熔炉…），不做标签继承——
+                // inheritAccess 会用上文标签覆盖模板自带的标签
+                list.addAll(at, BlockTemplates.statementsForTemplate(kind));
+                layoutDirty = true;
+                return;
+            }
+            BProgram.Statement built = buildBlock(kind);
             inheritAccess(list, at, built);
             list.add(at, built);
             layoutDirty = true;
@@ -2898,7 +2907,11 @@ public class BlockEditorScreen extends Screen {
             // 空白画布：在鼠标位置新建一张卡装这块积木（不再随机塞进别的卡）
             pushUndo();
             BProgram.TimerTrigger t = new BProgram.TimerTrigger();
-            t.body.add(buildBlock(kind));
+            if (BlockTemplates.isOneClickTemplate(kind)) {
+                t.body.addAll(BlockTemplates.statementsForTemplate(kind));
+            } else {
+                t.body.add(buildBlock(kind));
+            }
             program.triggers.add(t);
             layout.setCardPos(t.id, CardLayouts.snap((int) cx), CardLayouts.snap((int) cy));
             layoutDirty = true;
