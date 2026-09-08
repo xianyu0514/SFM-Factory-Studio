@@ -392,7 +392,7 @@ public final class EditorLayout {
         int alts = Math.max(0, limits.get(0).resources.size() - 1);
         if (alts <= 0) return 0;
         int usable = CARD_W - CARD_INNER * 2;   // 语句在卡片内的可用宽度
-        int mainRowFixed = 246;                  // 与渲染端步进同源（见注释）
+        int mainRowFixed = 294;                  // 与渲染端步进同源（见注释）：含主行侧面芯片「不限面」48px
         int chars = 0;
         for (String label : labels) chars += label == null ? 0 : label.length();
         int labelExtra = Math.max(0, chars * 6 + 10 - 32);
@@ -532,7 +532,7 @@ public final class EditorLayout {
             if (limit.with != null) rows += withRows(limit.with);
         }
         rows += except.size();
-        if (access.eachSide || !access.sides.isEmpty()) rows++;
+        // 侧面已上主行（主行芯片），扩展面板不再显示侧面行
         if (!access.slots.isEmpty()) rows++;
         if (access.roundRobin != BProgram.RoundRobinMode.NONE) rows++;
         if (each) rows++;
