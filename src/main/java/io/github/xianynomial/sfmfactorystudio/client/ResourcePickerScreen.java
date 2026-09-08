@@ -313,12 +313,14 @@ public class ResourcePickerScreen extends Screen {
             if (!bandDragging && cur != pressIndex) bandDragging = true;
             bandCursor = cur;
             if (bandDragging) {
-                // 矩形框选：锚点格与当前格之间的整片区域全部加入
-                int ac = (bandAnchor - scrollRow * COLS) % COLS, ar = (bandAnchor - scrollRow * COLS) / COLS;
-                int cc = (cur - scrollRow * COLS) % COLS, cr = (cur - scrollRow * COLS) / COLS;
+                // 矩形框选：锚点格与当前格之间的整片区域全部加入。
+                // 拖动中滚轮会改 scrollRow，相对行/列可能为负——用 floorMod 保证
+                // 行列号不出错（负数取模会把列算成负、选错一片）
+                int ac = Math.floorMod(bandAnchor - scrollRow * COLS, COLS), ar = Math.floorDiv(bandAnchor - scrollRow * COLS, COLS);
+                int cc = Math.floorMod(cur - scrollRow * COLS, COLS), cr = Math.floorDiv(cur - scrollRow * COLS, COLS);
                 int c1 = Math.min(ac, cc), c2 = Math.max(ac, cc);
                 int r1 = Math.min(ar, cr), r2 = Math.max(ar, cr);
-                for (int r = r1; r <= r2; r++) {
+                for (int r = Math.max(0, r1); r <= r2; r++) {
                     for (int c = c1; c <= c2; c++) {
                         int idx = scrollRow * COLS + r * COLS + c;
                         if (idx >= 0 && idx < filtered.size()) multiSelected.add(filtered.get(idx).sfmlId());

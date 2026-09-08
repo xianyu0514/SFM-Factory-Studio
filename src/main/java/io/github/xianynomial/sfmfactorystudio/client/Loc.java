@@ -40,24 +40,6 @@ public record Loc(String key, String fallback) {
         return exists() ? Component.translatable(key, args) : Component.literal(fmt(fallback, args));
     }
 
-    /** Convenience: translate a raw key to a display string (no fallback). */
-    public static String tr(String key) {
-        try {
-            return I18n.get(key);
-        } catch (Throwable t) {
-            return key;
-        }
-    }
-
-    /** Convenience: translate a raw key with args (no fallback). */
-    public static String tr(String key, Object... args) {
-        try {
-            return I18n.get(key, args);
-        } catch (Throwable t) {
-            return key;
-        }
-    }
-
     private boolean exists() {
         try {
             return I18n.exists(key);
