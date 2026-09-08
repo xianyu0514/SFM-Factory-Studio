@@ -2154,6 +2154,10 @@ public class BlockEditorScreen extends Screen {
         for (int i = hits.size() - 1; i >= 0; i--) {
             Hit h = hits.get(i);
             if (in(h, cx, cy)) {
+                // K_RCLICK（右键目标）只由右键链路（按下平移→松手未移动→
+                // openContextAt）消费。它注册在 K_GRIP 之后、倒序先命中，
+                // 通用 onClick 兜底会让左键点积木直接弹菜单、永远进不了拖拽。
+                if (h.kind == K_RCLICK) continue;
                 if (h.kind == K_GRIP && button == 0) {
                     if (hasShiftDown()) {
                         // Shift+点击行：加选/减选，不进入拖动
@@ -2594,12 +2598,12 @@ public class BlockEditorScreen extends Screen {
         layoutDirty = true;
     }
 
-    /** 「在下方插入积木…」：从行右键选择积木种类，插入点=该行下一条缝隙。 */
-    private void openInsertBelowMenu(StatementLoc loc) {
+    /** 「在下方插入积木…」：选择菜单出现在行右键菜单的同一位置（就地替换，不乱跳）。 */
+    private void openInsertBelowMenu(StatementLoc loc, double mx, double my) {
         List<String> values = List.of("input", "output", "forget", "if", "comment");
         List<String> labels = List.of(paletteLabel("input"), paletteLabel("output"),
                 paletteLabel("forget"), paletteLabel("if"), paletteLabel("comment"));
-        setPopup(new Popup.ChoicePopup(sX(0) + 60, sY(0) + 80, 150, values, labels, "", kind -> {
+        setPopup(new Popup.ChoicePopup(sX((int) mx), sY((int) my) + 8, 150, values, labels, "", kind -> {
             pushUndo();
             BProgram.Statement built = buildBlock(kind);
             int at = Math.min(loc.index() + 1, loc.list().size());
@@ -2686,7 +2690,7 @@ public class BlockEditorScreen extends Screen {
                 case "copy" -> copySingleStatement(s);
                 case "up" -> moveStatement(fLoc, -1);
                 case "down" -> moveStatement(fLoc, 1);
-                case "insert_below" -> openInsertBelowMenu(fLoc);
+                case "insert_below" -> openInsertBelowMenu(fLoc, mx, my);
                 case "copy_labels" -> {
                     if (labelsRef != null && !labelsRef.isEmpty()) {
                         copiedLabels = new ArrayList<>(labelsRef);
@@ -2823,7 +2827,7 @@ public class BlockEditorScreen extends Screen {
             }
             values.add("copy");
             labels.add(M_COPY.getString());
-            if (copyBelowOf(over) != null) {
+            if (copyFarthestBelow(over) != null) {
                 values.add("delete_dup");
                 labels.add(M_DELETE_DUP.getString());
             }
@@ -5137,7 +5141,7 @@ public class BlockEditorScreen extends Screen {
         if (!collapsedCards.contains(t.id) && zoom >= LOD_ZOOM) {
             int duplicateX = x + w - 28;
             int actionY = y + h - FOOT_H;
-            boolean hasCopy = copyBelowOf(t) != null;
+            boolean hasCopy = copyFarthestBelow(t) != null;
             int removeX = hasCopy ? duplicateX - 24 : duplicateX;
             g.fill(x + 6, y + h - 10, removeX - 5, y + h - 4, mix(G_CARD, accent, 22));
             if (hasCopy) {
@@ -5214,7 +5218,7 @@ public class BlockEditorScreen extends Screen {
      * （用户拍板 2026-09-08：底部 − 曾伪装成删除钮，误触率过高）。
      */
     private void deleteDuplicateBelow(BProgram.Trigger t) {
-        BProgram.Trigger copy = copyBelowOf(t);
+        BProgram.Trigger copy = copyFarthestBelow(t);
         if (copy == null) {
             showStatus(S_NO_DUPLICATE.getString(), 0xFFB45309);
             return;
@@ -5222,25 +5226,66 @@ public class BlockEditorScreen extends Screen {
         deleteTrigger(copy);
     }
 
-    /** 同列、贴在本卡下方、同触发头指纹的最近一张卡（＋复制出来的副本）。 */
-    private @Nullable BProgram.Trigger copyBelowOf(BProgram.Trigger t) {
-        int[] r = layout.cardRectOf(t.id);
-        if (r == null) return null;
-        String key = CardLayouts.triggerKey(t);
-        BProgram.Trigger best = null;
-        int bestY = Integer.MAX_VALUE;
-        for (BProgram.Trigger other : program.triggers) {
-            if (other == t || !CardLayouts.triggerKey(other).equals(key)) continue;
-            int[] or = layout.cardRectOf(other.id);
-            if (or == null || Math.abs(or[0] - r[0]) > 8) continue;       // 同列
-            if (or[1] < r[1] + r[3] - 8) continue;                        // 在本卡下方（紧贴也算）
-            if (or[1] < bestY) {
-                bestY = or[1];
-                best = other;
-            }
+    // ---- 副本身份（2026-09-09）：完全一样才是副本，改过一个字就不是 ----
+    private long identityVersion = -1;
+    private java.util.Map<Long, Long> identityHashes = java.util.Map.of();
+
+    /** 触发器正文+触发头的全内容 FNV 哈希（BlocksToSfml.snapshot 单遍产出，按 modelVersion 缓存）。 */
+    private long identityHashOf(BProgram.Trigger t) {
+        if (identityVersion != modelVersion) {
+            identityHashes = io.github.xianynomial.sfmfactorystudio.client.blocks.model.BlocksToSfml.snapshot(program).triggerHashes();
+            identityVersion = modelVersion;
         }
-        return best;
+        Long h = identityHashes.get(t.id);
+        return h == null ? t.id : h;
     }
+
+    /** 副本判定：触发头参数与正文内容完全一致（此前指纹不含正文，改过的卡也会被当副本删掉）。 */
+    private boolean isCopyOf(BProgram.Trigger copy, BProgram.Trigger source) {
+        return copy != source
+                && CardLayouts.triggerKey(copy).equals(CardLayouts.triggerKey(source))
+                && identityHashOf(copy) == identityHashOf(source);
+    }
+
+    /**
+     * 从本卡沿紧贴副本链找到的栈底最远副本（删除时先删它，后进先出）。
+     * 点击栈中间的卡时先向上走到栈顶、再向下走到栈底；无副本返回 null。
+     */
+    private @Nullable BProgram.Trigger copyFarthestBelow(BProgram.Trigger t) {
+        int[] me = layout.cardRectOf(t.id);
+        if (me == null) return null;
+        int x = me[0];
+        int topY = me[1];
+        while (true) {
+            BProgram.Trigger prev = null;
+            for (BProgram.Trigger other : program.triggers) {
+                if (!isCopyOf(other, t)) continue;
+                int[] or = layout.cardRectOf(other.id);
+                if (or == null || Math.abs(or[0] - x) > 8) continue;
+                if (or[1] + or[3] >= topY - 8 && or[1] + or[3] <= topY + 8) { prev = other; break; }
+            }
+            if (prev == null) break;
+            topY = layout.cardRectOf(prev.id)[1];
+        }
+        int y = topY;
+        BProgram.Trigger bottom = null;
+        while (true) {
+            BProgram.Trigger next = null;
+            int nextY = Integer.MAX_VALUE;
+            for (BProgram.Trigger other : program.triggers) {
+                if (!isCopyOf(other, t)) continue;
+                int[] or = layout.cardRectOf(other.id);
+                if (or == null || Math.abs(or[0] - x) > 8) continue;
+                if (or[1] >= y - 8 && or[1] <= y + 8 && or[1] < nextY) { nextY = or[1]; next = other; }
+            }
+            if (next == null) break;
+            bottom = next;
+            y = layout.cardRectOf(next.id)[1];
+        }
+        return bottom != null && bottom != t ? bottom : null;
+    }
+
+
 
     private void duplicateTriggerBelow(BProgram.Trigger source, int sourceHeight) {
         int sourceIndex = program.triggers.indexOf(source);
@@ -5251,7 +5296,6 @@ public class BlockEditorScreen extends Screen {
         // 副本栈（用户拍板 2026-09-09）：沿"同指纹+同列+紧贴正下方"一路走到栈底，
         // 新副本贴在栈底卡的正下方——第 1 个贴原卡、第 2 个贴第 1 个，依次成叠。
         // 此前固定贴原卡下方，第 2 个副本起互相叠压、被避让推得乱摆。
-        String key = CardLayouts.triggerKey(source);
         int[] cur = layout.cardRectOf(source.id);
         int x = cur == null ? 0 : cur[0];
         int bottomY = cur == null ? 0 : cur[1];
@@ -5260,7 +5304,7 @@ public class BlockEditorScreen extends Screen {
             BProgram.Trigger next = null;
             int nextY = Integer.MAX_VALUE;
             for (BProgram.Trigger other : program.triggers) {
-                if (other == source || !CardLayouts.triggerKey(other).equals(key)) continue;
+                if (!isCopyOf(other, source)) continue;
                 int[] or = layout.cardRectOf(other.id);
                 if (or == null || Math.abs(or[0] - x) > 8) continue;
                 if (or[1] >= bottomY + bottomH - 8 && or[1] <= bottomY + bottomH + 8 && or[1] < nextY) {

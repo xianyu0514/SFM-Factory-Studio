@@ -272,7 +272,7 @@
   "gui.sfmfactorystudio.ed.multi_set": "✔ 已写入 %s 项资源（其余作「和」备选）",
   "gui.sfmfactorystudio.blocks.picker.done": "完成",
   "gui.sfmfactorystudio.blocks.picker.clear": "清空",
-  "gui.sfmfactorystudio.blocks.picker.multi_hint": "＋勾选 / Shift+点 / 拖框选，完成后点「完成」",
+  "gui.sfmfactorystudio.blocks.picker.multi_hint": "左键点击选中 · 按住拖动框选 · 点「完成」添加",
   "gui.sfmfactorystudio.ed.delete_cond": "✕ 删除条件",
   "gui.sfmfactorystudio.ed.delete_draft": "删除草稿",
   "gui.sfmfactorystudio.ed.delete_item": "删除这一项",
