@@ -573,7 +573,7 @@
   "gui.sfmfactorystudio.nbt.back": "← Back to items",
   "gui.sfmfactorystudio.nbt.by_name": "(match this name)",
   "gui.sfmfactorystudio.nbt.comp_count": "%s's NBT (%s entries)",
-  "gui.sfmfactorystudio.nbt.empty_inv": "Inventory is empty — carry the items to separate, or switch to \"All items\"",
+  "gui.sfmfactorystudio.nbt.empty_inv": "Inventory is empty: hold the items you want to tell apart by NBT first",
   "gui.sfmfactorystudio.nbt.empty_item": "This item has no NBT data — try another one",
   "gui.sfmfactorystudio.nbt.hint": "Search item name or pinyin…",
   "gui.sfmfactorystudio.nbt.no_match": "No matching items",

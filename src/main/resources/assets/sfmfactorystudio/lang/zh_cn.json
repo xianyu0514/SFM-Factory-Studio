@@ -573,7 +573,7 @@
   "gui.sfmfactorystudio.nbt.back": "← 返回选物品",
   "gui.sfmfactorystudio.nbt.by_name": "（按此名称）",
   "gui.sfmfactorystudio.nbt.comp_count": "%s 的 NBT（%s 项）",
-  "gui.sfmfactorystudio.nbt.empty_inv": "背包是空的，先把要区分的物品拿在身上；或切到「全部物品」",
+  "gui.sfmfactorystudio.nbt.empty_inv": "背包是空的：先把想按 NBT 区分的物品拿在身上再来",
   "gui.sfmfactorystudio.nbt.empty_item": "这件物品没有 NBT 数据，换一件试试",
   "gui.sfmfactorystudio.nbt.hint": "搜索物品名称或拼音…",
   "gui.sfmfactorystudio.nbt.no_match": "没有匹配的物品",
