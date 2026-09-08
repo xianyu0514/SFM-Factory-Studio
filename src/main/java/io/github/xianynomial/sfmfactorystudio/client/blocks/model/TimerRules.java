@@ -59,6 +59,11 @@ public final class TimerRules {
     }
 
     private static boolean isEnergy(BProgram.ResourceRef resource) {
+        return isEnergyResource(resource);
+    }
+
+    /** 能量类资源谓词（BlocksToSfml.energyOnly / ProgramCost 与计时下限共用同一口径）。 */
+    public static boolean isEnergyResource(BProgram.ResourceRef resource) {
         if (!"sfm".equalsIgnoreCase(resource.typeNamespace)) return false;
         return "forge_energy".equalsIgnoreCase(resource.typeName)
                 || "mekanism_energy".equalsIgnoreCase(resource.typeName);

@@ -66,7 +66,7 @@ public final class ProgramCost {
                 boolean noKind = rl.resources.isEmpty()
                         || rl.resources.stream().anyMatch(r -> r != null && r.isWildcard());
                 boolean onlyEnergy = !rl.resources.isEmpty() && rl.resources.stream()
-                        .allMatch(r -> r != null && "forge_energy".equals(r.typeName));
+                        .allMatch(r -> r != null && TimerRules.isEnergyResource(r));
                 if (onlyEnergy) {
                     perRun += labelBlocks * 0.25;
                     energy = true;

@@ -393,9 +393,17 @@ public final class EditorLayout {
         if (alts <= 0) return 0;
         int usable = CARD_W - CARD_INNER * 2;   // 语句在卡片内的可用宽度
         int mainRowFixed = 294;                  // 与渲染端步进同源（见注释）：含主行侧面芯片「不限面」48px
-        int chars = 0;
-        for (String label : labels) chars += label == null ? 0 : label.length();
-        int labelExtra = Math.max(0, chars * 6 + 10 - 32);
+        // 宽度按字符类别估：CJK 全角 ≈9px，其余 ≈6px（MC 字形上限）——
+        // 纯按 6px 估会把长中文标签的加宽需求估少约 1/3，备选芯片溢出卡外
+        int ascii = 0, cjk = 0;
+        for (String label : labels) {
+            if (label == null) continue;
+            for (int i = 0; i < label.length(); i++) {
+                if (label.charAt(i) >= 0x2E80) cjk++;
+                else ascii++;
+            }
+        }
+        int labelExtra = Math.max(0, cjk * 9 + ascii * 6 + 10 - 32);
         int need = mainRowFixed + labelExtra + alts * ALT_CHIP_W + ALT_ROW_TAIL;
         return Math.max(0, need - usable);
     }

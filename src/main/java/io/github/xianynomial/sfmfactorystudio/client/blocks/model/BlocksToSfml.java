@@ -258,7 +258,9 @@ public final class BlocksToSfml {
         return sb.toString();
     }
 
-    /** 语句的全部资源都是 FE 能量（空资源列表 = 物品通配，不算能量）。 */
+    /** 语句的全部资源都是能量类（FE/Mekanism 能量；空资源列表 = 物品通配，不算）。
+     *  与计时下限规则（TimerRules）同一谓词——Mekanism 能量接口同样按真实方向
+     *  暴露，未指定侧面时自动补 each side 的修正对它同样必要。 */
     public static boolean energyOnly(List<ResourceLimit> limits) {
         boolean any = false;
         for (ResourceLimit rl : limits) {
@@ -266,7 +268,7 @@ public final class BlocksToSfml {
             List<ResourceRef> refs = rl.resources.stream().filter(java.util.Objects::nonNull).toList();
             if (refs.isEmpty()) return false; // 无资源 = *（全部物品）
             for (ResourceRef r : refs) {
-                if (!"forge_energy".equals(r.typeName)) return false;
+                if (!TimerRules.isEnergyResource(r)) return false;
             }
             any = true;
         }
