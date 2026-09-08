@@ -4801,15 +4801,18 @@ public class BlockEditorScreen extends Screen {
             int by = y + HEAD_H + 6;
             renderBody(g, t.body, x + CARD_INNER, by, mx, my);
         }
-        // footer: [−] collapses this card (visual convention: − = minimize);
-        // [＋] makes a deep copy of it. 破坏性的"删副本"只在右键菜单且存在副本时出现。
+        // footer（用户拍板 2026-09-09）：[＋] 复制副本；[−] 删除下方副本——
+        // 没有副本时 [−] 整个隐藏（不存在"无东西可删还挂在页脚"的死按钮）。
         if (!collapsedCards.contains(t.id) && zoom >= LOD_ZOOM) {
             int duplicateX = x + w - 28;
-            int removeX = duplicateX - 24;
             int actionY = y + h - FOOT_H;
+            boolean hasCopy = copyBelowOf(t) != null;
+            int removeX = hasCopy ? duplicateX - 24 : duplicateX;
             g.fill(x + 6, y + h - 10, removeX - 5, y + h - 4, mix(G_CARD, accent, 22));
-            drawTriggerFooterButton(g, removeX, actionY, "−", 0xFF5B6472,
-                    () -> toggleCardCollapse(t), mx, my);
+            if (hasCopy) {
+                drawTriggerFooterButton(g, removeX, actionY, "−", 0xFFC22B21,
+                        () -> deleteDuplicateBelow(t), mx, my);
+            }
             drawTriggerFooterButton(g, duplicateX, actionY, "＋", accent,
                     () -> duplicateTriggerBelow(t, h), mx, my);
         }
@@ -4914,11 +4917,32 @@ public class BlockEditorScreen extends Screen {
         pushUndo();
         BProgram.Trigger copy = source.copy();
         program.triggers.add(sourceIndex + 1, copy);
-        int[] sourcePos = layout.cardPosOf(source.id);
-        int x = sourcePos == null ? 0 : sourcePos[0];
-        int y = sourcePos == null ? 0 : sourcePos[1];
-        // 紧贴对齐：副本直接贴在原卡正下方（零间距，用户拍板 2026-09-02）
-        layout.setCardPos(copy.id, x, CardLayouts.snap(y + sourceHeight));
+        // 副本栈（用户拍板 2026-09-09）：沿"同指纹+同列+紧贴正下方"一路走到栈底，
+        // 新副本贴在栈底卡的正下方——第 1 个贴原卡、第 2 个贴第 1 个，依次成叠。
+        // 此前固定贴原卡下方，第 2 个副本起互相叠压、被避让推得乱摆。
+        String key = CardLayouts.triggerKey(source);
+        int[] cur = layout.cardRectOf(source.id);
+        int x = cur == null ? 0 : cur[0];
+        int bottomY = cur == null ? 0 : cur[1];
+        int bottomH = cur == null ? sourceHeight : cur[3];
+        while (true) {
+            BProgram.Trigger next = null;
+            int nextY = Integer.MAX_VALUE;
+            for (BProgram.Trigger other : program.triggers) {
+                if (other == source || !CardLayouts.triggerKey(other).equals(key)) continue;
+                int[] or = layout.cardRectOf(other.id);
+                if (or == null || Math.abs(or[0] - x) > 8) continue;
+                if (or[1] >= bottomY + bottomH - 8 && or[1] <= bottomY + bottomH + 8 && or[1] < nextY) {
+                    nextY = or[1];
+                    next = other;
+                }
+            }
+            if (next == null) break;
+            int[] nr = layout.cardRectOf(next.id);
+            bottomY = nr[1];
+            bottomH = nr[3];
+        }
+        layout.setCardPos(copy.id, x, CardLayouts.snap(bottomY + bottomH));
         keepPosTrigger = copy;
         selection.clear();
         selectedTriggers.clear();
