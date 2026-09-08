@@ -35,13 +35,13 @@ public final class BlockTexts {
     public static final Loc T_QTY_TOTAL = new Loc("gui.sfmfactorystudio.blocks.qty_total", "合计");
     public static final Loc T_ENERGY_TRANSFER = new Loc("gui.sfmfactorystudio.blocks.energy_transfer", "高频传输能量");
     public static final Loc T_FORGET = new Loc("gui.sfmfactorystudio.blocks.forget", "清空本轮取出记录");
-    public static final Loc T_IF = new Loc("gui.sfmfactorystudio.blocks.if", "如果");
+    public static final Loc T_IF = new Loc("gui.sfmfactorystudio.blocks.if", "当");
     public static final Loc T_RAW = new Loc("gui.sfmfactorystudio.blocks.raw", "旧版内容（只读）");
     public static final Loc T_COMMENT = new Loc("gui.sfmfactorystudio.blocks.comment", "注释");
     public static final Loc T_EVERY = new Loc("gui.sfmfactorystudio.blocks.every", "每");
     public static final Loc T_TICKS = new Loc("gui.sfmfactorystudio.blocks.ticks", "刻");
     public static final Loc T_SECONDS = new Loc("gui.sfmfactorystudio.blocks.seconds", "秒");
-    public static final Loc T_DO = new Loc("gui.sfmfactorystudio.blocks.do", "执行");
+    public static final Loc T_DO = new Loc("gui.sfmfactorystudio.blocks.do", "执行：");
     public static final Loc T_ALL = new Loc("gui.sfmfactorystudio.blocks.all", "全部");
     public static final Loc T_RETAIN = new Loc("gui.sfmfactorystudio.blocks.retain", "至少留下");
     public static final Loc T_EACH_LABEL = new Loc("gui.sfmfactorystudio.blocks.each_label", "每个方块分别处理");
@@ -51,7 +51,7 @@ public final class BlockTexts {
     public static final Loc T_EXCEPT = new Loc("gui.sfmfactorystudio.blocks.except", "排除");
     public static final Loc T_EMPTY = new Loc("gui.sfmfactorystudio.blocks.empty_slots", "只放空槽");
     public static final Loc T_THEN = new Loc("gui.sfmfactorystudio.blocks.then", "那么");
-    public static final Loc T_ELSE = new Loc("gui.sfmfactorystudio.blocks.else", "否则");
+    public static final Loc T_ELSE = new Loc("gui.sfmfactorystudio.blocks.else", "否则：");
     public static final Loc T_ADDELSE = new Loc("gui.sfmfactorystudio.blocks.addelse", "+ 否则");
     public static final Loc T_ADDCOND = new Loc("gui.sfmfactorystudio.blocks.addcond", "＋ 添加判断");
     public static final Loc T_ADDELSEIF = new Loc("gui.sfmfactorystudio.blocks.addelseif", "+ 否则如果");

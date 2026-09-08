@@ -14,6 +14,7 @@ import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BlocksToSfml;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.CardLayouts;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorUiMath;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.ExamplePrograms;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.BodyRef;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.CardL;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.Gap;
@@ -147,6 +148,25 @@ public class BlockEditorScreen extends Screen {
     // ---- 物品资源多选 ----
     static final Loc M_PICK_MULTI = E("pick_multi", "多选资源…");
     static final Loc S_MULTI_SET = E("multi_set", "✔ 已写入 %s 项资源（其余作「和」备选）");
+    // ---- 自然语言句式（2026-09-09 反馈批）----
+    static final Loc H_PULSE_COND = E("pulse_cond", "红石有信号时");
+    static final Loc T_WHEN_THEN = E("when_then", "时：");
+    static final Loc T_WHEN_DOTS = E("when_dots", "时…");
+    // ---- 新手帮助面板 ----
+    static final Loc HELP_TITLE = E("help_title", "五步上手");
+    static final Loc HELP_STEP1 = E("help_step1", "点左侧积木栏，把积木放到画布");
+    static final Loc HELP_STEP2 = E("help_step2", "点蓝色字填标签 / 资源（支持拼音搜索）");
+    static final Loc HELP_STEP3 = E("help_step3", "点「不限面」设置机器从哪个面进出");
+    static final Loc HELP_STEP4 = E("help_step4", "按住卡头拖动；拖积木调顺序；右键更多命令");
+    static final Loc HELP_STEP5 = E("help_step5", "写完点「⬤ 保存」写入软盘");
+    static final Loc HELP_FIX_TITLE = E("help_fix_title", "机器不动？");
+    static final Loc HELP_FIX1 = E("help_fix1", "点积木上的「不限面」改成「的每一面」");
+    static final Loc HELP_FIX2 = E("help_fix2", "确认标签已用标签枪绑定到方块上");
+    static final Loc HELP_FIX3 = E("help_fix3", "看右侧代码窗有没有红字");
+    static final Loc HELP_KEYS = E("help_keys", "快捷键：Ctrl+Z 撤销 · Ctrl+Y 重做 · Ctrl+A 全选 · 中键平移 · 滚轮缩放 · / 搜卡");
+    static final Loc HELP_MULTI_HINT2 = E("help_multi2", "下方按钮载入完整示例工厂（空画布时可用）");
+    static final Loc S_EXAMPLE_LOADED = E("example_loaded", "✔ 示例已载入：绑定同名标签后点保存即可运行");
+    static final Loc S_EXAMPLE_EMPTY_ONLY = E("example_empty_only", "载入示例需要在空画布上：请先新建一张软盘或清空当前程序");
     static final Loc M_COMMENT = E("comment", "备注");
     static final Loc S_NOTHING_COPY = E("nothing_copy", "没有可复制的积木");
     static final Loc S_COPIED_TRIGGERS = E("copied_triggers", "已复制 %s 个触发器（Ctrl+V 粘贴）");
@@ -507,6 +527,10 @@ public class BlockEditorScreen extends Screen {
     private int locateTicks = 0;
     /** 呼吸边框颜色：问题定位=红（C_ERR），新建卡片定位=选中蓝。 */
     private int locateColor = C_ERR;
+    // ---- 新手帮助面板（? 按钮 / 首次打开自动弹）----
+    private boolean helpOpen = false;
+    private boolean helpSeen = false;
+    private int helpScroll = 0;
     private String generatedCache = "";
 
     private EditBox nameBox;
@@ -858,6 +882,8 @@ public class BlockEditorScreen extends Screen {
         layout.setProgram(this.program);
         layout.setExpandedIds(expandedIds);
         loadLayouts();
+        // 首次打开编辑器自动弹一次帮助（看过存 layouts.json，不再打扰）
+        helpOpen = !helpSeen;
         warmupKindOracle();
     }
 
@@ -1412,6 +1438,7 @@ public class BlockEditorScreen extends Screen {
     private void loadLayouts() {
         Map<String, List<List<Object>>> all = readLayoutFile();
         if (all == null) return;
+        if (all.containsKey("helpSeen")) helpSeen = true;
         List<?> cards = all.get(layoutKey());
         if (cards == null) return;
         List<SavedCard> entries = new ArrayList<>();
@@ -1616,6 +1643,7 @@ public class BlockEditorScreen extends Screen {
                         : List.of(CardLayouts.triggerKey(t), x, y));
             }
             all.put(layoutKey(), mine);
+            if (helpSeen) all.put("helpSeen", List.of(List.of(1)));
             List<List<Object>> zoneRows = new ArrayList<>();
             for (Zone z : zones) {
                 zoneRows.add(List.of(z.name(), z.color(), z.x(), z.y(), z.w(), z.h()));
@@ -2915,6 +2943,10 @@ public class BlockEditorScreen extends Screen {
             case "comment" -> targetBody().add(new BProgram.Statement.Comment(M_COMMENT.getString()));
             case "tpl_smelt" -> templateSmelt();
             case "tpl_sort" -> templateSort();
+            case "ex_smelt" -> loadExample("ex_smelt");
+            case "ex_energy" -> loadExample("ex_energy");
+            case "ex_fullstack" -> loadExample("ex_fullstack");
+            case "ex_recovery" -> loadExample("ex_recovery");
             case "tpl_even" -> templateEven();
             case "tpl_fast" -> templateFast();
             default -> {
@@ -2934,6 +2966,25 @@ public class BlockEditorScreen extends Screen {
         layoutDirty = true;
         locateBlock(t, C_SELECT);
         showStatus(S_CARD_LOCATED.getString(), C_SELECT);
+    }
+
+    /**
+     * 载入完整示例工厂（ExamplePrograms 单一事实源）。仅空画布可载入：
+     * 示例是"第一分钟"的教学入口，不该和现有程序混在一起。
+     */
+    private void loadExample(String id) {
+        if (!program.triggers.isEmpty()) {
+            showStatus(S_EXAMPLE_EMPTY_ONLY.getString(), 0xFFB45309);
+            return;
+        }
+        BProgram example = ExamplePrograms.byId(id);
+        if (example == null) return;
+        pushUndo();
+        program.triggers.addAll(example.triggers);
+        layoutDirty = true;
+        refreshIssues();
+        locateBlock(program.triggers.get(0), C_SELECT);
+        showStatus(S_EXAMPLE_LOADED.getString(), C_SELECT);
     }
 
     private void dropPalette(String kind, double cx, double cy) {
@@ -3539,6 +3590,11 @@ public class BlockEditorScreen extends Screen {
         if (popup != null && popup.isOver(mx, my)) {
             if (popup.mouseScrolled(mx, my, scrollY)) return true;
         }
+        // 帮助面板滚轮（悬停画布时优先路由）
+        if (helpOpen && mx >= canvasX && mx < canvasX + canvasW && my >= canvasY && my < canvasY + canvasH) {
+            helpScroll = Math.max(0, helpScroll - (int) scrollY * 18);
+            return true;
+        }
         // 左侧积木栏：悬停时滚轮滚动（内容超高才有滚动量）
         if (mx >= panelX + 6 && mx < panelX + 6 + PALETTE_W
                 && my >= panelY + toolbarH() + 6 && my < panelY + panelH - 6 && paletteContentH > 0) {
@@ -4036,6 +4092,7 @@ public class BlockEditorScreen extends Screen {
         }
 
         renderToolbar(g, mx, my);
+        if (helpOpen) renderHelpPanel(g, mx, my);
         renderActionBar(g, mx, my);
         super.render(g, mx, my, partialTick); // program name + live SFML editor
 
@@ -4379,6 +4436,93 @@ public class BlockEditorScreen extends Screen {
         return TOOLBAR_H * toolbarRows;
     }
 
+    private void toggleHelp() {
+        helpOpen = !helpOpen;
+        helpScroll = 0;
+        if (helpOpen && !helpSeen) {
+            helpSeen = true;
+            saveLayouts();
+        }
+    }
+
+    private void closeHelp() {
+        helpOpen = false;
+        helpSeen = true;
+        saveLayouts();
+    }
+
+    private static final int HELP_LINE = 13;
+
+    private String[] helpLines() {
+        return new String[]{
+                HELP_TITLE.getString(),
+                "① " + HELP_STEP1.getString(),
+                "② " + HELP_STEP2.getString(),
+                "③ " + HELP_STEP3.getString(),
+                "④ " + HELP_STEP4.getString(),
+                "⑤ " + HELP_STEP5.getString(),
+                "",
+                HELP_FIX_TITLE.getString(),
+                "· " + HELP_FIX1.getString(),
+                "· " + HELP_FIX2.getString(),
+                "· " + HELP_FIX3.getString(),
+                "",
+                HELP_KEYS.getString(),
+                HELP_MULTI_HINT2.getString(),
+        };
+    }
+
+    /** 新手帮助面板：五步上手 + 机器不动自查 + 载入示例。首启自动弹一次。 */
+    private void renderHelpPanel(GuiGraphics g, int mx, int my) {
+        int pw = Math.min(canvasW - 12, 430);
+        if (pw < 260) return;
+        int pxx = canvasX + (canvasW - pw) / 2;
+        int lines = helpLines().length;
+        int bottomH = 30;
+        int contentH = lines * HELP_LINE + 26 + bottomH + 16;
+        int ph = Math.min(canvasH - 12, contentH);
+        int pyy = canvasY + (canvasH - ph) / 2;
+        uiHits.add(hit(pxx, pyy, pw, ph, K_CLICK, null, () -> { }));
+        rounded(g, pxx + 2, pyy + 3, pw, ph, 10, G_SHADOW);
+        rounded(g, pxx, pyy, pw, ph, 10, 0xFAFFFFFF);
+        border(g, pxx, pyy, pw, ph, 0xFFD9DFEA);
+        int maxScroll = Math.max(0, contentH - ph);
+        helpScroll = Math.max(0, Math.min(helpScroll, maxScroll));
+        g.enableScissor(Math.round(pxx * edScale), Math.round(pyy * edScale),
+                Math.round((pxx + pw) * edScale), Math.round((pyy + ph) * edScale));
+        try {
+            String[] linesArr = helpLines();
+            int y = pyy + 10 - helpScroll;
+            for (String line : linesArr) {
+                if (!line.isEmpty()) {
+                    text(g, line, pxx + 12, y, line.equals(HELP_TITLE.getString()) ? C_TEXT : 0xFF3B4656);
+                }
+                y += HELP_LINE;
+            }
+            y += 8;
+            int bw = (pw - 24 - 3 * 6) / 4;
+            int i = 0;
+            for (ExamplePrograms.Example e : ExamplePrograms.all()) {
+                final String eid = e.id();
+                int bx = pxx + 12 + i * (bw + 6);
+                boolean hover = mx >= bx && mx < bx + bw && my >= y && my < y + 20;
+                rounded(g, bx, y, bw, 20, 5, hover ? C_SELECT : 0xFFE3ECFB);
+                border(g, bx, y, bw, 20, hover ? 0xFF1F5FD0 : 0xFFB9CDE8);
+                g.drawString(this.font, e.title(), bx + (bw - Math.min(this.font.width(e.title()), bw - 4)) / 2,
+                        y + 6, hover ? 0xFFFFFFFF : 0xFF1B4FA0, false);
+                uiHits.add(hit(bx, y, bw, 20, K_CLICK, null, () -> {
+                    loadExample(eid);
+                    if (!program.triggers.isEmpty()) closeHelp();
+                }));
+                i++;
+            }
+        } finally {
+            g.disableScissor();
+        }
+        drawIcon(g, pxx + pw - 18, pyy + 6, "✕", this::closeHelp, mx, my, 0xFFC22B21);
+        uiHits.add(hit(pxx + pw - 20, pyy + 4, 20, 16, K_CLICK, null, this::closeHelp));
+    }
+
     private void renderToolbar(GuiGraphics g, int mx, int my) {
         rounded(g, panelX, panelY, panelW, toolbarH(), 10, 0xFAFFFFFF);
         g.fill(panelX, panelY + toolbarH() - 1, panelX + panelW, panelY + toolbarH(), G_BORDER_SOFT);
@@ -4424,6 +4568,7 @@ public class BlockEditorScreen extends Screen {
         // 尖刺（吞吐量不变，只挪触发时刻）。按序分配 plus 偏移摊平负载。
         specs.add(new Tb(BALANCE_BTN.getString(), 48, 0xCC5B6472, 0xCC49525E,
                 this::balanceTriggerPhases));
+        specs.add(new Tb("?", 26, 0xCC5B6472, 0xCC49525E, this::toggleHelp));
         // 问题按钮：数量在面板里看，按钮只显示短文案。
         specs.add(new Tb(issueLabel, 40, issueColor, issueHover, () -> {
             issuesOpen = !issuesOpen;
@@ -4798,9 +4943,9 @@ public class BlockEditorScreen extends Screen {
     /** 空画布引导卡：三张可点击的"第一步"选项，简单直接不出错。 */
     private void renderGuideCards(GuiGraphics g, int mx, int my) {
         String[][] guides = {
-                {"⟳", G_TIMER_LABEL.getString(), "timer"},
-                {"⚡", G_PULSE_LABEL.getString(), "pulse"},
-                {"▶", G_SMELT_LABEL.getString(), "tpl_smelt"}};
+                {"▶", E("g_ex_smelt", "熔炉流水线").getString(), "ex_smelt"},
+                {"⟳", E("g_ex_energy", "能量自动供电").getString(), "ex_energy"},
+                {"当", E("g_ex_fullstack", "整组转运").getString(), "ex_fullstack"}};
         int gw = 160, gh = 44, gap = 12;
         int total = guides.length * gw + (guides.length - 1) * gap;
         int startX = canvasX + (canvasW - total) / 2;
@@ -4923,7 +5068,9 @@ public class BlockEditorScreen extends Screen {
             fx = drawText(g, fx, y + 4, T_DO.getString());
             // 全局/偏移已从 UI 移除（进阶语法，模型与序列化保留以无损往返旧程序）
         } else {
-            fx = drawText(g, fx, y + 4, T_PULSE.getString());
+            fx = drawText(g, fx, y + 4, T_IF.getString());
+            fx = drawText(g, fx, y + 4, H_PULSE_COND.getString());
+            fx = drawText(g, fx, y + 4, T_DO.getString());
         }
 
         // 头部右上：◆ 连线手柄（整枚图标 ~22×24 任意位置可点）+ ▼ 折叠 + ◀ ▶ 排序
@@ -6331,6 +6478,7 @@ public class BlockEditorScreen extends Screen {
                 if (!iff.branches.isEmpty()) {
                     fx = renderCond(g, iff.branches.get(0).cond, fx, y, mx, my);
                 }
+                fx = drawText(g, fx, y, T_WHEN_DOTS.getString());
                 drawIcon(g, fx, y, F_EXPAND_IF.getString(), () -> toggleIfCollapse(iff), mx, my, C_TEXT_SUB);
             }
             return;
@@ -6355,6 +6503,7 @@ public class BlockEditorScreen extends Screen {
                 fx = drawText(g, fx, y, first ? T_IF.getString() : T_ELSE.getString());
                 fx = renderCond(g, b.cond, fx, y, mx, my);
                 if (first) {
+                    fx = drawText(g, fx, y, T_WHEN_THEN.getString());
                     fx = drawIcon(g, fx, y, "▼", () -> toggleIfCollapse(iff), mx, my, C_TEXT_SUB);
                 }
                 final int fbi = bi;
