@@ -20,9 +20,11 @@ import java.util.Locale;
 import java.util.function.Consumer;
 
 /**
- * NBT 可视化选择器（1.20.1 原生 NBT 语义）：背包物品 / 全部物品 双页签，
- * 图标网格 + 拼音搜索；选中物品后列出其全部非默认 NBT 根键（中文名 + 值预览），
- * 点选回调完整目标（nbt 线格式目标，冒号写点、命名空间 __ 编码）。输入分发 super 优先。
+ * NBT 可视化选择器（1.20.1 原生 NBT 语义）：只列背包里真实持有的物品堆
+ * （注册表物品只有默认 NBT、列出来全是死内容——2026-09-09 用户拍板取消
+ * 「全部物品」页签），图标网格 + 拼音搜索；选中物品后列出其全部非默认
+ * NBT 根键（中文名 + 值预览），点选回调完整目标（nbt 线格式目标，
+ * 冒号写点、命名空间 __ 编码）。输入分发 super 优先。
  */
 public class NbtItemPickerScreen extends Screen {
     private static final String K = "gui.sfmfactorystudio.nbt.";
@@ -31,12 +33,9 @@ public class NbtItemPickerScreen extends Screen {
     private static final Loc HINT = T("hint", "搜索物品名称或拼音…");
     private static final Loc BACK = T("back", "← 返回选物品");
     private static final Loc EMPTY_ITEM = T("empty_item", "这件物品没有 NBT 数据，换一件试试");
-    private static final Loc PICK_PROMPT = T("pick_prompt", "选择一件物品，查看它的 NBT");
-    private static final Loc EMPTY_INV = T("empty_inv", "背包是空的，先把要区分的物品拿在身上；或切到「全部物品」");
-    private static final Loc NO_MATCH = T("no_match", "没有匹配的物品");
+    private static final Loc PICK_PROMPT = T("pick_prompt", "选择一件身上有的物品，查看它的 NBT");
+    private static final Loc EMPTY_INV = T("empty_inv", "背包是空的：先把想按 NBT 区分的物品拿在身上再来");
     private static final Loc NO_MATCH_INV = T("no_match_inv", "背包里没有匹配的物品");
-    private static final Loc TAB_INV = T("tab_inv", "背包物品（%s）");
-    private static final Loc TAB_ALL = T("tab_all", "全部物品（%s）");
     private static final Loc COMP_COUNT = T("comp_count", "%s 的 NBT（%s 项）");
     private static final Loc BY_NAME = T("by_name", "（按此名称）");
     private static final int SLOT = 20, COLS = 12, GRID_W = COLS * SLOT;
@@ -56,14 +55,11 @@ public class NbtItemPickerScreen extends Screen {
     private final Screen parent;
     private final Consumer<String> onPick;
     private final List<ItemStack> inventory = new ArrayList<>();
-    private static List<ItemStack> allItemsCache = null;
-    private final List<ItemStack> allItems;
     private List<ItemStack> shownItems = new ArrayList<>();
 
     private record PickRow(String display, String target) {}
     private final List<PickRow> pickRows = new ArrayList<>();
     private boolean componentPage = false;
-    private boolean allTab = false;
     private ItemStack selected = ItemStack.EMPTY;
     private EditBox search;
     private String query = "";
@@ -81,11 +77,6 @@ public class NbtItemPickerScreen extends Screen {
                 if (!s.isEmpty()) inventory.add(s.copy());
             }
         }
-        if (allItemsCache == null) {
-            allItemsCache = new ArrayList<>();
-            for (var item : BuiltInRegistries.ITEM) allItemsCache.add(new ItemStack(item));
-        }
-        allItems = allItemsCache;
     }
 
     @Override
@@ -109,7 +100,7 @@ public class NbtItemPickerScreen extends Screen {
     private int panelX() { return Math.max(4, width / 2 - PANEL_W / 2); }
 
     private void refilter() {
-        List<ItemStack> source = allTab ? allItems : inventory;
+        List<ItemStack> source = inventory;
         shownItems = new ArrayList<>();
         if (query.isEmpty()) { shownItems.addAll(source); return; }
         for (ItemStack s : source) {
@@ -238,15 +229,6 @@ public class NbtItemPickerScreen extends Screen {
             }
         } else {
             g.drawString(font, PICK_PROMPT.getString(), px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
-            String[] tabs = {TAB_INV.getString(inventory.size()), TAB_ALL.getString(allItems.size())};
-            int tx = px + 10;
-            for (int i = 0; i < 2; i++) {
-                boolean active = (i == 1) == allTab;
-                int tw = font.width(tabs[i]) + 14;
-                g.fill(tx, TAB_Y - 2, tx + tw, TAB_Y + 12, active ? 0xFFDDE8FB : 0xFFEDF2F8);
-                g.drawString(font, tabs[i], tx + 7, TAB_Y + 1, active ? 0xFF1B4FA0 : 0xFF5C6779, false);
-                tx += tw + 4;
-            }
             int gridRows = (shownItems.size() + COLS - 1) / COLS;
             int visibleRows = Math.min(maxRows(), gridRows);
             itemScroll = Math.min(itemScroll, Math.max(0, gridRows - visibleRows));
@@ -258,11 +240,11 @@ public class NbtItemPickerScreen extends Screen {
                 boolean hover = mx >= sx - 1 && mx < sx + 19 && my >= sy - 1 && my < sy + 19;
                 if (hover) g.fill(sx - 1, sy - 1, sx + 19, sy + 19, 0xFFE0EBFB);
                 g.renderItem(s, sx, sy);
-                if (!allTab) g.renderItemDecorations(font, s, sx, sy);
+                g.renderItemDecorations(font, s, sx, sy);
             }
             if (shownItems.isEmpty()) {
                 String empty = inventory.isEmpty() ? EMPTY_INV.getString()
-                        : allTab ? NO_MATCH.getString() : NO_MATCH_INV.getString();
+                        : NO_MATCH_INV.getString();
                 g.drawString(font, empty, px + PANEL_W / 2 - font.width(empty) / 2,
                         CONTENT_Y + 6, 0xFFB45309, false);
             }
@@ -298,19 +280,6 @@ public class NbtItemPickerScreen extends Screen {
                 }
             }
             return true;
-        }
-        // 页签命中与渲染同源：用带计数的同一组文案算宽度（短文案宽度对不上，
-        // 页签右半点击会落空——渲染与命中不同源的同类回归）
-        String[] tabs = {TAB_INV.getString(inventory.size()), TAB_ALL.getString(allItems.size())};
-        int tx = px + 10;
-        for (int i = 0; i < 2; i++) {
-            int tw = font.width(tabs[i]) + 14;
-            if (my >= TAB_Y - 2 && my < TAB_Y + 12 && mx >= tx && mx < tx + tw) {
-                boolean wantAll = i == 1;
-                if (wantAll != allTab) { allTab = wantAll; itemScroll = 0; refilter(); }
-                return true;
-            }
-            tx += tw + 4;
         }
         int gridRows = (shownItems.size() + COLS - 1) / COLS;
         int visibleRows = Math.min(maxRows(), gridRows);
