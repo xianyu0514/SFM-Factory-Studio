@@ -56,6 +56,7 @@ public final class SlotCalibrationManager {
     private static final double MAX_DISTANCE_SQR = 64 * 64;
 
     private static final int MAX_SESSION_TICKS = 20 * 180;      // 会话上限 3 分钟
+    private static final int UNIQUE_STREAK = 3;                 // 独特内容连续 3 次采样（150ms）
     private static final int ANCHOR_STREAK = 5;                 // 连续 5 次采样内容一致
     private static final int ANCHOR_JOINT_CHANGES = 1;          // 且观测到 ≥1 次同步变化
     private static final int NO_EXPOSURE_SAMPLES = 6;           // 连续 6 次采样判"未暴露"
@@ -221,9 +222,32 @@ public final class SlotCalibrationManager {
                                 && menuCur != 0
                                 && capCur != 0;
                         if (jointChange) ps.jointChanges++;
-                        // 锚定：持续一致 + 观测过同步变化 + 内容非空
-                        if (ps.streak >= ANCHOR_STREAK && ps.jointChanges >= ANCHOR_JOINT_CHANGES
-                                && menuCur != 0 && capCur != 0) {
+
+                        // 独特内容即时锚定：GUI 里此内容独一无二，且本朝向能力面中
+                        // 持有它的槽位也唯一——两者必然是同一存储，无需任何变化
+                        boolean uniqueInDir = true;
+                        for (int kk = 0; kk < capNow[d].length; kk++) {
+                            if (kk != k && capNow[d][kk] == menuCur) {
+                                uniqueInDir = false;
+                                break;
+                            }
+                        }
+                        boolean uniqueInMenu = true;
+                        for (int jj = 0; jj < menuNow.length; jj++) {
+                            if (jj != j && menuNow[jj] == menuCur) {
+                                uniqueInMenu = false;
+                                break;
+                            }
+                        }
+                        boolean uniqueContent = menuCur != 0 && uniqueInDir && uniqueInMenu;
+
+                        // 锚定路径一（即时）：内容独特且稳定
+                        // 锚定路径二（兜底）：内容雷同时靠同步变化消歧
+                        boolean instantAnchor = uniqueContent && ps.streak >= UNIQUE_STREAK;
+                        boolean jointAnchor = ps.streak >= ANCHOR_STREAK
+                                && ps.jointChanges >= ANCHOR_JOINT_CHANGES
+                                && menuCur != 0 && capCur != 0;
+                        if (instantAnchor || jointAnchor) {
                             ps.anchored = true;
                             if (rememberAnchor(s, d, s.menuX.get(j), s.menuY.get(j), k)) {
                                 PacketDistributor.sendToPlayer(player,
