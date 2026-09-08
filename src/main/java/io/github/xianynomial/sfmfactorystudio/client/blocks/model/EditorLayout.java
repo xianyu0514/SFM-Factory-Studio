@@ -54,6 +54,13 @@ public final class EditorLayout {
 
     private BProgram program = new BProgram();
     private Set<Long> expandedIds = Set.of();
+    /**
+     * 渲染端实测的行内容宽度诉求（body → 行起点到行尾所需的像素宽度，不含
+     * 缩进）。渲染每帧重新上报，relayout 结束时清空——卡片宽度由此"量出来"
+     * 而不是靠手维护的魔法常数估算（估算已三次随主行改版过期：备选芯片、
+     * CJK 标签、自然语序数量药丸，每次都造成行内按钮溢出/与 ✕ 重叠）。
+     */
+    private final Map<List<BProgram.Statement>, Integer> rowWidthNeeds = new IdentityHashMap<>();
     private Set<Long> collapsedCards = Set.of();
     private Set<Long> collapsedIfs = Set.of();
 
@@ -103,6 +110,7 @@ public final class EditorLayout {
         rowRect.clear();
         measuredHeights.clear();
         addRowPos.clear();
+        rowWidthNeeds.clear();
         cards.clear();
         // cardPos is deliberately kept: callers migrate old coordinates back
         // via fingerprint matching before the next relayout.
@@ -149,6 +157,45 @@ public final class EditorLayout {
     public void markModelEdited() {
         this.pendingHashes = null;
         this.hashDirty = true;
+    }
+
+    /**
+     * 渲染端实测宽度回传（"展开/收起与 ✕ 重叠溢出"类问题的根治）：渲染把
+     * 主行/条件行画完后，将行起点到行尾（含 ✕ 预留）的真实宽度按所属 body
+     * 上报。返回 true = 超出当前已知需求（调用方置 layoutDirty，下一帧
+     * relayout 加宽生效——与工具栏折行 toolbarRowsUsed 同一套收敛模式）。
+     * 每帧渲染都会重新上报，relayout 末尾清空无损。
+     */
+    public boolean requestRowContentWidth(List<BProgram.Statement> body, int contentWidth) {
+        Integer cur = rowWidthNeeds.get(body);
+        if (cur != null && cur >= contentWidth) return false;
+        rowWidthNeeds.put(body, Math.max(0, contentWidth));
+        return true;
+    }
+
+    /** 该卡全部正文行中最大的实测宽度诉求（无上报 = 0）。 */
+    private int maxRowNeedOf(BProgram.Trigger t) {
+        int need = 0;
+        for (Map.Entry<List<BProgram.Statement>, Integer> e : rowWidthNeeds.entrySet()) {
+            if (ownsBody(t.body, e.getKey())) need = Math.max(need, e.getValue());
+        }
+        return need;
+    }
+
+    /** 卡内正文行的最大嵌套深度（缩进预算：深层行的行起点右移 INDENT/层）。 */
+    private static int bodyDepthOf(BProgram.Trigger t) {
+        return bodyDepth(t.body, 1);
+    }
+
+    private static int bodyDepth(List<BProgram.Statement> list, int depth) {
+        int max = depth;
+        for (BProgram.Statement s : list) {
+            if (s instanceof BProgram.Statement.If iff) {
+                for (BProgram.Branch b : iff.branches) max = Math.max(max, bodyDepth(b.body, depth + 1));
+                max = Math.max(max, bodyDepth(iff.elseBody, depth + 1));
+            }
+        }
+        return max;
     }
 
     /** 仅供测试断言：上一次 relayout 重新测量的卡数。 */
@@ -201,6 +248,14 @@ public final class EditorLayout {
         }
         hashDirty = false;
         pendingHashes = null;
+        // 消费渲染端实测宽度：需求超过当前卡宽的卡本 pass 重排加宽
+        if (!rowWidthNeeds.isEmpty()) {
+            for (BProgram.Trigger t : program.triggers) {
+                CardCache cc = cardCaches.get(t.id);
+                int need = maxRowNeedOf(t) + bodyDepthOf(t) * INDENT + CARD_INNER * 2;
+                if (cc != null && cc.width < need) dirtyCards.add(t.id);
+            }
+        }
         cardsLaidLastPass = 0;
         for (BProgram.Trigger t : program.triggers) {
             int[] pos = cardPos.get(t.id);
@@ -235,6 +290,8 @@ public final class EditorLayout {
                 rebuildCardList();
             }
         }
+        // 本帧宽度诉求已消费（下一帧渲染会重新上报，清空无损）
+        rowWidthNeeds.clear();
     }
 
     /** Give cards without coordinates an initial slot; prune dead entries. */
@@ -293,7 +350,10 @@ public final class EditorLayout {
         cc.y = y;
         // 宽度先于正文布局确定：备选资源横向铺开放不下时整卡加长，
         // 这样正文拿到的是"够用"的宽度，内容不会溢出卡片边界造成重叠。
-        cc.width = cardWidth(t);
+        // 卡宽 = 渲染端实测行宽 + 缩进预算 + 两侧内边距；首帧无上报按最小宽起，
+        // 下一帧按实测加宽（toolbarRowsUsed 同款一帧收敛）
+        cc.width = Math.max(CARD_W,
+                maxRowNeedOf(t) + bodyDepthOf(t) * INDENT + CARD_INNER * 2);
         if (collapsedCards.contains(t.id)) {
             // 折叠卡：标题 + 一行摘要 + 页脚间距，正文不布局（缝隙也不注册）
             cc.height = HEAD_H + 6 + BAR_H + ROW_GAP + FOOT_H + 4;
@@ -380,82 +440,6 @@ public final class EditorLayout {
      */
     public static int altResourceRows(java.util.List<BProgram.ResourceLimit> limits) {
         return 0;
-    }
-
-    // ---- 横向加长：备选资源单行铺开所需的卡片宽度 ----------------------------
-
-    /** 备选区行首：缩进 12 + 「和」字（约 8px）+ 字距 5。 */
-    private static final int ALT_ROW_LEAD = 12 + 13;
-    /**
-     * 单个备选资源芯片横向占位（保守取上限）：
-     * 类别 pill max(32, 最长类别名「全部化学品」约 40+10=50) + 间距 4
-     * + 资源槽 20 + 间距 4 + ✕ 图标 20 - 2 + 芯片间距 6 ≈ 102，取 104 留余量。
-     */
-    private static final int ALT_CHIP_W = 40;
-    /** 行尾「＋」添加槽：加号槽 20 + 间距 + 呼吸位。 */
-    private static final int ALT_ROW_TAIL = 40;
-
-    /** 备选资源横向铺开后超出默认卡片宽度的部分（0 = 放得下，不必加长）。 */
-    /**
-     * 备选资源需要的额外卡宽。公式与渲染端步进严格同源：
-     * 主行固定部分（从[标签32+4][方块取出约44+4][数量30+4][类别32+4][槽20+4]
-     * [和字13+5][空槽20+4] ≈ 236）+ 标签文本超宽部分按 6px/字符估 +
-     * alts×40 芯片 + 尾部「和」空位 68。need 超出默认可用宽度的部分就是
-     * 卡片要加长的量——放第 1 个备选时立刻加宽，杜绝"放上就换行/看不见"。
-     */
-    private static int altExtraWidth(java.util.List<BProgram.ResourceLimit> limits, java.util.List<String> labels) {
-        if (limits == null || limits.isEmpty()) return 0;
-        int alts = Math.max(0, limits.get(0).resources.size() - 1);
-        if (alts <= 0) return 0;
-        int usable = CARD_W - CARD_INNER * 2;   // 语句在卡片内的可用宽度
-        int mainRowFixed = 294;                  // 与渲染端步进同源（见注释）：含主行侧面芯片「不限面」48px
-        // 宽度按字符类别估：CJK 全角 ≈9px，其余 ≈6px（MC 字形上限）——
-        // 纯按 6px 估会把长中文标签的加宽需求估少约 1/3，备选芯片溢出卡外
-        int ascii = 0, cjk = 0;
-        for (String label : labels) {
-            if (label == null) continue;
-            for (int i = 0; i < label.length(); i++) {
-                if (label.charAt(i) >= 0x2E80) cjk++;
-                else ascii++;
-            }
-        }
-        int labelExtra = Math.max(0, cjk * 9 + ascii * 6 + 10 - 32);
-        int need = mainRowFixed + labelExtra + alts * ALT_CHIP_W + ALT_ROW_TAIL;
-        return Math.max(0, need - usable);
-    }
-
-
-
-    /** 一张卡片正文横向铺开后需要的宽度（含嵌套 If 内的语句）。 */
-    public static int cardWidth(BProgram.Trigger t) {
-        return Math.max(CARD_W, measureBodyWidth(t.body));
-    }
-
-    private static int measureBodyWidth(List<BProgram.Statement> list) {
-        int need = CARD_W;
-        if (list == null) return need;
-        for (BProgram.Statement s : list) {
-            need = Math.max(need, measureStatementWidth(s));
-        }
-        return need;
-    }
-
-    private static int measureStatementWidth(BProgram.Statement s) {
-        if (s instanceof BProgram.Statement.Input in) {
-            return CARD_W + altExtraWidth(in.limits, in.access.labels);
-        }
-        if (s instanceof BProgram.Statement.Output out) {
-            return CARD_W + altExtraWidth(out.limits, out.access.labels);
-        }
-        if (s instanceof BProgram.Statement.If iff) {
-            // 嵌套体有 INDENT 缩进，加长需求要一起算进去
-            int need = CARD_W;
-            for (BProgram.Branch b : iff.branches) {
-                need = Math.max(need, measureBodyWidth(b.body) + INDENT);
-            }
-            return Math.max(need, measureBodyWidth(iff.elseBody) + INDENT);
-        }
-        return CARD_W;
     }
 
     private int layoutStatement(BProgram.Statement s, int x, int y, int w, CardCache cc) {
