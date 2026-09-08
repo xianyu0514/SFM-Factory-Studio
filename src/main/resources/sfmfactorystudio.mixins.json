@@ -4,8 +4,7 @@
   "package": "io.github.xianynomial.sfmfactorystudio.mixin",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
-    "WithTagMixin",
-    "ContainerClickMixin"
+    "WithTagMixin"
   ],
   "injectors": {
     "defaultRequire": 0
