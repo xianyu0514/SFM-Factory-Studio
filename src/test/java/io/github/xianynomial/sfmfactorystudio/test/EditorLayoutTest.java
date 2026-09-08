@@ -289,4 +289,50 @@ public class EditorLayoutTest {
         el.relayout(false, -1);
         assertEquals(3, el.cardsLaidLastPass(), "markAllDirty 仍应全量重排");
     }
+
+    /**
+     * "积木延迟出现"回归（2026-09-09 用户反馈）：pushUndo 曾把"编辑前"快照
+     * 哈希当新内容哈希存——缓存哈希滞后一位。当卡 A 被卡 B 的编辑"追平"
+     * （stored == 当前内容）后再编辑 A，差分误判"未变化"→ A 不重排 →
+     * 新积木没有行矩形，renderStatement 直接跳过 = 点别处才冒出来。
+     * 无参 markModelEdited()（relayout 现算编辑后哈希）修复后，本用例锁定：
+     * 被追平的卡再次编辑时必须重排，且新语句立刻有行矩形。
+     */
+    @Test
+    public void editAfterCatchupStillRelayoutsAndAssignsRowRect() {
+        BProgram p = sampleProgram();
+        EditorLayout el = new EditorLayout();
+        el.setProgram(p);
+        el.relayout(false, -1);                       // 首次全量（无可比哈希）
+        assertEquals(3, el.cardsLaidLastPass());
+
+        // 编辑 t1（模拟 pushUndo：先标记脏、此刻模型已是编辑后状态）
+        p.triggers.get(0).body.add(input("a2"));
+        el.markModelEdited();
+        el.relayout(false, -1);                       // 现算哈希并补记全部卡
+        BProgram.Statement added = p.triggers.get(0).body.get(p.triggers.get(0).body.size() - 1);
+        assertNotNull(el.rowRectOf(added.id), "编辑后新积木必须立刻有行矩形");
+
+        // 编辑 t2（另一张卡）：t1 内容未变 → 只重排 t2
+        int[] rectBefore = el.rowRectOf(added.id).clone();
+        ((BProgram.TimerTrigger) p.triggers.get(1)).count = 60;
+        el.markModelEdited();
+        el.relayout(false, -1);
+        assertEquals(1, el.cardsLaidLastPass(), "只有被编辑的卡重排");
+        assertArrayEquals(rectBefore, el.rowRectOf(added.id), "t1 的行矩形原样保留");
+
+        // 关键回归点：再编辑 t1（它的哈希已被上一轮"追平"）
+        p.triggers.get(0).body.add(input("a3"));
+        el.markModelEdited();
+        el.relayout(false, -1);
+        assertEquals(1, el.cardsLaidLastPass(), "被追平的卡再次编辑必须重排（旧实现漏判=延迟出现）");
+        BProgram.Statement added2 = p.triggers.get(0).body.get(p.triggers.get(0).body.size() - 1);
+        assertNotNull(el.rowRectOf(added2.id), "新积木必须立刻有行矩形（否则渲染跳过=不出现）");
+
+        // 增量结果与全量重排几何等价
+        EditorLayout full = new EditorLayout();
+        full.setProgram(p);
+        full.relayout(false, -1);
+        assertSameGeometry(full, el, p);
+    }
 }

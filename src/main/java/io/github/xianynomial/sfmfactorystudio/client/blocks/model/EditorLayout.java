@@ -132,9 +132,23 @@ public final class EditorLayout {
      * 普通字段编辑的精准失效：传入编辑时刻（pushUndo 时）全程序每个触发器
      * 的内容哈希。下次 relayout 与各卡缓存哈希比对，只有内容变化的卡重新
      * 测量。展开/折叠/整体替换等结构性变化仍走 {@link #markAllDirty()} 全量。
+     * 注意传入的必须是<b>编辑后</b>的哈希（与缓存存的"已布局内容"同态）。
      */
     public void markModelEdited(Map<Long, Long> triggerHashes) {
         this.pendingHashes = triggerHashes;
+        this.hashDirty = true;
+    }
+
+    /**
+     * 编辑热路径的推荐入口：不预传哈希，relayout 时从当前程序现算每触发器
+     * 内容哈希。此前 pushUndo 在改动前快照，把"编辑前"哈希当新内容哈希存——
+     * 缓存里的哈希永远滞后一位，全靠这个滞后碰巧让"下一刀"判定为已变化；
+     * 一旦卡片被其他卡的编辑"追平"（stored == 当前内容哈希）再编辑它，
+     * 差分误判"未变化"→ 卡不重排 → 新积木没有行矩形，渲染被跳过
+     * （玩家看到的就是"积木延迟出现，点别处才冒出来"）。现算即消除错位。
+     */
+    public void markModelEdited() {
+        this.pendingHashes = null;
         this.hashDirty = true;
     }
 
@@ -180,9 +194,14 @@ public final class EditorLayout {
      */
     public void relayout(boolean dragging, long keepPosId) {
         ensureCardPositions();
-        // 编辑热路径的哈希差分：与各卡缓存的内容哈希比对，未变的卡直接复用
+        // 编辑热路径的哈希差分：与各卡缓存哈希比对，未变的卡直接复用。
+        // markModelEdited()（无参）路径在此现算编辑后哈希——此刻的 program
+        // 就是编辑后的状态，算出的哈希与"即将布局的内容"严格同态。
         boolean hashPass = hashDirty;
         Map<Long, Long> hashes = hashPass ? pendingHashes : null;
+        if (hashPass && hashes == null) {
+            hashes = BlocksToSfml.snapshot(program).triggerHashes();
+        }
         hashDirty = false;
         pendingHashes = null;
         cardsLaidLastPass = 0;
