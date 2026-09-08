@@ -177,8 +177,10 @@ public final class SlotPickerScreen extends Screen {
                 Integer hint = c.capIndex();
                 for (SlotLayoutData.SlotAnchor a : anchors) {
                     if (a.dir() != refIdx) continue;
-                    boolean match = (a.containerSlot() >= 0 && a.containerSlot() == c.containerSlot())
-                            || (a.containerSlot() < 0 && a.x() == c.x() && a.y() == c.y());
+                    // 坐标是精确键（Mekanism 等模组菜单容器内索引恒 0，不可作键）
+                    boolean match = (a.x() != Integer.MIN_VALUE && a.x() == c.x() && a.y() == c.y())
+                            || (a.x() == Integer.MIN_VALUE && a.containerSlot() >= 0
+                                && a.containerSlot() == c.containerSlot());
                     if (match) {
                         if (hint == null || hint != a.capIndex()) learnedAnchors++;
                         hint = a.capIndex();

@@ -32,8 +32,4 @@ public abstract class ContainerClickMixin {
         SlotCalibrationManager.beforeClick(this.player, packet);
     }
 
-    @Inject(method = {"handleContainerClick", "m_5914_"}, at = @At("RETURN"), remap = false)
-    private void sfmfactorystudio$afterContainerClick(ServerboundContainerClickPacket packet, CallbackInfo ci) {
-        SlotCalibrationManager.afterClick(this.player, packet);
-    }
 }

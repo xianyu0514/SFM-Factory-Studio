@@ -131,4 +131,16 @@ public class SlotLayoutDataTest {
         SlotLayoutData.Layout legacy2 = SlotLayoutData.withAnchor(legacy, new SlotLayoutData.SlotAnchor("M", 0, -1, 9, 9, 4));
         assertEquals(4, legacy2.slots().get(0).capIndex());
     }
+
+    @Test
+    public void anchorsMatchByCoordinatesNotContainerSlot() {
+        // Mekanism 类菜单容器内索引恒 0：坐标必须是主键，否则锚点会错配到所有格子
+        SlotLayoutData.Layout m = new SlotLayoutData.Layout("M", List.of(
+                new SlotLayoutData.SlotCapture(0, 0, 0, "", 0, null),
+                new SlotLayoutData.SlotCapture(40, 0, 0, "", 0, null)));
+        SlotLayoutData.Layout m2 = SlotLayoutData.withAnchor(m,
+                new SlotLayoutData.SlotAnchor("M", 0, 0, 40, 0, 9));
+        assertNull(m2.slots().get(0).capIndex());
+        assertEquals(9, m2.slots().get(1).capIndex());
+    }
 }
