@@ -106,8 +106,9 @@ public final class SlotLayoutData {
     }
 
     private static boolean matchesAnchor(SlotCapture s, SlotAnchor a) {
-        if (a.containerSlot() >= 0 && s.containerSlot() == a.containerSlot()) return true;
-        return s.x() == a.x() && s.y() == a.y();
+        // 坐标是精确键（日志证实：Mekanism 等模组菜单的容器内索引恒为 0，不可作键）
+        if (a.x() != Integer.MIN_VALUE) return s.x() == a.x() && s.y() == a.y();
+        return a.containerSlot() >= 0 && s.containerSlot() == a.containerSlot();
     }
 
     /** 标记"槽位未暴露"诊断（学习发现界面在变化而能力面无变化）。 */
