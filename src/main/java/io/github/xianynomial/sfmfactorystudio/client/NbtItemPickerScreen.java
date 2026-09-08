@@ -108,7 +108,7 @@ public class NbtItemPickerScreen extends Screen {
         refilter();
     }
 
-    private int panelX() { return width / 2 - PANEL_W / 2; }
+    private int panelX() { return Math.max(4, width / 2 - PANEL_W / 2); }
 
     private void refilter() {
         List<ItemStack> source = allTab ? allItems : inventory;

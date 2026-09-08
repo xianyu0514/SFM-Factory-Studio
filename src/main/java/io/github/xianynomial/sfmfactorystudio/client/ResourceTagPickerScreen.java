@@ -99,7 +99,7 @@ public final class ResourceTagPickerScreen extends Screen {
     @Override
     protected void init() {
         String old = searchBox == null ? "" : searchBox.getValue();
-        searchBox = new EditBox(this.font, this.width / 2 - 150, 27, 200, 17, Component.empty());
+        searchBox = new EditBox(this.font, Math.max(4, this.width / 2 - 150), 27, Math.min(200, this.width - 8), 17, Component.empty());
         searchBox.setMaxLength(128);
         searchBox.setBordered(false);
         searchBox.setTextColor(0xFF1B2432);
