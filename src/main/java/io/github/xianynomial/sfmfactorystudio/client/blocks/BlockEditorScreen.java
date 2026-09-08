@@ -3144,11 +3144,22 @@ public class BlockEditorScreen extends Screen {
 
 
 
+    /** 虚拟分辨率缩放：逻辑分辨率 < 480 时等比缩小整个编辑器绘制，布局永不在极小面板上崩塌。 */
+    private float edScale = 1f;
+    /** 虚拟分辨率下的宽/高（≥ 480×270），所有布局计算使用这两个值。 */
+    private int edW = 960, edH = 540;
+
     @Override
-
-
-
     protected void init() {
+
+
+
+        // 虚拟分辨率：逻辑宽不足 480 时等比缩小绘制（edScale < 1）
+        edScale = Math.min(1.0f, Math.max(0.25f, this.width / 480f));
+        edW = Math.round(this.width / edScale);
+        edH = Math.round(this.height / edScale);
+        this.width = edW;
+        this.height = edH;
 
 
 
@@ -7052,7 +7063,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        g.enableScissor(x + 1, listTop - 2, x + w - 1, listBottom);
+        g.enableScissor(Math.round((x + 1) * edScale), Math.round((listTop - 2) * edScale), Math.round((x + w - 1) * edScale), Math.round(listBottom * edScale));
 
 
 
@@ -7757,6 +7768,7 @@ public class BlockEditorScreen extends Screen {
 
 
     public boolean mouseClicked(double mx, double my, int button) {
+        mx /= edScale; my /= edScale;
 
 
 
@@ -8737,6 +8749,7 @@ public class BlockEditorScreen extends Screen {
 
 
     public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
+        mx /= edScale; my /= edScale;
 
 
 
@@ -9257,6 +9270,7 @@ public class BlockEditorScreen extends Screen {
 
 
     public boolean mouseReleased(double mx, double my, int button) {
+        mx /= edScale; my /= edScale;
 
 
 
@@ -13169,6 +13183,7 @@ public class BlockEditorScreen extends Screen {
 
 
     public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
+        mx /= edScale; my /= edScale;
 
 
 
@@ -13852,7 +13867,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        g.enableScissor(px, py, px + pw, bottom);
+        g.enableScissor(Math.round(px * edScale), Math.round(py * edScale), Math.round((px + pw) * edScale), Math.round(bottom * edScale));
 
 
 
@@ -14170,13 +14185,20 @@ public class BlockEditorScreen extends Screen {
 
 
 
-
-
     @Override
+    public final void render(GuiGraphics g, int mx, int my, float partialTick) {
+        g.pose().pushPose();
+        g.pose().scale(edScale, edScale, 1);
+        int dmx = Math.round(mx / edScale);
+        int dmy = Math.round(my / edScale);
+        try {
+            renderEd(g, dmx, dmy, partialTick);
+        } finally {
+            g.pose().popPose();
+        }
+    }
 
-
-
-    public void render(GuiGraphics g, int mx, int my, float partialTick) {
+    private void renderEd(GuiGraphics g, int mx, int my, float partialTick) {
 
 
 
@@ -14333,7 +14355,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        g.enableScissor(canvasX + 1, canvasY + 1, canvasX + canvasW - 1, canvasY + canvasH - 1);
+        g.enableScissor(Math.round((canvasX + 1) * edScale), Math.round((canvasY + 1) * edScale), Math.round((canvasX + canvasW - 1) * edScale), Math.round((canvasY + canvasH - 1) * edScale));
 
 
 
