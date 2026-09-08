@@ -133,11 +133,11 @@ public class BlockEditorScreen extends Screen {
     static final Loc S_NO_DUPLICATE = E("no_duplicate", "下方没有可删除的副本");
     static final Loc S_CARD_LOCATED = E("card_located", "✔ 已新建任务框，已为你定位");
     // ---- 主行侧面芯片（句式「从 [标签] 方块 的下面 取出…」）----
-    static final Loc SIDE_CHIP_NONE = E("side_none", "不限面");
+    static final Loc SIDE_CHIP_NONE = E("side_none", "的默认面");
     static final Loc SIDE_CHIP_EACH = E("side_each", "的每一面");
     static final Loc SIDE_CHIP_OF = E("side_of", "的");
     static final Loc SIDE_CHIP_AUTO = E("side_auto", "自动每一面");
-    static final Loc M_SIDE_CLEAR = E("side_clear", "清除侧面（恢复不限面）");
+    static final Loc M_SIDE_CLEAR = E("side_clear", "清除侧面（恢复默认面）");
     static final Loc SIDE_CLEARED = E("side_cleared", "✔ 已清除侧面限定");
     // ---- 行右键命令（重排序/插入的纯鼠标路径）----
     static final Loc M_ROW_UP = E("row_up", "上移一行");
@@ -156,11 +156,11 @@ public class BlockEditorScreen extends Screen {
     static final Loc HELP_TITLE = E("help_title", "五步上手");
     static final Loc HELP_STEP1 = E("help_step1", "点左侧积木栏，把积木放到画布");
     static final Loc HELP_STEP2 = E("help_step2", "点蓝色字填标签 / 资源（支持拼音搜索）");
-    static final Loc HELP_STEP3 = E("help_step3", "点「不限面」设置机器从哪个面进出");
+    static final Loc HELP_STEP3 = E("help_step3", "点「的默认面」设置机器从哪个面进出");
     static final Loc HELP_STEP4 = E("help_step4", "按住卡头拖动；拖积木调顺序；右键更多命令");
     static final Loc HELP_STEP5 = E("help_step5", "写完点「⬤ 保存」写入软盘");
     static final Loc HELP_FIX_TITLE = E("help_fix_title", "机器不动？");
-    static final Loc HELP_FIX1 = E("help_fix1", "点积木上的「不限面」改成「的每一面」");
+    static final Loc HELP_FIX1 = E("help_fix1", "点积木上的「的默认面」改成「的每一面」");
     static final Loc HELP_FIX2 = E("help_fix2", "确认标签已用标签枪绑定到方块上");
     static final Loc HELP_FIX3 = E("help_fix3", "看右侧代码窗有没有红字");
     static final Loc HELP_KEYS = E("help_keys", "快捷键：Ctrl+Z 撤销 · Ctrl+Y 重做 · Ctrl+A 全选 · 中键平移 · 滚轮缩放 · / 搜卡");
@@ -287,7 +287,7 @@ public class BlockEditorScreen extends Screen {
     static final Loc M_PICK_RR = E("m_pick_rr", "轮流选择目标");
     static final Loc M_EACH_BLOCK = E("m_each_block", "每个方块分别处理");
     static final Loc M_EMPTY_SLOTS = E("m_empty_slots", "只放入完全空白的槽位");
-    static final Loc V_EACH_SIDE = E("v_each_side", "每个侧面");
+    static final Loc V_EACH_SIDE = E("v_each_side", "每一面");
     static final Loc V_RR_NONE = E("v_rr_none", "不轮流");
     static final Loc V_WITHOUT = E("v_without", "排除特征：%s");
     static final Loc V_WITH_ONLY = E("v_with_only", "只要特征：%s");
@@ -380,7 +380,7 @@ public class BlockEditorScreen extends Screen {
     static final Loc F_ADD_EXCEPT = E("f_add_except", "＋排除资源");
     static final Loc F_EXCEPT_N = E("f_except_n", "排除 %s 种资源");
     static final Loc M_ADD_EXCEPT_RES = E("m_add_except_res", "添加要排除的资源");
-    static final Loc V_SIDES_ANY = E("sides_any", "不限侧面");
+    static final Loc V_SIDES_ANY = E("sides_any", "默认面");
     static final Loc V_SLOTS_ANY = E("slots_any", "不限槽位");
     static final Loc F_SLOTS_HINT = E("slots_hint", "槽位，例如 0,2-5");
     static final Loc S_RAW_READ_ONLY = E("raw_read_only", "兼容条件（只读）");
@@ -5452,7 +5452,6 @@ public class BlockEditorScreen extends Screen {
         hits.add(hit(fx, y, 32, BAR_H, K_RCLICK, null, () -> openLabelContext(sxx, syy, out.access.labels)));
         fx = drawField(g, fx, y, labelDisp, 32,
                 () -> openLabelEditor(sxx, syy, out.access.labels), mx, my, false);
-        fx = drawText(g, fx, y, T_IO_BLOCK.getString());
         BProgram.ResourceLimit rl = primaryLimit(out.limits);
         fx = drawSideChip(g, fx, y, out.access, rl, mx, my);
         fx = drawInlineQuantity(g, fx, y, rl, mx, my);
