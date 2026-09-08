@@ -33,6 +33,7 @@ public final class BlockTexts {
     public static final Loc T_QTY_ALL = new Loc("gui.sfmfactorystudio.blocks.qty_all", "全部");
     public static final Loc T_QTY_EACH_KIND = new Loc("gui.sfmfactorystudio.blocks.qty_each_kind", "每种");
     public static final Loc T_QTY_TOTAL = new Loc("gui.sfmfactorystudio.blocks.qty_total", "合计");
+    public static final Loc T_QTY_GE = new Loc("gui.sfmfactorystudio.blocks.qty_ge", "个");
     public static final Loc T_ENERGY_TRANSFER = new Loc("gui.sfmfactorystudio.blocks.energy_transfer", "高频传输能量");
     public static final Loc T_FORGET = new Loc("gui.sfmfactorystudio.blocks.forget", "清空本轮取出记录");
     public static final Loc T_IF = new Loc("gui.sfmfactorystudio.blocks.if", "当");
