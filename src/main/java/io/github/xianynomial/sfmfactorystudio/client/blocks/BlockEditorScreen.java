@@ -216,10 +216,6 @@ public class BlockEditorScreen extends Screen {
     static final Loc S_PREVIEW_COUNT = E("preview_count", "匹配预览共 %s 件物品");
     static final Loc S_TRIGGER_CREATED = E("trigger_created", "已在此处新建触发器，从左侧拖入积木");
     static final Loc G_TIMER_ICON = E("g_timer_icon", "⟳");
-    static final Loc G_TIMER_LABEL = E("g_timer_label", "创建定时触发器");
-    static final Loc G_PULSE_LABEL = E("g_pulse_label", "创建脉冲触发器");
-    static final Loc G_SMELT_LABEL = E("g_smelt_label", "使用熔炉模板");
-    static final Loc S_SMELT_INSERTED = E("smelt_inserted", "已插入熔炉模板，连接方块标签即可使用");
     static final Loc S_CANVAS_HINT = E("canvas_hint", "从左侧拖入积木 · 滚轮缩放 · 拖动平移 · 右键菜单");
     static final Loc S_MIN_INTERVAL_HINT = E("min_interval_hint", "当前内容最少需要 %s%s；不会偷偷修改你的输入");
     static final Loc U_TICK = E("unit_tick", "刻");
@@ -3483,13 +3479,6 @@ public class BlockEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        // "/" 搜索：任何文本框未聚焦时触发（必须放在 popup/nameBox 之前，否则被吃掉）
-        boolean inTextField = (nameBox != null && nameBox.isFocused())
-                || (codeEditor != null && codeEditor.isFocused());
-        if (keyCode == 53 && modifiers == 0 && !inTextField && popup == null) {
-            openCardSearch();
-            return true;
-        }
         if (popup != null) {
             if (popup.keyPressed(keyCode, scanCode, modifiers)) return true;
             if (keyCode == 256) {
@@ -3527,7 +3516,7 @@ public class BlockEditorScreen extends Screen {
             redo();
             return true;
         }
-        if (keyCode == 344) { // F8 — 定位下一个问题
+        if (keyCode == 297) { // F8（GLFW_KEY_F8=297；曾误写 344=右 Shift）— 定位下一个问题
             stepIssue(1);
             return true;
         }
@@ -4178,12 +4167,16 @@ public class BlockEditorScreen extends Screen {
             tt.global = true;
             minTicks = Math.min(minTicks, Math.max(TimerRules.minimumCount(tt), tt.count));
         }
-        // 全部对齐全局时钟（消除各管理器本地时钟漂移导致的触发时刻偏差）。
+        // 错峰偏移：步长按最短周期均分，把触发时刻在周期内摊开
+        //（只对齐全局时钟的话，整数倍周期的卡仍会在 t=0 mod T 重聚）。
         // 不修改间隔——拉长间隔会降低吞吐（单次搬运量有 64/槽上限，
         // 无限供给时无法等比补足）。同刻集中执行对 TPS 无害：
         // 服务器每刻本来就有大量其他工作穿插，总工作量不变。
+        long step = Math.max(1, minTicks / timers.size());
+        long offset = 0;
         for (BProgram.TimerTrigger tt : timers) {
-            tt.global = true;
+            tt.plus = offset;
+            offset = (offset + step) % Math.max(TimerRules.minimumCount(tt), tt.count);
         }
         layoutDirty = true;
         refreshIssues();      // 立即重算：同刻提醒在点完按钮后马上消失，不等 5 tick
@@ -4639,14 +4632,11 @@ public class BlockEditorScreen extends Screen {
             g.drawString(this.font, guides[i][1], gx + 26, startY + 16,
                     hover ? C_SELECT : C_TEXT_SUB, false);
             final String kind = guides[i][2];
-            final double ccx = ctX(gx + gw / 2.0), ccy = ctY(startY + gh / 2.0);
+            // 引导卡点击 = 载入对应示例工厂（与卡面文字一致）。此前误走
+            // createCardAt(kind)，newTriggerCard 不认识 ex_* 只会建一张空卡。
             uiHits.add(hit(gx, startY, gw, gh, K_CLICK, null, () -> {
-                if (kind.equals("tpl_smelt")) {
-                    clickAdd("tpl_smelt");
-                    showStatus(S_SMELT_INSERTED.getString(), C_SELECT);
-                } else {
-                    createCardAt(kind, ccx, ccy);
-                }
+                loadExample(kind);
+                if (!program.triggers.isEmpty()) closeHelp();
             }));
         }
         String hint = S_CANVAS_HINT.getString();
@@ -5868,8 +5858,6 @@ public class BlockEditorScreen extends Screen {
                     except.add(resource);
                     layoutDirty = true;
                 });
-                case "slots_beta" ->
-                        openSlotBetaPicker(firstBoundBlockPos(access.labels), access);
                 case "slots" -> {
                     // 默认聚焦输入框（实时预览）；旁边 beta 按钮打开可视化
                     var firstPos = firstBoundBlockPos(access.labels);

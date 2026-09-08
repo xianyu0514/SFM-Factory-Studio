@@ -46,9 +46,6 @@ public final class SlotCapabilityRequestHandler {
     /** 读取半径（格）。工厂里机器离玩家很远，放宽到 64。 */
     private static final double MAX_DISTANCE_SQR = 64 * 64;
 
-    /** "each side" 的完整面序（与 SFML 解析 SideQualifier.ALL 一致，含 null 面）。 */
-    private static final String EACH_SIDE = "top,bottom,north,south,east,west,null";
-
     public static void handle(SlotCapabilityRequestPayload msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             if (!(ctx.player() instanceof ServerPlayer player)) {
