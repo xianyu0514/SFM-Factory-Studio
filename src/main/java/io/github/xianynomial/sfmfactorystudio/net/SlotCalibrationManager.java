@@ -36,6 +36,10 @@ import java.util.UUID;
  * 若菜单槽持续变化而七朝向能力面全无变化，判定"槽位未暴露"并提示玩家
  * 在机器的侧面配置中开放输入/输出（如 Mekanism 侧面配置）。</li>
  * </ul>
+ *
+ * <p>锚点以 <b>菜单类名</b> 为共享键（与方块坐标解耦）：多方块、同款机器多实例、
+ * 多机绑定场景下学习成果互通。全程只读，不修改任何游戏状态。
+ * 全链路日志前缀 {@code [sfmjimu-calib]}，任何环节失效都可在 latest.log 定位。
  */
 public final class SlotCalibrationManager {
     private SlotCalibrationManager() {
@@ -58,6 +62,7 @@ public final class SlotCalibrationManager {
     private static final class Session {
         final BlockPos pos;
         final int containerId;
+        final String menuClass;
         final MinecraftServer server;
         int ticksLeft = MAX_SESSION_TICKS;
         int sampleCountdown = SAMPLE_INTERVAL_TICKS;
@@ -67,9 +72,10 @@ public final class SlotCalibrationManager {
         long[] prevMenu;           // 菜单非玩家槽签名
         final List<int[]> sentAnchors = new ArrayList<>();   // {dir, containerSlot, capIndex}
 
-        Session(BlockPos pos, int containerId, MinecraftServer server) {
+        Session(BlockPos pos, int containerId, String menuClass, MinecraftServer server) {
             this.pos = pos;
             this.containerId = containerId;
+            this.menuClass = menuClass == null ? "" : menuClass;
             this.server = server;
         }
     }
@@ -77,15 +83,21 @@ public final class SlotCalibrationManager {
     private static final Map<UUID, Session> SESSIONS = new HashMap<>();
     private static final Map<UUID, long[][]> CLICK_SNAPSHOTS = new HashMap<>();
 
-    public static void begin(ServerPlayer player, BlockPos pos, int containerId) {
+    public static void begin(ServerPlayer player, BlockPos pos, int containerId, String menuClass) {
         if (player == null || pos == null || containerId < 0 || player.getServer() == null) return;
-        SESSIONS.put(player.getUUID(), new Session(pos, containerId, player.getServer()));
+        SESSIONS.put(player.getUUID(), new Session(pos, containerId,
+                menuClass == null ? "" : menuClass, player.getServer()));
         CLICK_SNAPSHOTS.remove(player.getUUID());
+        SFMGui.LOGGER.info("[sfmjimu-calib] 会话开始: 玩家 {} 方块 {} 菜单 {} containerId {}",
+                player.getGameProfile().getName(), pos, menuClass, containerId);
     }
 
-    public static void forget(UUID playerId) {
-        SESSIONS.remove(playerId);
+    public static void forget(UUID playerId, String reason) {
+        Session s = SESSIONS.remove(playerId);
         CLICK_SNAPSHOTS.remove(playerId);
+        if (s != null) {
+            SFMGui.LOGGER.info("[sfmjimu-calib] 会话结束({}): 方块 {} 菜单 {}", reason, s.pos, s.menuClass);
+        }
     }
 
     // ---- 通道一：点击差分 ----
@@ -97,7 +109,7 @@ public final class SlotCalibrationManager {
         Session session = SESSIONS.get(id);
         if (session == null) return;
         if (session.containerId != packet.getContainerId()) {
-            SESSIONS.remove(id);   // 玩家已切到别的界面：旧会话作废
+            forget(id, "切到其他界面");
             return;
         }
         CLICK_SNAPSHOTS.put(id, captureContents(player.serverLevel(), session.pos));
@@ -126,7 +138,10 @@ public final class SlotCalibrationManager {
             int capIndex = singleChangedSlot(before[d], after[d]);
             if (capIndex >= 0 && rememberAnchor(session, d, slot.getContainerSlot(), capIndex)) {
                 PacketDistributor.sendToPlayer(player,
-                        new SlotAnchorPayload(session.pos, d, slot.getContainerSlot(), slot.x, slot.y, capIndex));
+                        new SlotAnchorPayload(session.pos, session.menuClass, d,
+                                slot.getContainerSlot(), slot.x, slot.y, capIndex));
+                SFMGui.LOGGER.info("[sfmjimu-calib] 点击差分锚定: 菜单 {} 朝向 {} 容器槽 {} → 能力槽 {}",
+                        session.menuClass, d, slot.getContainerSlot(), capIndex);
             }
         }
     }
@@ -140,16 +155,17 @@ public final class SlotCalibrationManager {
             UUID id = entry.getKey();
             Session s = entry.getValue();
             if (--s.ticksLeft <= 0) {
-                SESSIONS.remove(id);
+                forget(id, "超时");
                 continue;
             }
             ServerPlayer player = server.getPlayerList().getPlayer(id);
             if (player == null) {
                 SESSIONS.remove(id);
+                CLICK_SNAPSHOTS.remove(id);
                 continue;
             }
             if (player.containerMenu == null || player.containerMenu.containerId != s.containerId) {
-                SESSIONS.remove(id);   // 界面已关闭：会话结束
+                forget(id, "界面已关闭");
                 continue;
             }
             if (--s.sampleCountdown > 0) continue;
@@ -215,8 +231,10 @@ public final class SlotCalibrationManager {
                     }
                     if (!ambiguous && partner >= 0 && rememberAnchor(s, d, menuCs[partner], k)) {
                         PacketDistributor.sendToPlayer(player,
-                                new SlotAnchorPayload(s.pos, d, menuCs[partner],
+                                new SlotAnchorPayload(s.pos, s.menuClass, d, menuCs[partner],
                                         menuX[partner], menuY[partner], k));
+                        SFMGui.LOGGER.info("[sfmjimu-calib] 采样锚定: 菜单 {} 朝向 {} 容器槽 {} → 能力槽 {}",
+                                s.menuClass, d, menuCs[partner], k);
                     }
                 }
             }
@@ -227,6 +245,7 @@ public final class SlotCalibrationManager {
                     s.noExposureSent = true;
                     PacketDistributor.sendToPlayer(player,
                             new SlotCalibrationInfoPayload(s.pos, INFO_NO_EXPOSURE));
+                    SFMGui.LOGGER.info("[sfmjimu-calib] 诊断: 界面槽位在变化但能力面无变化 → 判定槽位未暴露, pos {}", s.pos);
                 }
             } else if (capChangedAny) {
                 s.noExposureStreak = 0;

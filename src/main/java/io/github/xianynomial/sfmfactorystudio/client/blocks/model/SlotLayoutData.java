@@ -17,6 +17,10 @@ import java.util.Map;
  * <p>存储格式 v2 = 每槽一个对象 {@code {"x":..,"y":..,"c":容器内索引,"i":物品id,
  * "n":数量,"cap":实例匹配到的能力槽索引}}；旧版 v1 条目 {@code [seq,x,y]} 读入时
  * 缺省 {@code c=-1, i="", n=0, cap=null}——旧 slot-layouts.json 无损升级。
+ *
+ * <p>锚点按 <b>菜单类名 + 朝向 + 容器内索引</b> 为键：与方块坐标解耦——
+ * 多方块结构（右键点的是哪个部件）、同款机器多实例、标签绑定多台机器，
+ * 学习成果全部自动共享。
  */
 public final class SlotLayoutData {
     private SlotLayoutData() {
@@ -31,21 +35,27 @@ public final class SlotLayoutData {
     }
 
     /**
-     * 操作学习锚点：玩家在机器界面的一次真实点击改变了能力槽 capIndex 的内容
+     * 操作学习锚点：玩家在机器界面的一次真实操作改变了能力槽 capIndex 的内容
      * ——"这个视觉格 = 这个真实槽位"由实际数据流证实，是最高优先级证据。
+     * menuClass = 容器菜单类简名（同款机器共享学习成果）；
      * dir = 七朝向索引（0=无侧面，1..6=down,up,north,south,west,east）。
      */
-    public record SlotAnchor(int dir, int containerSlot, int x, int y, int capIndex) {
+    public record SlotAnchor(String menuClass, int dir, int containerSlot, int x, int y, int capIndex) {
     }
 
-    /** 一个容器的布局快照（anchors = 操作学习累积的锚点；noExposure = 学习判定"槽位未暴露"）。 */
-    public record Layout(String title, List<SlotCapture> slots, List<SlotAnchor> anchors, boolean noExposure) {
-        public Layout(String title, List<SlotCapture> slots) {
-            this(title, slots, List.of(), false);
+    /** 一个容器的布局快照。menuClass = 来源菜单类简名（锚点按它共享）。 */
+    public record Layout(String title, String menuClass, List<SlotCapture> slots,
+                         List<SlotAnchor> anchors, boolean noExposure) {
+        public Layout(String title, String menuClass, List<SlotCapture> slots) {
+            this(title, menuClass, slots, List.of(), false);
         }
 
-        public Layout(String title, List<SlotCapture> slots, List<SlotAnchor> anchors) {
-            this(title, slots, anchors, false);
+        public Layout(String title, List<SlotCapture> slots) {
+            this(title, "", slots, List.of(), false);
+        }
+
+        public Layout(String title, String menuClass, List<SlotCapture> slots, List<SlotAnchor> anchors) {
+            this(title, menuClass, slots, anchors, false);
         }
 
         public int menuSlotCount() {
@@ -53,14 +63,15 @@ public final class SlotLayoutData {
         }
     }
 
-    /** 按（朝向, 容器内索引）去重合并锚点：已有学习不丢失。 */
+    /** 按（菜单类, 朝向, 容器内索引）去重合并锚点：已有学习不丢失。 */
     public static List<SlotAnchor> mergeAnchors(List<SlotAnchor> old, List<SlotAnchor> fresh) {
         List<SlotAnchor> out = new ArrayList<>(old == null ? List.of() : old);
         if (fresh != null) {
             for (SlotAnchor a : fresh) {
                 boolean exists = false;
                 for (SlotAnchor b : out) {
-                    if (b.dir() == a.dir() && b.containerSlot() == a.containerSlot()) {
+                    if (b.menuClass().equals(a.menuClass()) && b.dir() == a.dir()
+                            && b.containerSlot() == a.containerSlot()) {
                         exists = true;
                         break;
                     }
@@ -72,13 +83,14 @@ public final class SlotLayoutData {
     }
 
     /**
-     * 在布局上应用一个学习锚点：锚点表按（朝向, 容器内索引）去重更新，
+     * 在布局上应用一个学习锚点：锚点表去重更新，
      * 并把 capIndex 写到对应的捕获格上（containerSlot 优先，坐标兜底）。
      */
     public static Layout withAnchor(Layout layout, SlotAnchor anchor) {
         List<SlotAnchor> anchors = new ArrayList<>();
         for (SlotAnchor b : layout.anchors()) {
-            if (b.dir() == anchor.dir() && b.containerSlot() == anchor.containerSlot()) continue;
+            if (b.menuClass().equals(anchor.menuClass()) && b.dir() == anchor.dir()
+                    && b.containerSlot() == anchor.containerSlot()) continue;
             anchors.add(b);
         }
         anchors.add(anchor);
@@ -90,7 +102,7 @@ public final class SlotLayoutData {
                 slots.add(s);
             }
         }
-        return new Layout(layout.title(), slots, anchors, layout.noExposure());
+        return new Layout(layout.title(), layout.menuClass(), slots, anchors, layout.noExposure());
     }
 
     private static boolean matchesAnchor(SlotCapture s, SlotAnchor a) {
@@ -100,7 +112,7 @@ public final class SlotLayoutData {
 
     /** 标记"槽位未暴露"诊断（学习发现界面在变化而能力面无变化）。 */
     public static Layout withNoExposure(Layout layout, boolean value) {
-        return new Layout(layout.title(), layout.slots(), layout.anchors(), value);
+        return new Layout(layout.title(), layout.menuClass(), layout.slots(), layout.anchors(), value);
     }
 
     /** 参照方向（refDir 名）→ 七朝向索引（"null"=0，其余 = Direction.ordinal()+1）。 */
@@ -117,7 +129,43 @@ public final class SlotLayoutData {
         }
     }
 
-    /** 序列化整个缓存（pretty print，写文件用）。 */
+    /** 七朝向索引 → 侧面名（与 refDirIndex 互逆；0 = "null"）。 */
+    public static String dirIndexName(int dir) {
+        switch (dir) {
+            case 1: return "down";
+            case 2: return "up";
+            case 3: return "north";
+            case 4: return "south";
+            case 5: return "west";
+            case 6: return "east";
+            default: return "null";
+        }
+    }
+
+    /**
+     * 证据驱动的参照朝向：该菜单类下锚点最多的朝向（同票取索引小者）。
+     *
+     * @return 朝向索引；没有任何锚点返回 -1
+     */
+    public static int bestAnchorDir(List<SlotAnchor> anchors, String menuClass) {
+        if (anchors == null || anchors.isEmpty()) return -1;
+        int[] count = new int[7];
+        for (SlotAnchor a : anchors) {
+            if (!a.menuClass().equals(menuClass)) continue;
+            if (a.dir() >= 0 && a.dir() < 7) count[a.dir()]++;
+        }
+        int best = -1, bestN = 0;
+        for (int d = 0; d < 7; d++) {
+            if (count[d] > bestN) {
+                bestN = count[d];
+                best = d;
+            }
+        }
+        return best;
+    }
+
+    // ---- JSON ----
+
     public static String writeAll(Map<String, Layout> byPos) {
         JsonObject root = new JsonObject();
         for (Map.Entry<String, Layout> e : byPos.entrySet()) {
@@ -129,6 +177,9 @@ public final class SlotLayoutData {
     public static JsonObject writeLayout(Layout layout) {
         JsonObject o = new JsonObject();
         o.addProperty("title", layout.title() == null ? "" : layout.title());
+        if (layout.menuClass() != null && !layout.menuClass().isEmpty()) {
+            o.addProperty("mc", layout.menuClass());
+        }
         o.addProperty("v", 2);
         JsonArray arr = new JsonArray();
         for (SlotCapture s : layout.slots()) {
@@ -148,6 +199,7 @@ public final class SlotLayoutData {
             JsonArray anchors = new JsonArray();
             for (SlotAnchor a : layout.anchors()) {
                 JsonObject e = new JsonObject();
+                e.addProperty("mc", a.menuClass());
                 e.addProperty("d", a.dir());
                 e.addProperty("cs", a.containerSlot());
                 e.addProperty("x", a.x());
@@ -188,6 +240,8 @@ public final class SlotLayoutData {
         JsonObject o = element.getAsJsonObject();
         String title = o.has("title") && o.get("title").isJsonPrimitive()
                 ? o.get("title").getAsString() : "";
+        String menuClass = o.has("mc") && o.get("mc").isJsonPrimitive()
+                ? o.get("mc").getAsString() : "";
         List<SlotCapture> slots = new ArrayList<>();
         if (o.has("slots") && o.get("slots").isJsonArray()) {
             for (JsonElement el : o.getAsJsonArray("slots")) {
@@ -203,22 +257,7 @@ public final class SlotLayoutData {
             }
         }
         boolean noExposure = o.has("nx") && o.get("nx").isJsonPrimitive() && o.get("nx").getAsInt() != 0;
-        return new Layout(title, slots, anchors, noExposure);
-    }
-
-    private static SlotAnchor readAnchor(JsonElement el) {
-        try {
-            if (!el.isJsonObject()) return null;
-            JsonObject o = el.getAsJsonObject();
-            if (!o.has("d") || !o.has("cap")) return null;
-            return new SlotAnchor(o.get("d").getAsInt(),
-                    o.has("cs") ? o.get("cs").getAsInt() : -1,
-                    o.has("x") ? o.get("x").getAsInt() : Integer.MIN_VALUE,
-                    o.has("y") ? o.get("y").getAsInt() : Integer.MIN_VALUE,
-                    o.get("cap").getAsInt());
-        } catch (RuntimeException e) {
-            return null;
-        }
+        return new Layout(title, menuClass, slots, anchors, noExposure);
     }
 
     private static SlotCapture readCapture(JsonElement el) {
@@ -239,6 +278,23 @@ public final class SlotLayoutData {
             int n = o.has("n") ? o.get("n").getAsInt() : 0;
             Integer cap = o.has("cap") && !o.get("cap").isJsonNull() ? o.get("cap").getAsInt() : null;
             return new SlotCapture(x, y, c, item, n, cap);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static SlotAnchor readAnchor(JsonElement el) {
+        try {
+            if (!el.isJsonObject()) return null;
+            JsonObject o = el.getAsJsonObject();
+            if (!o.has("d") || !o.has("cap")) return null;
+            return new SlotAnchor(
+                    o.has("mc") ? o.get("mc").getAsString() : "",
+                    o.get("d").getAsInt(),
+                    o.has("cs") ? o.get("cs").getAsInt() : -1,
+                    o.has("x") ? o.get("x").getAsInt() : Integer.MIN_VALUE,
+                    o.has("y") ? o.get("y").getAsInt() : Integer.MIN_VALUE,
+                    o.get("cap").getAsInt());
         } catch (RuntimeException e) {
             return null;
         }

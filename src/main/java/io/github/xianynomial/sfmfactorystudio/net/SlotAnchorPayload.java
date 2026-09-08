@@ -7,11 +7,12 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**
- * 服务端 → 客户端：一个操作学习锚点——玩家某次真实点击恰好使能力槽 capIndex
- * 的内容发生变化，即"该视觉格（containerSlot / x,y）= 该真实槽位"被数据流证实。
- * 客户端把它写入捕获缓存（slot-layouts.json），选择器校准将其作为最高优先级证据。
+ * 服务端 → 客户端：一个操作学习锚点——玩家某次真实操作恰好使能力槽 capIndex
+ * 的内容发生变化，即"该视觉格（menuClass/containerSlot/x,y）= 该真实槽位"被
+ * 数据流证实。客户端按菜单类名写入捕获缓存（跨坐标、跨同款机器共享）。
  */
-public record SlotAnchorPayload(BlockPos pos, int dir, int containerSlot, int x, int y, int capIndex)
+public record SlotAnchorPayload(BlockPos pos, String menuClass, int dir, int containerSlot,
+                                int x, int y, int capIndex)
         implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<SlotAnchorPayload> TYPE =
             new CustomPacketPayload.Type<>(net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(
@@ -23,12 +24,14 @@ public record SlotAnchorPayload(BlockPos pos, int dir, int containerSlot, int x,
 
     private static SlotAnchorPayload read(FriendlyByteBuf buf) {
         BlockPos pos = BlockPos.of(buf.readLong());
-        return new SlotAnchorPayload(pos, buf.readVarInt(), buf.readVarInt(),
+        String menuClass = buf.readUtf();
+        return new SlotAnchorPayload(pos, menuClass, buf.readVarInt(), buf.readVarInt(),
                 buf.readVarInt(), buf.readVarInt(), buf.readVarInt());
     }
 
     private void write(FriendlyByteBuf buf) {
         buf.writeLong(pos.asLong());
+        buf.writeUtf(menuClass == null ? "" : menuClass);
         buf.writeVarInt(dir);
         buf.writeVarInt(containerSlot);
         buf.writeVarInt(x);
@@ -39,7 +42,7 @@ public record SlotAnchorPayload(BlockPos pos, int dir, int containerSlot, int x,
     public static void registerClient(PayloadRegistrar registrar) {
         registrar.playToClient(TYPE, CODEC, (msg, ctx) -> ctx.enqueueWork(() ->
                 io.github.xianynomial.sfmfactorystudio.client.blocks.BlockEditorScreen
-                        .acceptSlotAnchor(msg.pos(), msg.dir(), msg.containerSlot(),
+                        .acceptSlotAnchor(msg.pos(), msg.menuClass(), msg.dir(), msg.containerSlot(),
                                 msg.x(), msg.y(), msg.capIndex())));
     }
 
