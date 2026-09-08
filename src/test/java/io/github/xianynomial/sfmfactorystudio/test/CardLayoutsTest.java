@@ -181,4 +181,53 @@ public class CardLayoutsTest {
         List<String> keys = CardLayouts.keysOf(List.of(t1, t2, t3));
         assertEquals(List.of(CardLayouts.triggerKey(t1), "p", CardLayouts.triggerKey(t3)), keys);
     }
+    /** "游戏冻结（Application Hang）"回归：同位/重叠副本的几何必须严格终止。
+     *  旧 while(true) 实现没有 visited 守卫且 y 不单调，栈中非栈顶卡会原地
+     *  打转——而走链被 renderCard 每帧每卡调用，等价于打开编辑器即冻结。 */
+    @Test
+    public void stackWalkTerminatesOnDegenerateGeometry() {
+        // 两张卡同位重叠（top 相同）：不构成"紧贴"链 → 各自返回自身。
+        // 旧实现遇到任何"非栈顶的链上卡"都会原地打转（无 visited 守卫、
+        // y 不单调）——本用例与下方各用例共同锁死：任何几何都必须终止。
+        int[] tops = {100, 100};
+        int[] hs = {86, 86};
+        assertEquals(0, CardLayouts.farthestInStack(tops, hs, 0, 8));
+        assertEquals(1, CardLayouts.farthestInStack(tops, hs, 1, 8));
+    }
+
+    @Test
+    public void stackWalkHandlesOverlappingBelowWithinBand() {
+        // 下方卡 top 落在当前底边 ±8 内：算作紧贴链
+        int[] tops = {0, 86};
+        int[] hs = {86, 86};
+        assertEquals(1, CardLayouts.farthestInStack(tops, hs, 0, 8));
+        // 交叉重叠（第二张 top 在第一张内部）：不是链
+        int[] tops2 = {0, 40};
+        assertEquals(0, CardLayouts.farthestInStack(tops2, hs, 0, 8));
+    }
+
+    @Test
+    public void stackWalkClimbsToTopThenDescendsToBottom() {
+        // 三层紧贴栈：0(0..86) 1(86..172) 2(172..258)；从中间层 1 出发
+        int[] tops = {172, 0, 86};
+        int[] hs = {86, 86, 86};
+        int bottom = CardLayouts.farthestInStack(tops, hs, 1, 8);
+        assertEquals(0, bottom, "应走到栈底（y 最大那张）");
+    }
+
+    @Test
+    public void stackWalkAloneReturnsSelf() {
+        int[] tops = {100};
+        int[] hs = {86};
+        assertEquals(0, CardLayouts.farthestInStack(tops, hs, 0, 8), "单独成栈返回自身（调用方映射为 null）");
+    }
+
+    @Test
+    public void stackWalkStopsWhenGapExceedsBand() {
+        // 断开的两段：0..86 与 300..386（间距超过 8px 带）
+        int[] tops = {0, 300};
+        int[] hs = {86, 86};
+        assertEquals(0, CardLayouts.farthestInStack(tops, hs, 0, 8), "断链不跨越");
+        assertEquals(1, CardLayouts.farthestInStack(tops, hs, 1, 8));
+    }
 }
