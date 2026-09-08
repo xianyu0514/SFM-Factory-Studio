@@ -3910,7 +3910,11 @@ public class BlockEditorScreen extends Screen {
         super.render(g, mx, my, partialTick); // program name + live SFML editor
 
         if (popup != null) {
+            // 弹窗限制在画布区域
+            g.enableScissor(Math.round(canvasX * edScale), Math.round(canvasY * edScale),
+                    Math.round((canvasX + canvasW) * edScale), Math.round((canvasY + canvasH) * edScale));
             popup.render(g, this.font, mx, my);
+            g.disableScissor();
         }
     }
 
