@@ -15105,10 +15105,11 @@ public class BlockEditorScreen extends Screen {
 
 
         if (popup != null) {
-
-
-
+            // 弹窗限制在画布区域，防止出现在调色板/屏幕外
+            g.enableScissor(Math.round(canvasX * edScale), Math.round(canvasY * edScale),
+                    Math.round((canvasX + canvasW) * edScale), Math.round((canvasY + canvasH) * edScale));
             popup.render(g, this.font, mx, my);
+            g.disableScissor();
 
 
 
