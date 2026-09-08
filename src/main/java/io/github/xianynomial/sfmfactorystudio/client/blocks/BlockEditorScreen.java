@@ -189,7 +189,7 @@ public class BlockEditorScreen extends Screen {
     static final Loc S_DRAFT_DELETED = E("draft_deleted", "已删除本地草稿，使用管理器中已保存的内容");
     static final Loc S_DRAFT_KEPT = E("draft_kept", "草稿仍保留在本机，下次打开还可以恢复");
     static final Loc S_DRAFT_INCOMPLETE = E("draft_incomplete", "草稿代码尚未完整");
-    static final Loc S_DRAFT_NOT_SYNCED = E("draft_not_synced", "未同步：%s");
+
     static final Loc S_DRAFT_RESTORED_CODE = E("draft_restored_code", "⚠ 已恢复未完成的代码草稿；修正后会自动生成积木");
     static final Loc S_DRAFT_SYNCED = E("draft_synced", "草稿已同步为积木");
     static final Loc S_DRAFT_RESTORED = E("draft_restored", "已恢复本地草稿；确认无误后请保存到管理器");
@@ -213,19 +213,19 @@ public class BlockEditorScreen extends Screen {
     static final Loc S_TRIGGER_CREATED = E("trigger_created", "已在此处新建触发器，从左侧拖入积木");
     static final Loc G_TIMER_ICON = E("g_timer_icon", "⟳");
     static final Loc S_CANVAS_HINT = E("canvas_hint", "从左侧拖入积木 · 滚轮缩放 · 拖动平移 · 右键菜单");
-    static final Loc S_MIN_INTERVAL_HINT = E("min_interval_hint", "当前内容最少需要 %s%s；不会偷偷修改你的输入");
+
     static final Loc U_TICK = E("unit_tick", "刻");
     static final Loc U_SECOND = E("unit_second", "秒");
     static final Loc S_ZOOM_EDIT = E("zoom_edit", "已缩放到可编辑大小");
     static final Loc S_CLICK_TO_ZOOM = E("click_to_zoom", "  点击放大");
-    static final Loc H_TIMER = E("head_timer", "⟳%s%s");
+
     static final Loc H_PULSE = E("head_pulse", "⚡脉冲");
     static final Loc H_IN_N = E("head_in", "%s取出");
     static final Loc H_OUT_N = E("head_out", "%s放入");
     static final Loc S_IF_DELETED = E("if_deleted", "已删除完整运行积木");
     static final Loc S_CARD_COPIED = E("card_copied", "已复制完整运行积木，紧贴排列在正下方");
-    static final Loc F_COLLAPSE_EXT = E("collapse_ext", "− 收起扩展");
-    static final Loc F_EXPAND_EXT = E("expand_ext", "＋ 扩展积木");
+
+
     static final Loc F_GROUP = E("group", "第 %s 组：");
     static final Loc F_ALSO_MOVE = E("also_move", "另外搬运");
     static final Loc F_OR_MOVE = E("or_move", "或者也搬运");
@@ -236,14 +236,14 @@ public class BlockEditorScreen extends Screen {
     static final Loc F_RETAIN_EACH = E("retain_each", "每种分别保留");
     static final Loc F_RETAIN_ALL = E("retain_all", "全部合计保留");
     static final Loc F_EXCEPT = E("except", "排除");
-    static final Loc F_SIDES = E("sides", "指定侧面");
-    static final Loc F_SLOTS = E("slots", "指定槽位");
+
+
     static final Loc F_ROUND_ROBIN = E("round_robin", "轮流选择");
     static final Loc F_RR_LABEL = E("rr_label", "按标签轮流");
     static final Loc F_RR_BLOCK = E("rr_block", "按方块轮流");
     static final Loc F_EACH_PULL = E("each_pull", "每个方块分别取出");
     static final Loc F_EACH_PUT = E("each_put", "每个方块分别存入");
-    static final Loc F_EMPTY_ONLY = E("empty_only", "只放入完全空白的槽位");
+
     static final Loc F_ADD_EXT = E("add_ext", "＋ 添加扩展积木");
     static final Loc F_WITH_EXCEPT_NEG = E("with_except_neg", "排除特征·反");
     static final Loc F_WITH_EXCEPT = E("with_except", "排除特征");
@@ -253,11 +253,11 @@ public class BlockEditorScreen extends Screen {
     static final Loc F_OR = E("or_join", "或 ");
     static final Loc F_ADD_AND = E("add_and", "＋ 且…");
     static final Loc F_ADD_OR = E("add_or", "＋ 或…");
-    static final Loc F_OR_COLON = E("or_colon", "或：");
-    static final Loc F_AND_COLON = E("and_colon", "且：");
-    static final Loc F_PICK_ITEM = E("pick_item", "从物品选择资源标签");
-    static final Loc F_SEARCH_ALL = E("search_all_tags", "搜索全部资源标签");
-    static final Loc F_RAW_TAG = E("raw_tag", "手动输入原标签（高级）");
+
+
+
+
+
     static final Loc F_RESELECT = E("reselect", "重新选择：%s");
     static final Loc F_EDIT_RAW = E("edit_raw", "手动编辑原标签");
     static final Loc F_DELETE_ITEM = E("delete_item", "删除这一项");
@@ -272,7 +272,7 @@ public class BlockEditorScreen extends Screen {
     static final Loc M_WITH_FILTER = E("m_with_filter", "按资源标签筛选");
     static final Loc M_ADD_GROUP = E("m_add_group", "另外搬运一组资源");
     static final Loc M_EXCEPT_RES = E("m_except_res", "排除一种资源");
-    static final Loc M_PICK_SIDES = E("m_pick_sides", "指定方块侧面");
+
     static final Loc M_PICK_SLOTS = E("m_pick_slots", "指定槽位");
     static final Loc M_PICK_RR = E("m_pick_rr", "轮流选择目标");
     static final Loc M_EACH_BLOCK = E("m_each_block", "每个方块分别处理");
@@ -282,17 +282,17 @@ public class BlockEditorScreen extends Screen {
     static final Loc V_WITHOUT = E("v_without", "排除特征：%s");
     static final Loc V_WITH_ONLY = E("v_with_only", "只要特征：%s");
     static final Loc V_NOT = E("v_not", "不是 %s");
-    static final Loc V_AND_JOIN = E("v_and_join", "%s 且 %s");
-    static final Loc V_OR_JOIN = E("v_or_join", "%s 或 %s");
+
+
     static final Loc V_ANY = E("v_any", "任意");
     static final Loc S_WITH_INVALID = E("with_invalid", "✖ 资源标签条件不正确：%s");
     static final Loc F_COMMENT_HINT = E("comment_hint", "输入备注…");
     static final Loc S_RAW_EDIT_HINT = E("raw_edit_hint", "兼容内容请直接在下方代码编辑区修改");
     static final Loc F_EXPAND_IF = E("expand_if", "▶ 展开");
-    static final Loc F_REDSTONE = E("redstone", "红石");
+
     static final Loc S_RAW_COND_HINT = E("raw_cond_hint", "兼容条件请直接在下方代码编辑区修改");
-    static final Loc V_CONST_TRUE = E("const_true", "总是成立");
-    static final Loc V_CONST_FALSE = E("const_false", "永不成立");
+
+
     static final Loc V_SET_DEFAULT = E("set_default", "默认合计");
     static final Loc V_SET_OVERALL = E("set_overall", "所有方块合计");
     static final Loc V_SET_SOME = E("set_some", "至少一个方块");
@@ -310,7 +310,7 @@ public class BlockEditorScreen extends Screen {
     static final Loc V_SIDE_FRONT = E("side_front", "前面");
     static final Loc V_SIDE_BACK = E("side_back", "后面");
     static final Loc V_SIDE_NULL = E("side_null", "无方向面");
-    static final Loc V_ALL_KIND = E("all_kind", "全部%s");
+
     static final Loc V_ALL_ITEMS = E("all_items", "物品");
     static final Loc S_CHANGE_KIND_FIRST = E("change_kind_first", "✖ 请先把资源类别改成“%s”再放入");
     static final Loc S_UNKNOWN_RES = E("unknown_res", "✖ 无法识别这个资源");
@@ -321,9 +321,9 @@ public class BlockEditorScreen extends Screen {
     static final Loc V_SEC_TICK = E("sec_tick", "%s 秒 = %s 刻");
     static final Loc S_INTERVAL_SET = E("interval_set", "执行间隔已设为 %s");
     static final Loc V_SECONDS = E("v_seconds", "%s 秒");
-    static final Loc M_WITH_ITEM = E("m_with_item", "从物品选择资源标签");
-    static final Loc M_WITH_ALL = E("m_with_all", "搜索全部资源标签");
-    static final Loc M_WITH_RAW = E("m_with_raw", "手动输入原标签（高级）");
+
+
+
     static final Loc M_WITH_NONE = E("m_with_none", "不限制资源标签");
     static final Loc M_WITH_ONLY = E("m_with_only", "只处理符合条件的资源");
     static final Loc M_WITH_EXCLUDE = E("m_with_exclude", "排除符合条件的资源");
@@ -350,13 +350,13 @@ public class BlockEditorScreen extends Screen {
     static final Loc M_COND_NEGATE = E("cond_negate", "把整组条件取反");
     static final Loc M_ADD_HAS = E("m_add_has", "＋ 同时满足：方块里有资源");
     static final Loc M_ADD_REDSTONE = E("m_add_redstone", "＋ 同时满足：红石信号");
-    static final Loc M_ADD_TRUE = E("m_add_true", "＋ 同时满足：总是成立");
-    static final Loc M_ADD_FALSE = E("m_add_false", "＋ 同时满足：永不成立");
+
+
     static final Loc M_OR_HAS = E("m_or_has", "＋ 任一满足：方块里有资源");
     static final Loc M_OR_REDSTONE = E("m_or_redstone", "＋ 任一满足：红石信号");
     static final Loc M_UNNEGATE = E("m_unnegate", "取消现有判断的整体取反");
     static final Loc M_NEGATE = E("m_negate", "把现有判断整体取反");
-    static final Loc V_REDSTONE = E("v_redstone", "红石");
+
     static final Loc V_TRUE = E("v_true", "总是成立");
     static final Loc V_FALSE = E("v_false", "永不成立");
     static final Loc V_RAW = E("v_raw", "原样");
@@ -382,15 +382,15 @@ public class BlockEditorScreen extends Screen {
     static final Loc F_PULSE_SHORT = E("f_pulse_short", "红石");
     static final Loc S_SWITCHED_TIMER = E("switched_timer", "已切换为定时触发");
     static final Loc S_SWITCHED_PULSE = E("switched_pulse", "已切换为红石脉冲触发");
-    static final Loc F_COLLAPSE = E("collapse", "收起");
-    static final Loc F_EXPAND = E("expand", "展开");
-    static final Loc M_QTY_ALL = E("qty_all", "全部");
+
+
+
     static final Loc M_QTY_CUSTOM = E("qty_custom", "手动输入…");
     static final Loc F_AND_CHIP = E("and_chip", "和");
     static final Loc S_COPY_ONE_FAILED = E("copy_one_failed", "复制失败：这条积木无法转换为代码");
     static final Loc S_PASTED_LABELS = E("pasted_labels", "已粘贴标签 %s");
     static final Loc S_COPIED_LABELS = E("copied_labels", "已复制标签 %s");
-    static final Loc M_LABEL_COPY = E("m_label_copy", "复制标签组");
+
     static final Loc M_LABEL_PASTE = E("m_label_paste", "粘贴：%s");
     static final Loc M_LABEL_EDIT = E("m_label_edit", "编辑标签…");
     static final Loc M_LABEL_CLEAR = E("m_label_clear", "清空标签");
@@ -407,7 +407,7 @@ public class BlockEditorScreen extends Screen {
     static final Loc M_LABEL_COPY2 = E("m_label_copy2", "复制标签组");
     static final Loc M_LABEL_PASTE2 = E("m_label_paste2", "粘贴标签组：%s");
     static final Loc DELETE_THIS_BLOCK = E("delete_this_block", "删除此积木");
-    static final Loc COPIED_LABELS_N = E("copied_labels_n", "已复制标签 %s");
+
     static final Loc NEED_LABEL_LOCATE = E("need_label_locate", "✖ 先给这条积木设置标签，才能定位容器");
     static final Loc BALANCE_SINGLE = E("balance_single", "只有一个定时触发器，无需平衡优化");
     static final Loc BALANCE_DONE = E("balance_done", "已平衡 %s 个定时触发器的相位（全局时钟 + 错峰偏移），吞吐量不变");
@@ -419,7 +419,7 @@ public class BlockEditorScreen extends Screen {
     static final Loc TAG_COPIED = E("tag_copied", "已复制资源标签 %s（＋ 且…/或… 后可粘贴）");
     static final Loc OR_PREFIX = E("or_prefix", "或：");
     static final Loc AND_PREFIX = E("and_prefix", "且：");
-    static final Loc PASTE_TAG = E("paste_tag", "粘贴：%s");
+
     static final Loc PICK_VIA_ITEM = E("pick_via_item", "从物品选择资源标签");
     static final Loc SEARCH_ALL_TAGS2 = E("search_all_tags2", "搜索全部资源标签");
     static final Loc RAW_TAG_ADVANCED = E("raw_tag_advanced", "手动输入原标签（高级）");
@@ -3046,6 +3046,18 @@ public class BlockEditorScreen extends Screen {
         return bodySfml(BlocksToSfml.toSfml(tmp));
     }
 
+    /** 模板内容是否全部由注释构成（无可执行积木 = 死模板，保存前拦截）。 */
+    private static boolean templateIsCommentsOnly(String bodySfml) {
+        SfmlToBlocks.Result r = SfmlToBlocks.parse("every 20 ticks do\n" + bodySfml + "\nend");
+        if (!r.ok() || r.program() == null || r.program().triggers.isEmpty()) return false;
+        List<BProgram.Statement> body = r.program().triggers.get(0).body;
+        if (body.isEmpty()) return true;
+        for (BProgram.Statement s : body) {
+            if (!(s instanceof BProgram.Statement.Comment)) return false;
+        }
+        return true;
+    }
+
     private void collectStatements(List<BProgram.Statement> list, List<BProgram.Statement> out) {
         for (BProgram.Statement s : list) {
             out.add(s);
@@ -3211,6 +3223,11 @@ public class BlockEditorScreen extends Screen {
         String sfml = selectedTriggers.isEmpty() ? serializeSelection() : serializeTriggersAsBody();
         if (sfml == null || sfml.isBlank()) {
             showStatus(S_SELECT_TO_SAVE.getString(), 0xFFB45309);
+            return;
+        }
+        // 只有注释的模板是死内容（拖出来没有任何可执行积木）——保存前拦下
+        if (templateIsCommentsOnly(sfml)) {
+            showStatus(S_TPL_ONLY_COMMENTS.getString(), 0xFFB45309);
             return;
         }
         setPopup(Popup.TextPopup.confirmed(this,
@@ -5184,6 +5201,8 @@ public class BlockEditorScreen extends Screen {
         fx = drawAndAddSlot(g, fx, y, rl, mx, my);
         fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? COLLAPSE.getString() : EXPAND.getString(), 34,
                 () -> expandOrMenu(stmt, in, x, y, list, index), mx, my, true);
+        // 渲染实测回传（✕ 预留 22px）：下一帧卡片按此加宽，行内按钮永不再溢出
+        if (layout.requestRowContentWidth(list, fx - x + 14 + 8)) layoutDirty = true;
         drawDelete(g, x + w - 16, y + 3, () -> {
             pushUndo();
             list.remove(index);
@@ -5228,6 +5247,8 @@ public class BlockEditorScreen extends Screen {
         fx = drawAndAddSlot(g, fx, y, rl, mx, my);
         fx = drawField(g, fx, y, expandedIds.contains(stmt.id) ? COLLAPSE.getString() : EXPAND.getString(), 34,
                 () -> expandOrMenu(stmt, out, x, y, list, index), mx, my, true);
+        // 渲染实测回传（✕ 预留 22px）：下一帧卡片按此加宽，行内按钮永不再溢出
+        if (layout.requestRowContentWidth(list, fx - x + 14 + 8)) layoutDirty = true;
         drawDelete(g, x + w - 16, y + 3, () -> {
             pushUndo();
             list.remove(index);
@@ -5404,9 +5425,10 @@ public class BlockEditorScreen extends Screen {
         if (rl == null) return x;
         // 数量药丸一体显示（2026-09-09 语序批）：限定词进药丸、数词后带量词——
         // 「取出 每种 64 个 [铁锭]」；此前「64 [合计] 铁锭」的批注式芯片会打断句子
+        // 不带量词：物品/流体/能量共用一个数字槽位，中英一致（"合计 64 铁锭"）
         String qtyDisp = rl.quantity == null ? T_QTY_ALL.getString()
                 : (rl.quantityEach ? T_QTY_EACH_KIND.getString() : T_QTY_TOTAL.getString())
-                        + " " + rl.quantity + " " + T_QTY_GE.getString();
+                        + " " + rl.quantity;
         final int px = x, py = y;
         return drawField(g, x, y, qtyDisp, rl.quantity == null ? 30 : Math.max(26, font.width(qtyDisp) + 12),
                 () -> openQtyQuickPick(px, py, rl), mx, my, false);
@@ -6248,6 +6270,7 @@ public class BlockEditorScreen extends Screen {
                 }
                 fx = drawText(g, fx, y, T_WHEN_DOTS.getString());
                 drawIcon(g, fx, y, F_EXPAND_IF.getString(), () -> toggleIfCollapse(iff), mx, my, C_TEXT_SUB);
+                if (layout.requestRowContentWidth(list, fx - x + 14 + 8)) layoutDirty = true;
             }
             return;
         }
@@ -6286,6 +6309,8 @@ public class BlockEditorScreen extends Screen {
                     iff.branches.add(fbi + 1, added);
                     layoutDirty = true;
                 }, mx, my, false);
+        // 渲染实测回传（✕ 预留 22px）：下一帧卡片按此加宽，行内按钮永不再溢出
+        if (layout.requestRowContentWidth(list, fx - x + 14 + 8)) layoutDirty = true;
                 drawDelete(g, x + w - 16, y + 3, () -> {
                     pushUndo();
                     if (iff.branches.size() > 1) iff.branches.remove(fbi);
