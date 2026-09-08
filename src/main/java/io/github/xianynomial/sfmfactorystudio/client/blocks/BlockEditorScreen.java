@@ -153,16 +153,12 @@ public class BlockEditorScreen extends Screen {
     static final Loc T_WHEN_THEN = E("when_then", "时：");
     static final Loc T_WHEN_DOTS = E("when_dots", "时…");
     // ---- 新手帮助面板 ----
-    static final Loc HELP_TITLE = E("help_title", "五步上手");
-    static final Loc HELP_STEP1 = E("help_step1", "点左侧积木栏，把积木放到画布");
-    static final Loc HELP_STEP2 = E("help_step2", "点蓝色字填标签 / 资源（支持拼音搜索）");
-    static final Loc HELP_STEP3 = E("help_step3", "点「的默认面」设置机器从哪个面进出");
-    static final Loc HELP_STEP4 = E("help_step4", "按住卡头拖动；拖积木调顺序；右键更多命令");
-    static final Loc HELP_STEP5 = E("help_step5", "写完点「⬤ 保存」写入软盘");
-    static final Loc HELP_FIX_TITLE = E("help_fix_title", "机器不动？");
-    static final Loc HELP_FIX1 = E("help_fix1", "点积木上的「的默认面」改成「的每一面」");
-    static final Loc HELP_FIX2 = E("help_fix2", "确认标签已用标签枪绑定到方块上");
-    static final Loc HELP_FIX3 = E("help_fix3", "看右侧代码窗有没有红字");
+    static final Loc HELP_TITLE = E("help_title", "快速上手");
+    static final Loc HELP_STEP1 = E("help_step1", "用标签枪给容器起名（如 仓库、熔炉）——积木认的是标签");
+    static final Loc HELP_STEP2 = E("help_step2", "点左侧「定时触发器」放到画布");
+    static final Loc HELP_STEP3 = E("help_step3", "点蓝色字填：从哪个标签、取出/放入什么物品");
+    static final Loc HELP_STEP4 = E("help_step4", "机器不动？点「的默认面」改成「的每一面」");
+    static final Loc HELP_STEP5 = E("help_step5", "点「⬤ 保存」，软盘放进管理器程序就开始运行");
     static final Loc HELP_KEYS = E("help_keys", "快捷键：Ctrl+Z 撤销 · Ctrl+Y 重做 · Ctrl+A 全选 · 中键平移 · 滚轮缩放 · / 搜卡");
     static final Loc HELP_MULTI_HINT2 = E("help_multi2", "下方按钮载入完整示例工厂（空画布时可用）");
     static final Loc S_EXAMPLE_LOADED = E("example_loaded", "✔ 示例已载入：绑定同名标签后点保存即可运行");
@@ -878,8 +874,14 @@ public class BlockEditorScreen extends Screen {
         layout.setProgram(this.program);
         layout.setExpandedIds(expandedIds);
         loadLayouts();
-        // 首次打开编辑器自动弹一次帮助（看过存 layouts.json，不再打扰）
+        // 仅第一次打开编辑器自动弹帮助；弹出的瞬间就持久化 helpSeen——
+        // 之后无论重开程序/空白画布/退出游戏再回来，都不会再自动出现，
+        // 只能通过工具栏「?」手动打开（用户拍板 2026-09-09）。
         helpOpen = !helpSeen;
+        if (helpOpen) {
+            helpSeen = true;
+            saveLayouts();
+        }
         warmupKindOracle();
     }
 
@@ -4459,11 +4461,6 @@ public class BlockEditorScreen extends Screen {
                 "③ " + HELP_STEP3.getString(),
                 "④ " + HELP_STEP4.getString(),
                 "⑤ " + HELP_STEP5.getString(),
-                "",
-                HELP_FIX_TITLE.getString(),
-                "· " + HELP_FIX1.getString(),
-                "· " + HELP_FIX2.getString(),
-                "· " + HELP_FIX3.getString(),
                 "",
                 HELP_KEYS.getString(),
                 HELP_MULTI_HINT2.getString(),
