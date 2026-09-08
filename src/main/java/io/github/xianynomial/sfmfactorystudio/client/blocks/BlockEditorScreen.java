@@ -13192,11 +13192,11 @@ public class BlockEditorScreen extends Screen {
 
 
 
-                && my >= panelY + TOOLBAR_H + 6 && my < panelY + panelH - 6 && paletteContentH > 0) {
+                && my >= panelY + toolbarH() + 6 && my < panelY + panelH - 6 && paletteContentH > 0) {
 
 
 
-            int trackTop = panelY + TOOLBAR_H + 8;
+            int trackTop = panelY + toolbarH() + 8;
 
 
 
@@ -13832,7 +13832,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        int px = panelX + 6, py = panelY + TOOLBAR_H + 6;
+        int px = panelX + 6, py = panelY + toolbarH() + 6;
 
 
 
@@ -14076,7 +14076,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        int trackTop = panelY + TOOLBAR_H + 8;
+        int trackTop = panelY + toolbarH() + 8;
 
 
 
@@ -14268,11 +14268,12 @@ public class BlockEditorScreen extends Screen {
 
 
 
+        toolbarRows = panelW < 620 ? 2 : 1;
         canvasX = panelX + PALETTE_W + 16;
 
 
 
-        canvasY = panelY + TOOLBAR_H + 6;
+        canvasY = panelY + toolbarH() + 6;
 
 
 
@@ -14288,7 +14289,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        canvasH = panelH - TOOLBAR_H - 12 - (previewMode ? Math.max(112, panelH * 42 / 100) : 0);
+        canvasH = panelH - toolbarH() - 12 - (previewMode ? Math.max(112, panelH * 42 / 100) : 0);
 
 
 
@@ -16378,15 +16379,33 @@ public class BlockEditorScreen extends Screen {
 
 
 
+    /** 工具栏折行状态：小面板（<620 设计像素）按钮自动换到第二行。 */
+    private int toolbarRows = 1;
+    private int tbBx = 0;
+    private int tbRowY = 0;
+
+    /** 当前工具栏总高（小面板自动折两行时翻倍），画布/问题板/调色板的顶部基准。 */
+    private int toolbarH() {
+        return TOOLBAR_H * toolbarRows;
+    }
+
+    private void tbWrap() {
+        int minBx = namePillX() + 128;
+        if (tbBx < minBx) {
+            tbRowY = panelY + TOOLBAR_H + 4;
+            tbBx = panelX + panelW - 8;
+        }
+    }
+
     private void renderToolbar(GuiGraphics g, int mx, int my) {
 
 
 
-        rounded(g, panelX, panelY, panelW, TOOLBAR_H, 10, 0xFAFFFFFF);
+        rounded(g, panelX, panelY, panelW, toolbarH(), 10, 0xFAFFFFFF);
 
 
 
-        g.fill(panelX, panelY + TOOLBAR_H - 1, panelX + panelW, panelY + TOOLBAR_H, G_BORDER_SOFT);
+        g.fill(panelX, panelY + toolbarH() - 1, panelX + panelW, panelY + toolbarH(), G_BORDER_SOFT);
 
 
 
@@ -16422,7 +16441,9 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        int bx = panelX + panelW - 8;
+        tbBx = panelX + panelW - 8;
+        tbRowY = panelY + 4;
+        int bx = tbBx;
 
 
 
@@ -16430,15 +16451,16 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        button(g, bx, panelY + 4, 86, bh, "⬤ " + T_SAVE.getString(), C_SAVE, C_SAVE_H, this::save, mx, my);
+        button(g, tbBx, tbRowY, 86, bh, "⬤ " + T_SAVE.getString(), C_SAVE, C_SAVE_H, this::save, mx, my);
 
 
 
-        bx -= 4 + 52;
+        tbWrap();
+        tbBx -= 4 + 52;
 
 
 
-        button(g, bx, panelY + 4, 52, bh, T_PREVIEW.getString(),
+        button(g, tbBx, tbRowY, 52, bh, T_PREVIEW.getString(),
 
 
 
@@ -16450,27 +16472,30 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        bx -= 4 + 48;
+        tbWrap();
+        tbBx -= 4 + 48;
 
 
 
-        button(g, bx, panelY + 4, 48, bh, T_UNDO.getString(), 0xCC5B6472, 0xCC49525E, this::undo, mx, my);
+        button(g, tbBx, tbRowY, 48, bh, T_UNDO.getString(), 0xCC5B6472, 0xCC49525E, this::undo, mx, my);
 
 
 
-        bx -= 4 + 46;
+        tbWrap();
+        tbBx -= 4 + 46;
 
 
 
-        button(g, bx, panelY + 4, 44, bh, T_REDO.getString(), 0xCC5B6472, 0xCC49525E, this::redo, mx, my);
+        button(g, tbBx, tbRowY, 44, bh, T_REDO.getString(), 0xCC5B6472, 0xCC49525E, this::redo, mx, my);
 
 
 
-        bx -= 4 + 42;
+        tbWrap();
+        tbBx -= 4 + 42;
 
 
 
-        button(g, bx, panelY + 4, 42, bh, T_FIT.getString(), 0xCC5B6472, 0xCC49525E, () -> {
+        button(g, tbBx, tbRowY, 42, bh, T_FIT.getString(), 0xCC5B6472, 0xCC49525E, () -> {
 
 
 
@@ -16486,11 +16511,12 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        bx -= 4 + 40;
+        tbWrap();
+        tbBx -= 4 + 40;
 
 
 
-        button(g, bx, panelY + 4, 40, bh, T_ZONES.getString(), zoneDrawing ? 0xCC2F6FED : 0xCC5B6472,
+        button(g, tbBx, tbRowY, 40, bh, T_ZONES.getString(), zoneDrawing ? 0xCC2F6FED : 0xCC5B6472,
 
 
 
@@ -16526,7 +16552,8 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        bx -= 4 + 48;
+        tbWrap();
+        tbBx -= 4 + 48;
 
 
 
@@ -16574,11 +16601,12 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        bx -= 4 + issueW;
+        tbWrap();
+        tbBx -= 4 + issueW;
 
 
 
-        button(g, bx, panelY + 4, issueW, bh, issueLabel, issueColor, issueHover, () -> {
+        button(g, tbBx, tbRowY, issueW, bh, issueLabel, issueColor, issueHover, () -> {
 
 
 
@@ -16598,11 +16626,12 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        bx -= 4 + 46;
+        tbWrap();
+        tbBx -= 4 + 46;
 
 
 
-        button(g, bx, panelY + 4, 46, bh, T_CLOSE.getString(), 0xCC5B6472, 0xCC49525E, this::closeEditor, mx, my);
+        button(g, tbBx, tbRowY, 46, bh, T_CLOSE.getString(), 0xCC5B6472, 0xCC49525E, this::closeEditor, mx, my);
 
 
 
@@ -16610,11 +16639,12 @@ public class BlockEditorScreen extends Screen {
 
 
 
-            bx -= 4 + 68;
+            tbWrap();
+        tbBx -= 4 + 68;
 
 
 
-            button(g, bx, panelY + 4, 68, bh, T_TPL_SAVE.getString(), 0xCC7C3AED, 0xCC6D2FD9, this::saveSelectionAsTemplate, mx, my);
+            button(g, tbBx, tbRowY, 68, bh, T_TPL_SAVE.getString(), 0xCC7C3AED, 0xCC6D2FD9, this::saveSelectionAsTemplate, mx, my);
 
 
 
@@ -16646,7 +16676,7 @@ public class BlockEditorScreen extends Screen {
 
 
 
-        int groupLeft = bx;
+        int groupLeft = tbBx;
 
 
 
