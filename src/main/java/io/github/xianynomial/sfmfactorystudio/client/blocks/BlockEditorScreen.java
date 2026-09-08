@@ -1050,8 +1050,11 @@ public class BlockEditorScreen extends Screen {
     // ================================================================ model edits
 
     private void pushUndo() {
-        // 撤销快照与每触发器内容哈希共用一次序列化遍历；哈希交给布局做差分，
-        // 普通字段编辑不再触发全程序重排（大程序每次按键 O(全部卡) → O(改动卡)）。
+        // 撤销快照在改动前取（撤销要回到编辑前的内容）。卡片差分哈希不能
+        // 用这份"编辑前"快照：缓存里会存进滞后一位的哈希，卡片被别的卡编辑
+        // "追平"后再编辑它就漏判重排——新积木没有行矩形被渲染跳过
+        //（"积木延迟出现"反馈的根因）。改为只标记脏，哈希由 relayout 在
+        // 编辑后的现态上现算（见 EditorLayout.markModelEdited 注释）。
         io.github.xianynomial.sfmfactorystudio.client.blocks.model.BlocksToSfml.Snapshot snap =
                 io.github.xianynomial.sfmfactorystudio.client.blocks.model.BlocksToSfml.snapshot(program);
         undoStack.push(snap.sfml());
@@ -1063,7 +1066,7 @@ public class BlockEditorScreen extends Screen {
         blocksNewerThanCode = true;
         layoutDirty = true;
         modelVersion++;
-        layout.markModelEdited(snap.triggerHashes());
+        layout.markModelEdited();
     }
 
     private void undo() {
