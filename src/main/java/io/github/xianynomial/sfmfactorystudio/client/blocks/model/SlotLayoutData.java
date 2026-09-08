@@ -71,7 +71,7 @@ public final class SlotLayoutData {
                 boolean exists = false;
                 for (SlotAnchor b : out) {
                     if (b.menuClass().equals(a.menuClass()) && b.dir() == a.dir()
-                            && b.containerSlot() == a.containerSlot()) {
+                            && b.x() == a.x() && b.y() == a.y()) {
                         exists = true;
                         break;
                     }
@@ -90,7 +90,7 @@ public final class SlotLayoutData {
         List<SlotAnchor> anchors = new ArrayList<>();
         for (SlotAnchor b : layout.anchors()) {
             if (b.menuClass().equals(anchor.menuClass()) && b.dir() == anchor.dir()
-                    && b.containerSlot() == anchor.containerSlot()) continue;
+                    && b.x() == anchor.x() && b.y() == anchor.y()) continue;
             anchors.add(b);
         }
         anchors.add(anchor);
