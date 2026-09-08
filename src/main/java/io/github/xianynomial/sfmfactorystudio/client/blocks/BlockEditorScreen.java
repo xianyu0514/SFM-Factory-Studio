@@ -857,8 +857,18 @@ public class BlockEditorScreen extends Screen {
 
     // ================================================================== lifecycle
 
+    /** 虚拟分辨率缩放：逻辑分辨率 < 480 时等比缩小整个编辑器绘制，布局永不在极小面板上崩塌。 */
+    private float edScale = 1f;
+    /** 虚拟分辨率下的宽/高（≥ 480×270），所有布局计算使用这两个值。 */
+    private int edW = 960, edH = 540;
+
     @Override
     protected void init() {
+        edScale = Math.min(1.0f, Math.max(0.25f, this.width / 480f));
+        edW = Math.round(this.width / edScale);
+        edH = Math.round(this.height / edScale);
+        this.width = edW;
+        this.height = edH;
         // 回显（从标签/NBT 选择器返回会重跑 init）：代码窗没有未提交的编辑时，
         // 模型才是最新事实。若沿用窗里的旧文本，选择器刚写入模型的条件会被旧
         // 代码"抢走所有权"，随后保存/校验会把整个模型重解析回没有条件的版本。
@@ -1834,7 +1844,7 @@ public class BlockEditorScreen extends Screen {
         int maxScroll = Math.max(0, contentH - (listBottom - listTop));
         issuesScroll = Math.max(0, Math.min(issuesScroll, maxScroll));
 
-        g.enableScissor(x + 1, listTop - 2, x + w - 1, listBottom);
+        g.enableScissor(Math.round((x + 1) * edScale), Math.round((listTop - 2) * edScale), Math.round((x + w - 1) * edScale), Math.round((listBottom) * edScale));
         try {
             int cy = listTop - issuesScroll;
             for (int i = 0; i < issuesCache.size(); i++) {
@@ -2011,6 +2021,7 @@ public class BlockEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
+        mx /= edScale; my /= edScale;
         if (popup != null) {
             // Popup actions may replace or directly close themselves. Inspect
             // the instance that actually received the click so a replacement
@@ -2256,6 +2267,7 @@ public class BlockEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
+        mx /= edScale; my /= edScale;
         if (pendingPalette != null && dragPaletteKind == null
                 && Math.abs(mx - pressX) + Math.abs(my - pressY) > 6) {
             dragPaletteKind = pendingPalette;
@@ -2386,6 +2398,7 @@ public class BlockEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mx, double my, int button) {
+        mx /= edScale; my /= edScale;
         double cx = ctX(mx), cy = ctY(my);
 
         if (zoneDrag) {
@@ -3408,6 +3421,7 @@ public class BlockEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double scrollY) {
+        mx /= edScale; my /= edScale;
         if (popup != null && popup.isOver(mx, my)) {
             if (popup.mouseScrolled(mx, my, scrollY)) return true;
         }
@@ -3578,7 +3592,7 @@ public class BlockEditorScreen extends Screen {
         int bottom = panelY + panelH - 6;
         rounded(g, px, py, pw, bottom - py, 8, G_CARD_TRANS);
         border(g, px, py, pw, bottom - py, G_BORDER_SOFT);
-        g.enableScissor(px, py, px + pw, bottom);
+        g.enableScissor(Math.round((px) * edScale), Math.round((py) * edScale), Math.round((px + pw) * edScale), Math.round((bottom) * edScale));
         try {
         py += 8;
         int contentTop = py;
@@ -3654,7 +3668,19 @@ public class BlockEditorScreen extends Screen {
     // 后处理（那是 1.20.2+ 的行为），因此这里无需空覆写。
 
     @Override
-    public void render(GuiGraphics g, int mx, int my, float partialTick) {
+    public final void render(GuiGraphics g, int mx, int my, float partialTick) {
+        g.pose().pushPose();
+        g.pose().scale(edScale, edScale, 1);
+        int dmx = Math.round(mx / edScale);
+        int dmy = Math.round(my / edScale);
+        try {
+            renderEd(g, dmx, dmy, partialTick);
+        } finally {
+            g.pose().popPose();
+        }
+    }
+
+    private void renderEd(GuiGraphics g, int mx, int my, float partialTick) {
         // Never trigger the vanilla menu blur — see renderBackground override above.
         // Dim only the strips outside the window; the panel itself is near-opaque.
         computePanel();
@@ -3694,7 +3720,7 @@ public class BlockEditorScreen extends Screen {
         // canvas glass + dot grid
         rounded(g, canvasX, canvasY, canvasW, canvasH, 8, G_CANVAS);
         border(g, canvasX, canvasY, canvasW, canvasH, G_BORDER_SOFT);
-        g.enableScissor(canvasX + 1, canvasY + 1, canvasX + canvasW - 1, canvasY + canvasH - 1);
+        g.enableScissor(Math.round((canvasX + 1) * edScale), Math.round((canvasY + 1) * edScale), Math.round((canvasX + canvasW - 1) * edScale), Math.round((canvasY + canvasH - 1) * edScale));
         try {
         // At far zoom-out, keep the grid readable without issuing thousands of
         // one-pixel draw calls every frame.
