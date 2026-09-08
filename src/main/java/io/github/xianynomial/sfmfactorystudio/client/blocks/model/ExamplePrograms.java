@@ -22,7 +22,7 @@ public final class ExamplePrograms {
     public static Example smelting() {
         BProgram program = base("熔炉流水线");
         var trigger = (BProgram.TimerTrigger) program.triggers.get(0);
-        trigger.body.add(comment("把仓库里的煤炭和铁矿送进熔炉。机器不动？点积木上的「不限面」改成「的每一面」试试"));
+        trigger.body.add(comment("把仓库里的煤炭和铁矿送进熔炉。机器不动？点积木上的「的默认面」改成「的每一面」试试"));
         trigger.body.add(input("仓库", "minecraft:coal", 64L));
         trigger.body.add(output("熔炉", 64L, "minecraft:coal"));
         trigger.body.add(input("仓库", "minecraft:raw_iron", 64L));
