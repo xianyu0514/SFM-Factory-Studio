@@ -5264,38 +5264,32 @@ public class BlockEditorScreen extends Screen {
     private @Nullable BProgram.Trigger copyFarthestBelow(BProgram.Trigger t) {
         int[] me = layout.cardRectOf(t.id);
         if (me == null) return null;
-        int x = me[0];
-        int topY = me[1];
-        while (true) {
-            BProgram.Trigger prev = null;
-            for (BProgram.Trigger other : program.triggers) {
-                if (!isCopyOf(other, t)) continue;
-                int[] or = layout.cardRectOf(other.id);
-                if (or == null || Math.abs(or[0] - x) > 8) continue;
-                if (or[1] + or[3] >= topY - 8 && or[1] + or[3] <= topY + 8) { prev = other; break; }
-            }
-            if (prev == null) break;
-            topY = layout.cardRectOf(prev.id)[1];
+        // 收集同列同指纹副本（含 t 自身），交给纯函数走链。
+        // 旧实现是两个无守卫的 while(true)：向下走以"候选 top"对比当前 y
+        //（y 永不前进），栈中任何非栈顶卡都会锁死在栈顶卡上原地打转——
+        // 本函数被 renderCard 每帧每卡调用，打开编辑器第一帧即冻结
+        //（2026-09-09 Application Hang 崩溃反馈的根因）。
+        java.util.List<BProgram.Trigger> candidates = new ArrayList<>();
+        int[] tops = new int[program.triggers.size()];
+        int[] heights = new int[program.triggers.size()];
+        int n = 0;
+        int self = -1;
+        for (BProgram.Trigger other : program.triggers) {
+            if (!isCopyOf(other, t)) continue;
+            int[] or = layout.cardRectOf(other.id);
+            if (or == null || Math.abs(or[0] - me[0]) > 8) continue;
+            if (other == t) self = n;
+            candidates.add(other);
+            tops[n] = or[1];
+            heights[n] = or[3];
+            n++;
         }
-        int y = topY;
-        BProgram.Trigger bottom = null;
-        while (true) {
-            BProgram.Trigger next = null;
-            int nextY = Integer.MAX_VALUE;
-            for (BProgram.Trigger other : program.triggers) {
-                if (!isCopyOf(other, t)) continue;
-                int[] or = layout.cardRectOf(other.id);
-                if (or == null || Math.abs(or[0] - x) > 8) continue;
-                if (or[1] >= y - 8 && or[1] <= y + 8 && or[1] < nextY) { nextY = or[1]; next = other; }
-            }
-            if (next == null) break;
-            bottom = next;
-            y = layout.cardRectOf(next.id)[1];
-        }
-        return bottom != null && bottom != t ? bottom : null;
+        if (self < 0) return null;
+        int bottomIdx = CardLayouts.farthestInStack(
+                java.util.Arrays.copyOf(tops, n), java.util.Arrays.copyOf(heights, n), self, 8);
+        BProgram.Trigger bottom = candidates.get(bottomIdx);
+        return bottom != t ? bottom : null;
     }
-
-
 
     private void duplicateTriggerBelow(BProgram.Trigger source, int sourceHeight) {
         int sourceIndex = program.triggers.indexOf(source);

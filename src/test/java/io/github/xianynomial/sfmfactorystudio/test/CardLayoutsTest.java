@@ -181,4 +181,45 @@ public class CardLayoutsTest {
         List<String> keys = CardLayouts.keysOf(List.of(t1, t2, t3));
         assertEquals(List.of(CardLayouts.triggerKey(t1), "p", CardLayouts.triggerKey(t3)), keys);
     }
+    /** "游戏冻结（Application Hang）"回归：同位/重叠副本的几何必须严格终止。
+     *  旧 while(true) 实现没有 visited 守卫且 y 不单调，栈中非栈顶卡会原地
+     *  打转——而走链被 renderCard 每帧每卡调用，等价于打开编辑器即冻结。 */
+    @Test
+    public void stackWalkTerminatesOnDegenerateGeometry() {
+        int[] tops = {100, 100};
+        int[] hs = {86, 86};
+        assertEquals(0, CardLayouts.farthestInStack(tops, hs, 0, 8));
+        assertEquals(1, CardLayouts.farthestInStack(tops, hs, 1, 8));
+    }
+
+    @Test
+    public void stackWalkHandlesOverlappingBelowWithinBand() {
+        int[] tops = {0, 86};
+        int[] hs = {86, 86};
+        assertEquals(1, CardLayouts.farthestInStack(tops, hs, 0, 8));
+        int[] tops2 = {0, 40};
+        assertEquals(0, CardLayouts.farthestInStack(tops2, hs, 0, 8));
+    }
+
+    @Test
+    public void stackWalkClimbsToTopThenDescendsToBottom() {
+        int[] tops = {172, 0, 86};
+        int[] hs = {86, 86, 86};
+        assertEquals(0, CardLayouts.farthestInStack(tops, hs, 1, 8), "应走到栈底（y 最大那张）");
+    }
+
+    @Test
+    public void stackWalkAloneReturnsSelf() {
+        int[] tops = {100};
+        int[] hs = {86};
+        assertEquals(0, CardLayouts.farthestInStack(tops, hs, 0, 8), "单独成栈返回自身（调用方映射为 null）");
+    }
+
+    @Test
+    public void stackWalkStopsWhenGapExceedsBand() {
+        int[] tops = {0, 300};
+        int[] hs = {86, 86};
+        assertEquals(0, CardLayouts.farthestInStack(tops, hs, 0, 8), "断链不跨越");
+        assertEquals(1, CardLayouts.farthestInStack(tops, hs, 1, 8));
+    }
 }

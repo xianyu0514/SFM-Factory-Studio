@@ -95,6 +95,52 @@ public final class CardLayouts {
     }
 
     /**
+     * 副本栈走链（纯逻辑可单测）：候选为同列同指纹副本，给定各自 top/height
+     * 与起点 self，沿"紧贴 ±band"先向上走到栈顶、再向下走到栈底，返回栈底
+     * 候选下标（self 单独成栈时返回 self）。used 守卫保证每张卡至多访问一次，
+     * 任何几何（同位/重叠/乱序）都严格终止——screen 层旧 while(true) 实现
+     * 没有守卫且以"候选 top"对比当前 y（永远走不下去），栈中非栈顶卡会在
+     * 栈顶卡上原地打转，而它被 renderCard 每帧每卡调用 = 主线程冻结
+     * （2026-09-09 "游戏崩溃（Application Hang）"反馈的根因）。
+     */
+    public static int farthestInStack(int[] tops, int[] heights, int self, int band) {
+        int n = tops.length;
+        boolean[] used = new boolean[n];
+        used[self] = true;
+        // 向上：候选底边（top+height）贴当前 top，取离得最近的
+        int cur = self;
+        while (true) {
+            int best = -1, bestTop = Integer.MIN_VALUE;
+            for (int i = 0; i < n; i++) {
+                if (used[i]) continue;
+                if (Math.abs(tops[i] + heights[i] - tops[cur]) <= band && tops[i] > bestTop) {
+                    bestTop = tops[i];
+                    best = i;
+                }
+            }
+            if (best < 0) break;
+            used[best] = true;
+            cur = best;
+        }
+        // 向下：候选 top 贴当前底边（top+height），取离得最近的
+        while (true) {
+            int best = -1, bestTop = Integer.MAX_VALUE;
+            int bottomEdge = tops[cur] + heights[cur];
+            for (int i = 0; i < n; i++) {
+                if (used[i]) continue;
+                if (Math.abs(tops[i] - bottomEdge) <= band && tops[i] < bestTop) {
+                    bestTop = tops[i];
+                    best = i;
+                }
+            }
+            if (best < 0) break;
+            used[best] = true;
+            cur = best;
+        }
+        return cur;
+    }
+
+    /**
      * Match wanted keys against saved keys: each saved entry can be used once,
      * and duplicates are paired up in order of appearance.
      *
