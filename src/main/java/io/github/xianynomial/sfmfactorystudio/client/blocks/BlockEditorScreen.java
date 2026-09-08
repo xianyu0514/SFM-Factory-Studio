@@ -13,6 +13,7 @@ import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BlockTemplates
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BlocksToSfml;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.CardLayouts;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorUiMath;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.BodyRef;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.CardL;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorLayout.Gap;
@@ -867,9 +868,12 @@ public class BlockEditorScreen extends Screen {
         // 虚拟分辨率：逻辑宽不足 640 时等比缩小绘制（edScale < 1）。下限取 640：
         // JEI 让位后面板只剩 74%，480 只剩 ~355px 宽，画布小到积木行点不中；
         // 640 让极端缩放下画布仍有 ~300px 可用宽度。
-        edScale = Math.min(1.0f, Math.max(0.25f, this.width / 640f));
-        edW = Math.round(this.width / edScale);
-        edH = Math.round(this.height / edScale);
+        // 换算公式在 EditorUiMath.virtualFrame（有单测）：下限 640 让极端缩放下
+        // 画布仍有 ~300px 可用宽度
+        var frame = EditorUiMath.virtualFrame(this.width, this.height, 640);
+        edScale = frame.scale();
+        edW = frame.width();
+        edH = frame.height();
         this.width = edW;
         this.height = edH;
         // 回显（从标签/NBT 选择器返回会重跑 init）：代码窗没有未提交的编辑时，
@@ -3709,7 +3713,7 @@ public class BlockEditorScreen extends Screen {
         // 窄面板按钮需要更多行：按宽度猜一个下限（注意 <380 判断必须在 <560 之前，
         // 否则三分支永远走不到 3 行），再与 renderToolbar 回写的实际占用行数取最大。
         // 声明行数 >= 实际行数 ⇒ 按钮永远不会溢出进画布区域吞点击。
-        toolbarRows = Math.max(panelW < 380 ? 3 : (panelW < 560 ? 2 : 1), toolbarRowsUsed);
+        toolbarRows = Math.max(EditorUiMath.guessToolbarRows(panelW), toolbarRowsUsed);
         canvasX = panelX + PALETTE_W + 16;
         canvasY = panelY + toolbarH() + 6;
         int baseCanvasW = panelX + panelW - 8 - canvasX;
@@ -4254,16 +4258,6 @@ public class BlockEditorScreen extends Screen {
     private int toolbarH() {
         return TOOLBAR_H * toolbarRows;
     }
-    private int tbBx = 0;
-    private int tbRowY = 0;
-
-    private void tbWrap() {
-        int minBx = namePillX() + 128;
-        if (tbBx < minBx) {
-            tbRowY = panelY + TOOLBAR_H + 4;
-            tbBx = panelX + panelW - 8;
-        }
-    }
 
     private void renderToolbar(GuiGraphics g, int mx, int my) {
         rounded(g, panelX, panelY, panelW, toolbarH(), 10, 0xFAFFFFFF);
@@ -4274,35 +4268,13 @@ public class BlockEditorScreen extends Screen {
         rounded(g, namePillX(), panelY + 5, 120, 19, 5, 0xF2FFFFFF);
         border(g, namePillX(), panelY + 5, 120, 19, nameBox.isFocused() ? C_SELECT : G_BORDER);
 
-        // buttons right-to-left: 保存 | 代码 | 撤销 | 重做 | 适配 | 分区 | 问题 | 关闭 | [存为模板]
-        // 宽度全部按文字实测（旧版固定宽在低 GUI 缩放/英文文案下会溢出面板、
-        // 盖住程序名），并有溢出保护线：放不下的按钮不渲染、不注册命中。
+        // buttons right-to-left: 保存 | 代码 | 撤销 | 重做 | 适配 | 分区 | 平衡 | 问题 | 关闭 | [存为模板]
+        // 宽度按文字实测（max(下限, 文字宽+14)），折行走 EditorUiMath.placeToolbar
+        // （纯逻辑有单测锁）：放不下折到下一行（按需多行），实际占用行数回写
+        // toolbarRowsUsed 供下帧 toolbarH() 联动——按钮永远不会画进工具栏条
+        // 以外的区域（否则会以 uiHits 吞掉画布顶部的点击）。
         int bh = 20;
         int minBx = namePillX() + 126; // 程序名 pill 右缘 + 余量
-        tbBx = panelX + panelW - 8;
-        tbRowY = panelY + 4;
-        int bx = tbBx;
-        bx = tbButton(g, bx, minBx, bh, "⬤ " + T_SAVE.getString(), 40, C_SAVE, C_SAVE_H, this::save, mx, my);
-        bx = tbButton(g, bx, minBx, bh, T_PREVIEW.getString(), 36,
-                previewMode ? 0xCC2F6FED : 0xCC5B6472,
-                previewMode ? 0xCC2459C4 : 0xCC49525E, this::toggleCodeEditor, mx, my);
-        bx = tbButton(g, bx, minBx, bh, T_UNDO.getString(), 36, 0xCC5B6472, 0xCC49525E, this::undo, mx, my);
-        bx = tbButton(g, bx, minBx, bh, T_REDO.getString(), 36, 0xCC5B6472, 0xCC49525E, this::redo, mx, my);
-        bx = tbButton(g, bx, minBx, bh, T_FIT.getString(), 34, 0xCC5B6472, 0xCC49525E, () -> {
-            fitted = false;
-            showStatus(S_FITTED_ALL.getString(), C_SELECT);
-        }, mx, my);
-        bx = tbButton(g, bx, minBx, bh, T_ZONES.getString(), 34, zoneDrawing ? 0xCC2F6FED : 0xCC5B6472,
-                zoneDrawing ? 0xCC2459C4 : 0xCC49525E, () -> {
-                    zoneDrawing = !zoneDrawing;
-                    if (zoneDrawing) showStatus(S_ZONE_DRAW_HINT.getString(), C_SELECT);
-                }, mx, my);
-        // 相位均衡：多台管理器/多个定时触发器在同一刻集中执行会造成 MSPT
-        // 尖刺（吞吐量不变，只挪触发时刻）。按序分配 plus 偏移摊平负载。
-        bx = tbButton(g, bx, minBx, bh, BALANCE_BTN.getString(), 48, 0xCC5B6472, 0xCC49525E,
-                this::balanceTriggerPhases, mx, my);
-        // 问题按钮：文案固定两字（错误/提醒）或四字（问题检查），宽度按文字
-        // 实际宽度 + 余量计算，任何缩放下都不会超出按钮；数量在面板里看。
         long errCount = issueErrCount;
         long warnCount = issueWarnCount;
         String issueLabel = errCount > 0
@@ -4311,25 +4283,58 @@ public class BlockEditorScreen extends Screen {
                 : T_ISSUES_TITLE.getString();
         int issueColor = errCount > 0 ? 0xCCD13438 : warnCount > 0 ? 0xCCB45309 : 0xCC5B6472;
         int issueHover = errCount > 0 ? 0xCCB02A30 : warnCount > 0 ? 0xCC9C4708 : 0xCC49525E;
-        bx = tbButton(g, bx, minBx, bh, issueLabel, 40, issueColor, issueHover, () -> {
+        record Tb(String label, int minW, int color, int hover, Runnable action) {}
+        java.util.List<Tb> specs = new java.util.ArrayList<>();
+        specs.add(new Tb("⬤ " + T_SAVE.getString(), 40, C_SAVE, C_SAVE_H, this::save));
+        specs.add(new Tb(T_PREVIEW.getString(), 36,
+                previewMode ? 0xCC2F6FED : 0xCC5B6472,
+                previewMode ? 0xCC2459C4 : 0xCC49525E, this::toggleCodeEditor));
+        specs.add(new Tb(T_UNDO.getString(), 36, 0xCC5B6472, 0xCC49525E, this::undo));
+        specs.add(new Tb(T_REDO.getString(), 36, 0xCC5B6472, 0xCC49525E, this::redo));
+        specs.add(new Tb(T_FIT.getString(), 34, 0xCC5B6472, 0xCC49525E, () -> {
+            fitted = false;
+            showStatus(S_FITTED_ALL.getString(), C_SELECT);
+        }));
+        specs.add(new Tb(T_ZONES.getString(), 34, zoneDrawing ? 0xCC2F6FED : 0xCC5B6472,
+                zoneDrawing ? 0xCC2459C4 : 0xCC49525E, () -> {
+                    zoneDrawing = !zoneDrawing;
+                    if (zoneDrawing) showStatus(S_ZONE_DRAW_HINT.getString(), C_SELECT);
+                }));
+        // 相位均衡：多台管理器/多个定时触发器在同一刻集中执行会造成 MSPT
+        // 尖刺（吞吐量不变，只挪触发时刻）。按序分配 plus 偏移摊平负载。
+        specs.add(new Tb(BALANCE_BTN.getString(), 48, 0xCC5B6472, 0xCC49525E,
+                this::balanceTriggerPhases));
+        // 问题按钮：数量在面板里看，按钮只显示短文案。
+        specs.add(new Tb(issueLabel, 40, issueColor, issueHover, () -> {
             issuesOpen = !issuesOpen;
             issuesScroll = 0;
             refreshIssues();
-        }, mx, my);
-        bx = tbButton(g, bx, minBx, bh, T_CLOSE.getString(), 34, 0xCC5B6472, 0xCC49525E, this::closeEditor, mx, my);
+        }));
+        specs.add(new Tb(T_CLOSE.getString(), 34, 0xCC5B6472, 0xCC49525E, this::closeEditor));
         if (!selection.isEmpty() || !selectedTriggers.isEmpty()) {
-            bx = tbButton(g, bx, minBx, bh, T_TPL_SAVE.getString(), 40, 0xCC7C3AED, 0xCC6D2FD9, this::saveSelectionAsTemplate, mx, my);
+            specs.add(new Tb(T_TPL_SAVE.getString(), 40, 0xCC7C3AED, 0xCC6D2FD9,
+                    this::saveSelectionAsTemplate));
         }
-        // 实际占用行数回写：下帧 canvasY/canvasH/调色板/问题板顶部基准联动，
-        // 保证工具栏条的高度永远包住所有按钮。
-        toolbarRowsUsed = ((tbRowY - (panelY + 4)) / TOOLBAR_H) + 1;
+        int n = specs.size();
+        int[] ws = new int[n], xs = new int[n], ys = new int[n];
+        for (int i = 0; i < n; i++) ws[i] = Math.max(specs.get(i).minW(), this.font.width(specs.get(i).label()) + 14);
+        EditorUiMath.Placement placement = EditorUiMath.placeToolbar(
+                panelX, panelW, minBx, panelY + 4, TOOLBAR_H, 4, ws, xs, ys);
+        for (int i = 0; i < n; i++) {
+            Tb b = specs.get(i);
+            button(g, xs[i], ys[i], ws[i], bh, b.label(), b.color(), b.hover(), b.action(), mx, my);
+        }
+        // 实际占用行数回写：下帧 canvasY/canvasH/调色板/问题板顶部基准联动；
+        // 声明行数取猜测下限与实际的最大 ⇒ 工具栏条永远包住所有按钮。
+        toolbarRowsUsed = placement.rows();
+        toolbarRows = Math.max(EditorUiMath.guessToolbarRows(panelW), toolbarRowsUsed);
 
         // title + status sit between the name box and the button group. The
         // status is right-aligned against the group's left edge so the extra
         // 存为模板 button (visible while blocks are selected) can never cover
         // it; the decorative title yields first when space runs out.
         int titleX = namePillX() + 120 + 12;
-        int groupLeft = tbBx;
+        int groupLeft = placement.row1Left();
         String status = null;
         int col = C_TEXT_SUB;
         if (statusTicks > 0 && !statusText.isEmpty()) {
@@ -4459,29 +4464,6 @@ public class BlockEditorScreen extends Screen {
                 case "browse" -> openResourceValueMenu(contentX, contentY, current, setter);
             }
         }));
-    }
-
-    /**
-     * 工具栏按钮（从右往左排）：宽度 = max(最小宽, 文字实测宽+14)，任何语言、
-     * 任何 GUI 缩放下都不截断文字；剩余横向空间不足时（bx 会越过保护线 minBx）
-     * 直接不渲染该按钮及其后所有按钮——保证永不越出面板、不盖住程序名。
-     * 返回新的 bx（供下一个按钮继续向左排）。
-     */
-    private int tbButton(GuiGraphics g, int bx, int minBx, int bh, String label, int minW,
-                         int color, int hoverColor, Runnable action, double mx, double my) {
-        int w = Math.max(minW, this.font.width(label) + 14);
-        int x = bx - w;
-        if (x < minBx) {
-            // 折到下一行：按需扩展行数（不止两行），行数在 renderToolbar 末尾
-            // 回写 toolbarRowsUsed 供下帧 toolbarH() 联动——按钮永远不会画进
-            // 工具栏条以外的区域（否则会以 uiHits 吞掉画布顶部的点击）。
-            tbRowY += TOOLBAR_H;
-            x = panelX + panelW - 8 - w;
-        }
-        button(g, x, tbRowY, w, bh, label, color, hoverColor, action, mx, my);
-        // 第一行按钮组的左缘（状态字相对它右对齐让位）；折行后不再更新
-        if (tbRowY == panelY + 4) tbBx = x - 4;
-        return x - 4;
     }
 
     private void button(GuiGraphics g, int x, int y, int w, int h, String label, int color, int hoverColor,
