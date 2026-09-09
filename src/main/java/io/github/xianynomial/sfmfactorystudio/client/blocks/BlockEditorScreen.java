@@ -4118,12 +4118,15 @@ public class BlockEditorScreen extends Screen {
         // 反馈教训：拖动其实一直支持实时缝隙重排，但没有任何可见指示，
         // 玩家根本不知道"拖动=重排序"。
         if (dropGap != null && (dragGroup != null || dragPaletteKind != null)) {
-            int lw = Math.max(1, Math.round(2f / zoom));
-            int ex = Math.max(1, Math.round(3f / zoom));
+            // 落点提示（用户反馈要"淡淡自然"）：半透明着陆区光晕 + 一根细的
+            // 半透明提示线 + 小端点；线宽封顶 2px，低缩放不再变粗
+            int lw = Math.max(1, Math.min(2, Math.round(2f / zoom)));
+            int ex = Math.max(1, Math.min(3, Math.round(3f / zoom)));
             int gx1 = dropGap.x(), gy = dropGap.y(), gx2 = dropGap.x() + dropGap.w();
-            g.fill(gx1, gy - lw, gx2, gy + lw, 0xFF2F6FED);
-            g.fill(gx1, gy - ex, gx1 + ex, gy + ex, 0xFF2F6FED);           // 左端点
-            g.fill(gx2 - ex, gy - ex, gx2, gy + ex, 0xFF2F6FED);           // 右端点
+            g.fill(gx1, gy - 7, gx2, gy + 7, 0x1A2F6FED);                  // 着陆区光晕
+            g.fill(gx1, gy - lw, gx2, gy + lw, 0x802F6FED);                // 提示线
+            g.fill(gx1, gy - ex, gx1 + ex, gy + ex, 0x802F6FED);           // 左端点
+            g.fill(gx2 - ex, gy - ex, gx2, gy + ex, 0x802F6FED);           // 右端点
         }
 
         g.pose().popPose();
