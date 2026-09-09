@@ -57,6 +57,12 @@ public final class SlotCalibrationManager {
     private static final int ANCHOR_STREAK = 5;                 // 连续 5 次采样内容一致
     private static final int ANCHOR_JOINT_CHANGES = 1;          // 且观测到 ≥1 次同步变化
     private static final int NO_EXPOSURE_SAMPLES = 6;           // 连续 6 次采样判"未暴露"
+    /**
+     * 采样节流（刻/次）：原每刻采样需对 7 个朝向各做一次 SFM 能力发现（含
+     * 线缆网络解析），界面开着就是 7×20 次/秒的服务端开销。改 5 刻一次
+     * （4Hz）；各锚定阈值按"采样次数"计不变，仅时间×5——学习仍秒级完成。
+     */
+    private static final int SAMPLE_INTERVAL_TICKS = 5;
 
     public static final int INFO_NO_EXPOSURE = 1;
 
@@ -69,6 +75,7 @@ public final class SlotCalibrationManager {
     }
 
     private static final class Session {
+        int sampleAcc = 0;          // 采样节流计数（每 SAMPLE_INTERVAL 刻采样一次）
         final BlockPos pos;
         final int containerId;
         final String menuClass;
@@ -130,11 +137,13 @@ public final class SlotCalibrationManager {
                 forget(id, "界面已关闭");
                 continue;
             }
+            if (++s.sampleAcc % SAMPLE_INTERVAL_TICKS != 0) continue; // 采样节流
             sample(player, s);
         }
     }
 
     private static void sample(ServerPlayer player, Session s) {
+        int anchorsThisSample = 0;   // 本轮锚定对数（日志汇总，逐对打印会一次刷 7+ 行）
         AbstractContainerMenu menu = player.containerMenu;
         Inventory playerInv = player.getInventory();
 
@@ -252,8 +261,7 @@ public final class SlotCalibrationManager {
                                         PacketDistributor.PLAYER.with(() -> player),
                                         new SlotAnchorPayload(s.pos, s.menuClass, d,
                                                 s.menuCs.get(j), s.menuX.get(j), s.menuY.get(j), k));
-                                SFMGui.LOGGER.info("[sfmjimu-calib] 被动关联锚定: 菜单 {} 朝向 {} 格 ({},{}) → 能力槽 {}",
-                                        s.menuClass, d, s.menuX.get(j), s.menuY.get(j), k);
+                                anchorsThisSample++;
                             }
                         }
                     }
@@ -261,6 +269,10 @@ public final class SlotCalibrationManager {
             }
         }
 
+        if (anchorsThisSample > 0) {
+            SFMGui.LOGGER.info("[sfmjimu-calib] 被动关联锚定: 菜单 {} 本轮锚定 {} 对（菜单格 ↔ 能力槽）",
+                    s.menuClass, anchorsThisSample);
+        }
         s.prevMenu = menuNow;
         s.prevCap = capNow;
         s.sampled = true;
