@@ -391,6 +391,13 @@ public class BlockEditorScreen extends Screen {
     static final Loc S_COPIED_LABELS = E("copied_labels", "已复制标签 %s");
 
     static final Loc M_LABEL_PASTE = E("m_label_paste", "粘贴：%s");
+    static final Loc M_BATCH_EDIT = E("batch_edit", "批量修改…");
+    static final Loc BATCH_LABELS = E("batch_labels", "统一标签…");
+    static final Loc BATCH_SIDES = E("batch_sides", "统一面…");
+    static final Loc BATCH_QTY = E("batch_qty", "统一数量…");
+    static final Loc BATCH_SWAP = E("batch_swap", "⇄ 取出↔放入互换");
+    static final Loc S_BATCH_DONE = E("batch_done", "✔ 已批量修改 %s 个积木");
+    static final Loc S_BATCH_NONE = E("batch_none", "选中的积木里没有取出/放入行");
     static final Loc M_LABEL_EDIT = E("m_label_edit", "编辑标签…");
     static final Loc M_LABEL_CLEAR = E("m_label_clear", "清空标签");
     static final Loc S_PASTED_RES = E("pasted_res", "已粘贴资源 %s");
@@ -4245,19 +4252,176 @@ public class BlockEditorScreen extends Screen {
     }
 
     /** Small glass toolbar that pops up where the band selection finished. */
+    /**
+     * 框选批量修改（操作效率反馈轮）：对选中的积木行一次性统一 标签/面/数量
+     * 或取出↔放入互换——此前逐块点开改字段是重构程序最费手的环节。
+     * 全部为绝对语义（选「每一面」=统一设为每一面，无 toggle 歧义），
+     * 每次操作只压一条撤销记录。
+     */
+    private void openBatchEditMenu(int sx, int sy) {
+        if (selection.isEmpty()) {
+            showStatus(S_BATCH_NONE.getString(), 0xFFB45309);
+            return;
+        }
+        setPopup(new Popup.ChoicePopup(sx, sy, 190,
+                List.of("labels", "sides", "qty", "swap"),
+                List.of(BATCH_LABELS.getString(), BATCH_SIDES.getString(),
+                        BATCH_QTY.getString(), BATCH_SWAP.getString()),
+                "", picked -> {
+                    switch (picked) {
+                        case "labels" -> batchEditLabels(sx, sy);
+                        case "sides" -> batchEditSides(sx, sy);
+                        case "qty" -> batchEditQty(sx, sy);
+                        case "swap" -> batchSwapIO();
+                    }
+                }));
+    }
+
+    /** 统一标签：LabelPopup 多选一次，应用到选中的每个取出/放入/遗忘行。 */
+    private void batchEditLabels(int sx, int sy) {
+        List<String> first = null;
+        for (BProgram.Statement s : orderedSelection()) {
+            List<String> l = labelsOf(s);
+            if (l != null && !l.isEmpty()) { first = l; break; }
+        }
+        List<String> initial = first == null ? List.of() : new ArrayList<>(first);
+        setPopup(new Popup.LabelPopup(sx, sy, 220,
+                new ArrayList<>(knownLabels), new LinkedHashMap<>(knownLabelCounts), initial,
+                chosen -> {
+                    if (chosen.stream().noneMatch(l -> l != null && !l.isBlank())) return;
+                    pushUndo();
+                    int n = 0;
+                    for (BProgram.Statement s : orderedSelection()) {
+                        List<String> target = labelsOf(s);
+                        if (target == null) continue;
+                        target.clear();
+                        target.addAll(chosen);
+                        for (String l : chosen) {
+                            if (!knownLabels.contains(l)) knownLabels.add(l);
+                            knownLabelCounts.putIfAbsent(l, 0);
+                        }
+                        n++;
+                    }
+                    layoutDirty = true;
+                    refreshIssues();
+                    showStatus(S_BATCH_DONE.getString(n), C_SELECT);
+                }, SFMGuiNetwork.labelsSupported()));
+    }
+
+    /** 统一面：绝对语义（每一面 / 指定某面 / 清除=不限面），应用到选中的每个取出/放入行。 */
+    private void batchEditSides(int sx, int sy) {
+        setPopup(new Popup.ChoicePopup(sx, sy, 150,
+                List.of("each", "top", "bottom", "north", "south", "east", "west", "clear"),
+                List.of(V_EACH_SIDE.getString(), V_SIDE_TOP.getString(), V_SIDE_BOTTOM.getString(),
+                        V_SIDE_NORTH.getString(), V_SIDE_SOUTH.getString(), V_SIDE_EAST.getString(),
+                        V_SIDE_WEST.getString(), M_SIDE_CLEAR.getString()),
+                "", picked -> {
+                    pushUndo();
+                    int n = 0;
+                    for (BProgram.Statement s : orderedSelection()) {
+                        BProgram.LabelAccess access = s instanceof BProgram.Statement.Input in ? in.access
+                                : s instanceof BProgram.Statement.Output out ? out.access : null;
+                        if (access == null) continue;
+                        if (picked.equals("clear")) {
+                            access.eachSide = false;
+                            access.sides.clear();
+                        } else if (picked.equals("each")) {
+                            access.eachSide = true;
+                            access.sides.clear();
+                        } else {
+                            access.eachSide = false;
+                            access.sides.clear();
+                            access.sides.add(BProgram.Side.fromSfml(picked));
+                        }
+                        n++;
+                    }
+                    layoutDirty = true;
+                    refreshIssues();
+                    showStatus(S_BATCH_DONE.getString(n), C_SELECT);
+                }));
+    }
+
+    /** 统一数量：快捷点选（1/16/32/64/全部），写入选中取出/放入行的主限制组。 */
+    private void batchEditQty(int sx, int sy) {
+        setPopup(new Popup.ChoicePopup(sx, sy, 130,
+                List.of("1", "16", "32", "64", "all"),
+                List.of("1", "16", "32", "64", T_QTY_ALL.getString()),
+                "", picked -> {
+                    pushUndo();
+                    int n = 0;
+                    for (BProgram.Statement s : orderedSelection()) {
+                        List<BProgram.ResourceLimit> limits = s instanceof BProgram.Statement.Input in ? in.limits
+                                : s instanceof BProgram.Statement.Output out ? out.limits : null;
+                        if (limits == null) continue;
+                        BProgram.ResourceLimit rl = primaryLimit(limits);
+                        if (picked.equals("all")) {
+                            rl.quantity = null;
+                            rl.quantityEach = false;
+                        } else {
+                            rl.quantity = Long.parseLong(picked);
+                        }
+                        n++;
+                    }
+                    layoutDirty = true;
+                    refreshIssues();
+                    showStatus(S_BATCH_DONE.getString(n), C_SELECT);
+                }));
+    }
+
+    /** 批量取出↔放入互换：原位翻转，保留限制组/排除/侧面/槽位/轮流全部配置。 */
+    private void batchSwapIO() {
+        List<BProgram.Statement> sel = orderedSelection();
+        int n = 0;
+        for (BProgram.Statement s : sel) {
+            if (!(s instanceof BProgram.Statement.Input) && !(s instanceof BProgram.Statement.Output)) continue;
+            n++;
+        }
+        if (n == 0) {
+            showStatus(S_BATCH_NONE.getString(), 0xFFB45309);
+            return;
+        }
+        pushUndo();
+        for (BProgram.Statement s : sel) {
+            List<BProgram.Statement> list = containingListOf(s);
+            if (list == null) continue;
+            int idx = list.indexOf(s);
+            if (idx < 0) continue;
+            if (s instanceof BProgram.Statement.Input in) {
+                BProgram.Statement.Output out = new BProgram.Statement.Output();
+                out.limits.addAll(in.limits);
+                out.except.addAll(in.except);
+                out.access.copyFrom(in.access);
+                out.each = in.each;
+                list.set(idx, out);
+            } else if (s instanceof BProgram.Statement.Output out) {
+                BProgram.Statement.Input in = new BProgram.Statement.Input();
+                in.limits.addAll(out.limits);
+                in.except.addAll(out.except);
+                in.access.copyFrom(out.access);
+                in.each = out.each;
+                list.set(idx, in);
+            }
+        }
+        selection.clear();
+        layoutDirty = true;
+        refreshIssues();
+        showStatus(S_BATCH_DONE.getString(n), C_SELECT);
+    }
+
     private void renderActionBar(GuiGraphics g, int mx, int my) {
         boolean hasSel = !selection.isEmpty() || !selectedTriggers.isEmpty();
         if (!actionBarVisible || !hasSel) {
             actionBarVisible = hasSel && actionBarVisible;
             if (!actionBarVisible) return;
         }
-        int w = 4 * 62 + 10;
+        int w = 5 * 62 + 10;
         int h = 24;
         rounded(g, abX + 2, abY + 3, w, h, 8, G_SHADOW);
         rounded(g, abX, abY, w, h, 8, 0xF4FFFFFF);
         border(g, abX, abY, w, h, 0x802F6FED);
-        String[] labels = {T_AB_COPY.getString(), T_AB_TPL.getString(), T_AB_DEL.getString(), T_AB_CANCEL.getString()};
-        int[] colors = {0xFF2F6FED, 0xFF7C3AED, 0xFFDC2626, 0xFF5B6472};
+        String[] labels = {M_BATCH_EDIT.getString(), T_AB_COPY.getString(), T_AB_TPL.getString(),
+                T_AB_DEL.getString(), T_AB_CANCEL.getString()};
+        int[] colors = {0xFF0C8F58, 0xFF2F6FED, 0xFF7C3AED, 0xFFDC2626, 0xFF5B6472};
         int bx = abX + 5;
         for (int i = 0; i < labels.length; i++) {
             int bw = 58;
@@ -4267,9 +4431,10 @@ public class BlockEditorScreen extends Screen {
             final int idx = i;
             uiHits.add(hit(bx, abY + 4, bw, h - 8, K_AB, null, () -> {
                 switch (idx) {
-                    case 0 -> copySelection();
-                    case 1 -> saveSelectionAsTemplate();
-                    case 2 -> deleteSelection();
+                    case 0 -> openBatchEditMenu(abX, abY + 26);
+                    case 1 -> copySelection();
+                    case 2 -> saveSelectionAsTemplate();
+                    case 3 -> deleteSelection();
                     default -> {
                         selection.clear();
                         selectedTriggers.clear();

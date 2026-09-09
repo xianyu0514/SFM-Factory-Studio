@@ -736,5 +736,12 @@
   "gui.sfmfactorystudio.ed.cond_more_with": "Resource tags…",
   "gui.sfmfactorystudio.ed.cond_more_except": "Except resources…",
   "gui.sfmfactorystudio.ed.cond_more_sides": "Sides…",
-  "gui.sfmfactorystudio.ed.cond_more_slots": "Slots…"
+  "gui.sfmfactorystudio.ed.cond_more_slots": "Slots…",
+  "gui.sfmfactorystudio.ed.batch_edit": "Batch edit…",
+  "gui.sfmfactorystudio.ed.batch_labels": "Set labels…",
+  "gui.sfmfactorystudio.ed.batch_sides": "Set sides…",
+  "gui.sfmfactorystudio.ed.batch_qty": "Set quantity…",
+  "gui.sfmfactorystudio.ed.batch_swap": "⇄ Swap input/output",
+  "gui.sfmfactorystudio.ed.batch_done": "✔ Updated %s blocks",
+  "gui.sfmfactorystudio.ed.batch_none": "No input/output rows in selection"
 }
