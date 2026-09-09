@@ -5167,7 +5167,7 @@ public class BlockEditorScreen extends Screen {
     private void barBase(GuiGraphics g, int x, int y, int w, int h, int accent, boolean selected) {
         rounded(g, x + 1, y + 2, w, h, 6, G_SHADOW);
         rounded(g, x, y, w, h, 6, selected ? mix(G_CARD, C_SELECT, 30) : G_CARD);
-        border(g, x, y, w, h, selected ? C_SELECT : G_BORDER);
+        border(g, x, y, w, h, selected ? C_SELECT_SOFT : G_BORDER);
         g.fill(x, y + 2, x + 3, y + h - 2, accent);
     }
 
