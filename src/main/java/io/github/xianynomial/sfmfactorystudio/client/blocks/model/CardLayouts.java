@@ -104,10 +104,23 @@ public final class CardLayouts {
      * （2026-09-09 "游戏崩溃（Application Hang）"反馈的根因）。
      */
     public static int farthestInStack(int[] tops, int[] heights, int self, int band) {
+        int[] chain = stackChain(tops, heights, self, band);
+        return chain[chain.length - 1];
+    }
+
+    /**
+     * 副本栈走链·完整链版：与 {@link #farthestInStack} 同一套"先向上到栈顶、
+     * 再向下到栈底 ±band 紧贴"规则，但返回按"栈顶→栈底"排序的完整候选下标
+     * 链，供副本栈随高度变化重对齐（EditorLayout.healCopyStacks）使用。
+     * used 守卫保证每张卡至多访问一次，任何几何（同位/重叠/乱序）都严格终止。
+     */
+    public static int[] stackChain(int[] tops, int[] heights, int self, int band) {
         int n = tops.length;
         boolean[] used = new boolean[n];
         used[self] = true;
         // 向上：候选底边（top+height）贴当前 top，取离得最近的
+        int[] up = new int[n];
+        int upN = 0;
         int cur = self;
         while (true) {
             int best = -1, bestTop = Integer.MIN_VALUE;
@@ -120,9 +133,15 @@ public final class CardLayouts {
             }
             if (best < 0) break;
             used[best] = true;
+            up[upN++] = best;
             cur = best;
         }
+        int[] out = new int[upN + n];
+        for (int i = 0; i < upN; i++) out[i] = up[upN - 1 - i];
+        out[upN] = self;
+        int cnt = upN + 1;
         // 向下：候选 top 贴当前底边（top+height），取离得最近的
+        cur = self;
         while (true) {
             int best = -1, bestTop = Integer.MAX_VALUE;
             int bottomEdge = tops[cur] + heights[cur];
@@ -135,9 +154,21 @@ public final class CardLayouts {
             }
             if (best < 0) break;
             used[best] = true;
+            out[cnt++] = best;
             cur = best;
         }
-        return cur;
+        return java.util.Arrays.copyOf(out, cnt);
+    }
+
+    /** 触发头等价（triggerKey 的键分量：类型/数量/单位/全局/偏移），按字段直比零分配——
+     *  页脚 − 可见性、＋续叠与副本栈重对齐每帧/每 pass 调用，禁用字符串拼接指纹。 */
+    public static boolean sameTriggerHeader(BProgram.Trigger a, BProgram.Trigger b) {
+        if (a instanceof BProgram.TimerTrigger ta) {
+            if (!(b instanceof BProgram.TimerTrigger tb)) return false;
+            return ta.count == tb.count && ta.unit == tb.unit
+                    && ta.global == tb.global && ta.plus == tb.plus;
+        }
+        return a instanceof BProgram.PulseTrigger && b instanceof BProgram.PulseTrigger;
     }
 
     /**

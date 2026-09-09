@@ -240,6 +240,19 @@ public final class EditorLayout {
      */
     public void relayout(boolean dragging, long keepPosId) {
         ensureCardPositions();
+        // 副本栈重对齐用的"旧几何"快照（高度取本 pass 之前的缓存值；新卡=-1 不参与）
+        int n = program.triggers.size();
+        long[] ids = new long[n];
+        int[] oldTops = new int[n];
+        int[] oldHeights = new int[n];
+        for (int i = 0; i < n; i++) {
+            BProgram.Trigger t = program.triggers.get(i);
+            ids[i] = t.id;
+            int[] pos = cardPos.get(t.id);
+            oldTops[i] = pos == null ? 0 : pos[1];
+            CardCache cc = cardCaches.get(t.id);
+            oldHeights[i] = cc == null ? -1 : cc.height;
+        }
         // 编辑热路径的哈希差分：与各卡缓存的内容哈希比对，未变的卡直接复用
         boolean hashPass = hashDirty;
         Map<Long, Long> hashes = hashPass ? pendingHashes : null;
@@ -280,6 +293,7 @@ public final class EditorLayout {
                 shiftCard(cc, pos[0] - cc.x, pos[1] - cc.y);
             }
         }
+        healCopyStacks(ids, oldTops, oldHeights);
         dirtyCards.clear();
         allDirty = false;
         rebuildCardList();
@@ -333,6 +347,61 @@ public final class EditorLayout {
             if (cc != null && cc.y != out[i]) shiftCard(cc, 0, out[i] - cc.y);
         }
         return moved;
+    }
+
+    /**
+     * 副本栈重对齐：用"本 pass 之前"的几何识别紧贴副本栈（同列+触发头相同），
+     * 栈中任一成员高度变化时其下成员整体平移同样距离，保持零间距紧贴。身份
+     * 只看触发头不看正文——副本被编辑过仍是这叠的一员，位置要跟随。没有这
+     * 一步，加减积木/折叠改变高度就会让下方副本脱离 ±8px 紧贴带：页脚 − 消
+     * 失、＋ 再复制贴着原卡放、旧副本被避让整张推走（2026-09-09 用户反馈
+     * "− 不见了 + 复制的副本乱飞"的根因）。
+     */
+    private void healCopyStacks(long[] ids, int[] oldTops, int[] oldHeights) {
+        int n = ids.length;
+        if (n < 2) return;
+        boolean[] used = new boolean[n];
+        for (int self = 0; self < n; self++) {
+            if (used[self] || oldHeights[self] < 0) continue;
+            BProgram.Trigger ts = program.triggers.get(self);
+            int[] selfPos = cardPos.get(ids[self]);
+            if (selfPos == null) continue;
+            int[] cand = new int[n];
+            int[] tops = new int[n];
+            int[] hts = new int[n];
+            int m = 0;
+            int selfIdx = -1;
+            for (int i = 0; i < n; i++) {
+                if (oldHeights[i] < 0) continue;
+                BProgram.Trigger ti = program.triggers.get(i);
+                if (!CardLayouts.sameTriggerHeader(ts, ti)) continue;
+                int[] pos = cardPos.get(ids[i]);
+                if (pos == null || Math.abs(pos[0] - selfPos[0]) > 8) continue;
+                if (i == self) selfIdx = m;
+                cand[m] = i;
+                tops[m] = oldTops[i];
+                hts[m] = oldHeights[i];
+                m++;
+            }
+            used[self] = true;
+            if (selfIdx < 0 || m < 2) continue;
+            int[] chain = CardLayouts.stackChain(java.util.Arrays.copyOf(tops, m),
+                    java.util.Arrays.copyOf(hts, m), selfIdx, 8);
+            for (int ci : chain) used[cand[ci]] = true;
+            // 沿链（栈顶→栈底）累计高度变化，下方成员跟随平移
+            int acc = 0;
+            for (int k = 0; k < chain.length - 1; k++) {
+                int card = cand[chain[k]];
+                CardCache cc = cardCaches.get(ids[card]);
+                acc += (cc == null ? oldHeights[card] : cc.height) - oldHeights[card];
+                if (acc == 0) continue;
+                int below = cand[chain[k + 1]];
+                int[] p = cardPos.get(ids[below]);
+                if (p != null) p[1] += acc;
+                CardCache bc = cardCaches.get(ids[below]);
+                if (bc != null) shiftCard(bc, 0, acc);
+            }
+        }
     }
 
     /** Full body layout of one card into its cache (and the global maps). */

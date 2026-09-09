@@ -222,4 +222,23 @@ public class CardLayoutsTest {
         assertEquals(0, CardLayouts.farthestInStack(tops, hs, 0, 8), "断链不跨越");
         assertEquals(1, CardLayouts.farthestInStack(tops, hs, 1, 8));
     }
+
+    @Test
+    public void stackChainReturnsFullTopToBottomOrder() {
+        // 三层栈：cand0=底(y200) cand1=顶(y0) cand2=中(y100)
+        int[] tops = {200, 0, 100};
+        int[] hs = {100, 100, 100};
+        int[] mid = CardLayouts.stackChain(tops, hs, 2, 8);
+        assertEquals(3, mid.length);
+        assertEquals(1, mid[0]);
+        assertEquals(2, mid[1]);
+        assertEquals(0, mid[2]);
+        // 从栈顶出发是同一条链
+        int[] top = CardLayouts.stackChain(tops, hs, 1, 8);
+        assertEquals(1, top[0]);
+        assertEquals(0, top[2]);
+        // 单独成栈：链只含自身（farthestInStack 语义不变）
+        assertEquals(1, CardLayouts.stackChain(new int[]{0}, new int[]{50}, 0, 8).length);
+        assertEquals(0, CardLayouts.farthestInStack(new int[]{0}, new int[]{50}, 0, 8));
+    }
 }
