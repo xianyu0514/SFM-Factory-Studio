@@ -406,6 +406,12 @@ public class BlockEditorScreen extends Screen {
     static final Loc M_RES_PASTE = E("m_res_paste", "粘贴：%s");
     static final Loc M_RES_CLEAR_SLOT = E("m_res_clear_slot", "清空此槽");
     static final Loc M_RES_BROWSE = E("m_res_browse", "浏览选择…");
+    static final Loc COND_EDITOR = E("cond_editor", "编辑判断");
+    static final Loc CMP_GT = E("cmp_gt", "多于（>）");
+    static final Loc CMP_GE = E("cmp_ge", "至少（≥）");
+    static final Loc CMP_EQ = E("cmp_eq", "正好（=）");
+    static final Loc CMP_LE = E("cmp_le", "最多（≤）");
+    static final Loc CMP_LT = E("cmp_lt", "不足（<）");
     static final Loc NBT_ENTRY = E("nbt_entry", "按物品组件(NBT)筛选…");
     static final Loc NBT_ENTRY_SHORT = E("nbt_entry_short", "NBT 组件筛选…");
     static final Loc S_TPL_ONLY_COMMENTS = E("tpl_only_comments", "这个模板没有任何有效积木（只有注释），请重新保存");
@@ -7761,6 +7767,8 @@ public class BlockEditorScreen extends Screen {
         /** 最近一个 drawP 画下的 pill 左上角与宽度——给 JeiGhostDrops 注册
          *  资源按钮的 ghost drop 矩形用。 */
         private int lastPillX, lastPillY, lastPillW;
+        /** 最近被点击药丸的锚点：子菜单出现在该药丸正下方，不再全部涌到弹窗底部。 */
+        private int subAnchorX, subAnchorY;
 
         ConditionPopup(int sx, int sy, BProgram.Bool cond) {
             this.x = sx;
@@ -7795,17 +7803,17 @@ public class BlockEditorScreen extends Screen {
             rounded(g, x, y, w, h, 8, G_CARD);
             border(g, x, y, w, h, G_BORDER);
             int rx = x + 6;
-            ry = y + 5;
+            text(g, COND_EDITOR.getString(), x + 6, y + 5, C_TEXT_SUB);
+            ry = y + 19;
             // 弹出子菜单都从 ConditionPopup 底部弹出，避免换行后位置错位；
             // 用 this.h 而不是局部 ph——onClick 在玩家点击时才执行，要拿当下面板高度。
-            int popY = y + h - 22;
             rx = drawP(g, fnt, rx, switch (kind()) {
                 case "has" -> T_COND.getString();
                 case "redstone" -> V_REDSTONE.getString();
                 case "true" -> V_TRUE.getString();
                 case "false" -> V_FALSE.getString();
                 default -> V_RAW.getString();
-            }, 40, () -> setPopup(new Popup.ChoicePopup(x + 6, popY, 120,
+            }, 40, () -> setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 120,
                     List.of("has", "redstone"),
                     List.of(T_COND.getString(), V_REDSTONE_SIGNAL.getString()), kind(),
                     this::switchKind)), mx, my);
@@ -7818,7 +7826,7 @@ public class BlockEditorScreen extends Screen {
             if (has != null) {
                 // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx, setOpZh(has.setMode), 70,
-                        () -> setPopup(new Popup.ChoicePopup(x + 6, popY, 150,
+                        () -> setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 150,
                                 List.of("default", "overall", "some", "every", "one", "lone"),
                                 List.of(V_SET_DEFAULT.getString(), V_SET_OVERALL.getString(), V_SET_SOME.getString(), V_SET_EVERY.getString(), V_SET_ONE.getString(), V_SET_LONE.getString()),
                                 has.setMode.name().toLowerCase(java.util.Locale.ROOT), v -> {
@@ -7827,11 +7835,11 @@ public class BlockEditorScreen extends Screen {
                         })), mx, my);
                 rx = drawP(g, fnt, rx,
                         has.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", has.access.labels), 50,
-                        () -> showLabelEditor(x + 6, popY, has.access.labels, false), mx, my);
+                        () -> showLabelEditor(subAnchorX, subAnchorY, has.access.labels, false), mx, my);
                 // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx, has.comparison.symbol(), 24, () -> setPopup(new Popup.ChoicePopup(
-                        x + 6, popY, 90, List.of(">", ">=", "=", "<=", "<"),
-                        List.of(">", "≥", "=", "≤", "<"), has.comparison.symbol(), v -> {
+                        subAnchorX, subAnchorY, 90, List.of(">", ">=", "=", "<=", "<"),
+                        List.of("多于（>）", "至少（≥）", "正好（=）", "最多（≤）", "不足（<）"), has.comparison.symbol(), v -> {
                             pushUndo();
                             has.comparison = BProgram.Bool.Comparison.fromSfml(v);
                         })), mx, my);
@@ -7840,7 +7848,7 @@ public class BlockEditorScreen extends Screen {
                 // 落到新行时，事先 capture 的 frx/fry 会指向旧位置——改成统一
                 // 从面板底部弹出（跟其他 pill 的二级弹窗一致）。
                 rx = drawP(g, fnt, rx, String.valueOf(num), 34, () ->
-                        setPopup(new Popup.TextPopup(BlockEditorScreen.this, x + 6, popY, 90,
+                        setPopup(new Popup.TextPopup(BlockEditorScreen.this, subAnchorX, subAnchorY, 90,
                                 String.valueOf(num), "0..999999",
                                 s -> {
                                     try {
@@ -7851,13 +7859,13 @@ public class BlockEditorScreen extends Screen {
                                 }, null)), mx, my);
                 BProgram.ResourceRef resource = firstResource(has.resources);
                 rx = drawP(g, fnt, rx, resource.kind().chineseName(), 38,
-                        () -> showResourceKindMenu(x + 6, popY, resource, replacement -> {
+                        () -> showResourceKindMenu(subAnchorX, subAnchorY, resource, replacement -> {
                             pushUndo();
                             setFirstResource(has.resources, replacement);
                         }), mx, my);
                 String resourceText = resource.isWildcard() ? "□ " + V_ALL.getString() : shortResource(resource);
                 rx = drawP(g, fnt, rx, resourceText, 44,
-                        () -> showResourceValueMenu(x + 6, popY, resource, replacement -> {
+                        () -> showResourceValueMenu(subAnchorX, subAnchorY, resource, replacement -> {
                             pushUndo();
                             setFirstResource(has.resources, replacement);
                         }), mx, my);
@@ -7879,25 +7887,25 @@ public class BlockEditorScreen extends Screen {
                     }
                 });
                 rx = drawP(g, fnt, rx, M_ADD_RES.getString(), 54,
-                        () -> showResourceListMenu(x + 6, popY, has.resources, M_ADD_COND_RES.getString()), mx, my);
+                        () -> showResourceListMenu(subAnchorX, subAnchorY, has.resources, M_ADD_COND_RES.getString()), mx, my);
                 // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 String withText = has.with == null ? F_ADD_WITH.getString() : shortUi(shortWith(has.with), 15);
                 rx = drawP(g, fnt, rx, withText, 80,
-                        () -> showWithEditor(x + 6, popY, () -> has.with, value -> has.with = value), mx, my);
+                        () -> showWithEditor(subAnchorX, subAnchorY, () -> has.with, value -> has.with = value), mx, my);
                 String exceptText = has.except.isEmpty() ? F_ADD_EXCEPT.getString() : F_EXCEPT_N.getString(has.except.size());
                 rx = drawP(g, fnt, rx, exceptText, 70,
-                        () -> showResourceListMenu(x + 6, popY, has.except, M_ADD_EXCEPT_RES.getString()), mx, my);
+                        () -> showResourceListMenu(subAnchorX, subAnchorY, has.except, M_ADD_EXCEPT_RES.getString()), mx, my);
                 // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 String sideText = has.access.eachSide || !has.access.sides.isEmpty()
                         ? sidesDisp(has.access) : V_SIDES_ANY.getString();
                 rx = drawP(g, fnt, rx, sideText, 58,
-                        () -> showSideEditor(x + 6, popY, has.access), mx, my);
+                        () -> showSideEditor(subAnchorX, subAnchorY, has.access), mx, my);
                 String slotsText = has.access.slots.isEmpty() ? V_SLOTS_ANY.getString() : slotText(has.access.slots);
                 rx = drawP(g, fnt, rx, slotsText, 58, () -> setPopup(new Popup.TextPopup(
-                        BlockEditorScreen.this, x + 6, popY, 150, slotText(has.access.slots),
+                        BlockEditorScreen.this, subAnchorX, subAnchorY, 150, slotText(has.access.slots),
                         F_SLOTS_HINT.getString(), value -> setSlotsFromText(has.access.slots, value), null)), mx, my);
                 rx = drawP(g, fnt, rx, rrDisp(has.access.roundRobin), 64,
-                        () -> setPopup(new Popup.ChoicePopup(x + 6, popY, 120,
+                        () -> setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 120,
                                 List.of("none", "label", "block"),
                                 List.of(V_RR_NONE.getString(), F_RR_LABEL.getString(), F_RR_BLOCK.getString()),
                                 has.access.roundRobin.name().toLowerCase(java.util.Locale.ROOT), value -> {
@@ -7914,15 +7922,15 @@ public class BlockEditorScreen extends Screen {
                 // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 String redstoneComparison = r.comparison == null ? "any" : r.comparison.symbol();
                 rx = drawP(g, fnt, rx, r.comparison == null ? F_HAS_SIGNAL.getString() : r.comparison.symbol(), 30,
-                        () -> setPopup(new Popup.ChoicePopup(x + 6, popY, 100,
+                        () -> setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 100,
                                 List.of("any", ">", ">=", "=", "<=", "<"),
-                                List.of(F_HAS_SIGNAL.getString(), ">", "≥", "=", "≤", "<"), redstoneComparison, v -> {
+                                List.of(F_HAS_SIGNAL.getString(), "多于（>）", "至少（≥）", "正好（=）", "最多（≤）", "不足（<）"), redstoneComparison, v -> {
                             pushUndo();
                             r.comparison = v.equals("any") ? null : BProgram.Bool.Comparison.fromSfml(v);
                         })), mx, my);
                 long num = r.number;
                 rx = drawP(g, fnt, rx, String.valueOf(num), 34, () ->
-                        setPopup(new Popup.TextPopup(BlockEditorScreen.this, x + 6, popY, 90,
+                        setPopup(new Popup.TextPopup(BlockEditorScreen.this, subAnchorX, subAnchorY, 90,
                                 String.valueOf(num), "0..999999",
                                 s -> {
                                     try {
@@ -7982,7 +7990,12 @@ public class BlockEditorScreen extends Screen {
             boolean hover = mx >= px && mx < px + pw && my >= ry && my < ry + 16;
             pill(g, px, ry, pw, 16, hover);
             g.drawString(fnt, t, px + (pw - fnt.width(t)) / 2, ry + 4, C_TEXT, false);
-            localHits.add(Hit.of(px, ry, pw, 16, K_CLICK, null, onClick));
+            final int ax = px, ay = ry;
+            localHits.add(Hit.of(px, ry, pw, 16, K_CLICK, null, () -> {
+                subAnchorX = ax;
+                subAnchorY = ay + 18;
+                onClick.run();
+            }));
             lastPillX = px;
             lastPillY = ry;
             lastPillW = pw;
@@ -7996,7 +8009,7 @@ public class BlockEditorScreen extends Screen {
             Font fnt = Minecraft.getInstance().font;
             int[] widths = computePillWidths(fnt);
             if (widths.length == 0) {
-                this.h = rowH + PAD;
+                this.h = rowH + PAD + 14;
                 return;
             }
             int panelMaxW = Math.max(MIN_W, maxX - minX);
@@ -8014,7 +8027,7 @@ public class BlockEditorScreen extends Screen {
             // 行数变化后再校准一次宽度（极端短文本可能让 wantW 比真实最宽还小）。
             this.w = Math.max(MIN_W, Math.min(widest + PAD, panelMaxW));
             int[] finalLayout = flowLayout(widths, this.w - PAD);
-            this.h = Math.min(panelMaxH, finalLayout[1] * rowH + PAD);
+            this.h = Math.min(panelMaxH, finalLayout[1] * rowH + PAD + 14);
         }
 
         /** 收集 render() 里每个 pill 的最终宽度，与 render() 的 pill 顺序一致——
