@@ -179,4 +179,14 @@ public class EditorUiMathTest {
         assertEquals(400, f.width());
         assertEquals(400, f.height());
     }
+    /** 拖拽缝隙切换阻尼：带内不换位（防手抖）、出带即换、无候选立即换。 */
+    @Test
+    public void gapSwitchDamping() {
+        double damp = EditorUiMath.GAP_SWITCH_DAMP_PX;
+        assertTrue(!EditorUiMath.shouldSwitchGap(100, 100, true, damp), "同缝不换");
+        assertTrue(!EditorUiMath.shouldSwitchGap(110, 100, true, damp), "带内(10px<15px)不换");
+        assertTrue(EditorUiMath.shouldSwitchGap(120, 100, true, damp), "出带(20px>15px)换位");
+        assertTrue(EditorUiMath.shouldSwitchGap(80, 100, true, damp), "反方向出带(20px)同样换位");
+        assertTrue(EditorUiMath.shouldSwitchGap(100, 100, false, damp), "无候选(卡外)立即切换");
+    }
 }
