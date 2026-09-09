@@ -370,7 +370,6 @@ public class BlockEditorScreen extends Screen {
     static final Loc V_NOT_NEGATED = E("v_not_negated", "○ 取反");
     static final Loc V_REDSTONE_SIGNAL = E("v_redstone_signal", "红石信号");
     static final Loc F_HAS_SIGNAL = E("has_signal", "有信号");
-    static final Loc M_ADD_RES = E("m_add_res", "＋更多资源");
     static final Loc M_ADD_COND_RES = E("m_add_cond_res", "再加一种判断资源");
     static final Loc F_ADD_WITH = E("f_add_with", "＋资源标签");
     static final Loc F_ADD_EXCEPT = E("f_add_except", "＋排除资源");
@@ -407,6 +406,13 @@ public class BlockEditorScreen extends Screen {
     static final Loc M_RES_CLEAR_SLOT = E("m_res_clear_slot", "清空此槽");
     static final Loc M_RES_BROWSE = E("m_res_browse", "浏览选择…");
     static final Loc COND_EDITOR = E("cond_editor", "编辑判断");
+    static final Loc COND_MORE = E("cond_more", "＋更多…");
+    static final Loc COND_MORE_SET = E("cond_more_set", "合计方式…");
+    static final Loc COND_MORE_RES = E("cond_more_res", "或更多资源…");
+    static final Loc COND_MORE_WITH = E("cond_more_with", "资源标签…");
+    static final Loc COND_MORE_EXCEPT = E("cond_more_except", "排除资源…");
+    static final Loc COND_MORE_SIDES = E("cond_more_sides", "指定侧面…");
+    static final Loc COND_MORE_SLOTS = E("cond_more_slots", "指定槽位…");
     static final Loc CMP_GT = E("cmp_gt", "多于（>）");
     static final Loc CMP_GE = E("cmp_ge", "至少（≥）");
     static final Loc CMP_EQ = E("cmp_eq", "正好（=）");
@@ -7870,19 +7876,15 @@ public class BlockEditorScreen extends Screen {
                     }, mx, my);
             BProgram.Bool.Has has = asHas();
             if (has != null) {
-                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
-                rx = drawP(g, fnt, rx, setOpZh(has.setMode), 70,
-                        () -> setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 150,
-                                List.of("default", "overall", "some", "every", "one", "lone"),
-                                List.of(V_SET_DEFAULT.getString(), V_SET_OVERALL.getString(), V_SET_SOME.getString(), V_SET_EVERY.getString(), V_SET_ONE.getString(), V_SET_LONE.getString()),
-                                has.setMode.name().toLowerCase(java.util.Locale.ROOT), v -> {
-                            pushUndo();
-                            has.setMode = BProgram.Bool.SetMode.valueOf(v.toUpperCase(java.util.Locale.ROOT));
-                        })), mx, my);
+                // 自然语序（对照 If 行 v3）：从 [标签] 取出 [比较] [数量] [资源]。
+                // 低频高级项不再全铺（官方 8 示例的条件只出现过 标签+比较+数量+资源，
+                // 合计/资源标签/排除/侧面/槽位/轮流全部零使用）：已配置的以药丸回显
+                // 可编辑，未配置的收进「＋更多…」子菜单——弹窗从 14 颗回到主句。
+                rx = drawT(g, fnt, rx, T_IO_FROM.getString());
                 rx = drawP(g, fnt, rx,
                         has.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", has.access.labels), 50,
                         () -> showLabelEditor(subAnchorX, subAnchorY, has.access.labels, false), mx, my);
-                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
+                rx = drawT(g, fnt, rx, T_IO_TAKE.getString());
                 rx = drawP(g, fnt, rx, has.comparison.symbol(), 24, () -> setPopup(new Popup.ChoicePopup(
                         subAnchorX, subAnchorY, 90, List.of(">", ">=", "=", "<=", "<"),
                         List.of("多于（>）", "至少（≥）", "正好（=）", "最多（≤）", "不足（<）"), has.comparison.symbol(), v -> {
@@ -7890,16 +7892,13 @@ public class BlockEditorScreen extends Screen {
                             has.comparison = BProgram.Bool.Comparison.fromSfml(v);
                         })), mx, my);
                 long num = has.number;
-                // 数字 pill 的二级弹窗原本"贴在该 pill 下方"，但当 pill 因换行
-                // 落到新行时，事先 capture 的 frx/fry 会指向旧位置——改成统一
-                // 从面板底部弹出（跟其他 pill 的二级弹窗一致）。
                 rx = drawP(g, fnt, rx, String.valueOf(num), 34, () ->
                         setPopup(new Popup.TextPopup(BlockEditorScreen.this, subAnchorX, subAnchorY, 90,
                                 String.valueOf(num), "0..999999",
-                                s -> {
+                                s2 -> {
                                     try {
                                         pushUndo();
-                                        has.number = Math.max(0, Long.parseLong(s.trim()));
+                                        has.number = Math.max(0, Long.parseLong(s2.trim()));
                                     } catch (NumberFormatException ignored) {
                                     }
                                 }, null)), mx, my);
@@ -7915,10 +7914,7 @@ public class BlockEditorScreen extends Screen {
                             pushUndo();
                             setFirstResource(has.resources, replacement);
                         }), mx, my);
-                // 资源按钮 ghost drop：注册矩形改用 lastPill*——资源按钮 pill 自身
-                // 的真实矩形（覆盖换行后落到新行的情况，不再跨越两行）。
-                // 走 addGhostZoneScreen：弹窗是屏幕坐标系，但要裁进画布，折叠/收起
-                // 后不留落点。
+                // 资源按钮 ghost drop：矩形用 lastPill*（资源 pill 的真实位置）。
                 addGhostZoneScreen(lastPillX, lastPillY, lastPillW, 16, resource.toString(), dropped -> {
                     try {
                         BProgram.ResourceRef incoming = BProgram.ResourceRef.parse(dropped);
@@ -7932,33 +7928,47 @@ public class BlockEditorScreen extends Screen {
                         showStatus(S_UNKNOWN_RES.getString(), 0xFFD13438);
                     }
                 });
-                rx = drawP(g, fnt, rx, M_ADD_RES.getString(), 54,
-                        () -> showResourceListMenu(subAnchorX, subAnchorY, has.resources, M_ADD_COND_RES.getString()), mx, my);
-                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
-                String withText = has.with == null ? F_ADD_WITH.getString() : shortUi(shortWith(has.with), 15);
-                rx = drawP(g, fnt, rx, withText, 80,
-                        () -> showWithEditor(subAnchorX, subAnchorY, () -> has.with, value -> has.with = value), mx, my);
-                String exceptText = has.except.isEmpty() ? F_ADD_EXCEPT.getString() : F_EXCEPT_N.getString(has.except.size());
-                rx = drawP(g, fnt, rx, exceptText, 70,
-                        () -> showResourceListMenu(subAnchorX, subAnchorY, has.except, M_ADD_EXCEPT_RES.getString()), mx, my);
-                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
-                String sideText = has.access.eachSide || !has.access.sides.isEmpty()
-                        ? sidesDisp(has.access) : V_SIDES_ANY.getString();
-                rx = drawP(g, fnt, rx, sideText, 58,
-                        () -> showSideEditor(subAnchorX, subAnchorY, has.access), mx, my);
-                String slotsText = has.access.slots.isEmpty() ? V_SLOTS_ANY.getString() : slotText(has.access.slots);
-                rx = drawP(g, fnt, rx, slotsText, 58, () -> setPopup(new Popup.TextPopup(
-                        BlockEditorScreen.this, subAnchorX, subAnchorY, 150, slotText(has.access.slots),
-                        F_SLOTS_HINT.getString(), value -> setSlotsFromText(has.access.slots, value), null)), mx, my);
-                rx = drawP(g, fnt, rx, rrDisp(has.access.roundRobin), 64,
-                        () -> setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 120,
-                                List.of("none", "label", "block"),
-                                List.of(V_RR_NONE.getString(), F_RR_LABEL.getString(), F_RR_BLOCK.getString()),
-                                has.access.roundRobin.name().toLowerCase(java.util.Locale.ROOT), value -> {
-                            pushUndo();
-                            has.access.roundRobin = BProgram.RoundRobinMode.fromSfml(value);
-                        })), mx, my);
-                // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
+                // ---- 已配置的高级项：回显为药丸（可点击编辑，含各自清除入口） ----
+                if (has.setMode != BProgram.Bool.SetMode.DEFAULT) {
+                    rx = drawP(g, fnt, rx, setOpZh(has.setMode), 70,
+                            () -> setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 150,
+                                    List.of("default", "overall", "some", "every", "one", "lone"),
+                                    List.of(V_SET_DEFAULT.getString(), V_SET_OVERALL.getString(), V_SET_SOME.getString(),
+                                            V_SET_EVERY.getString(), V_SET_ONE.getString(), V_SET_LONE.getString()),
+                                    has.setMode.name().toLowerCase(java.util.Locale.ROOT), v -> {
+                                pushUndo();
+                                has.setMode = BProgram.Bool.SetMode.valueOf(v.toUpperCase(java.util.Locale.ROOT));
+                            })), mx, my);
+                }
+                if (has.with != null) {
+                    rx = drawP(g, fnt, rx, shortUi(shortWith(has.with), 15), 80,
+                            () -> showWithEditor(subAnchorX, subAnchorY, () -> has.with, value -> has.with = value), mx, my);
+                }
+                if (!has.except.isEmpty()) {
+                    rx = drawP(g, fnt, rx, F_EXCEPT_N.getString(has.except.size()), 70,
+                            () -> showResourceListMenu(subAnchorX, subAnchorY, has.except, M_ADD_EXCEPT_RES.getString()), mx, my);
+                }
+                if (has.access.eachSide || !has.access.sides.isEmpty()) {
+                    rx = drawP(g, fnt, rx, sidesDisp(has.access), 58,
+                            () -> showSideEditor(subAnchorX, subAnchorY, has.access), mx, my);
+                }
+                if (!has.access.slots.isEmpty()) {
+                    rx = drawP(g, fnt, rx, slotText(has.access.slots), 58, () -> setPopup(new Popup.TextPopup(
+                            BlockEditorScreen.this, subAnchorX, subAnchorY, 150, slotText(has.access.slots),
+                            F_SLOTS_HINT.getString(), value -> setSlotsFromText(has.access.slots, value), null)), mx, my);
+                }
+                if (has.access.roundRobin != BProgram.RoundRobinMode.NONE) {
+                    // 仅回显（导入的程序可能带）：布尔判断里轮流没有意义，不再提供新增入口
+                    rx = drawP(g, fnt, rx, rrDisp(has.access.roundRobin), 64,
+                            () -> setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 120,
+                                    List.of("none", "label", "block"),
+                                    List.of(V_RR_NONE.getString(), F_RR_LABEL.getString(), F_RR_BLOCK.getString()),
+                                    has.access.roundRobin.name().toLowerCase(java.util.Locale.ROOT), value -> {
+                                pushUndo();
+                                has.access.roundRobin = BProgram.RoundRobinMode.fromSfml(value);
+                            })), mx, my);
+                }
+                rx = drawP(g, fnt, rx, COND_MORE.getString(), 62, () -> openMore(has), mx, my);
                 rx = drawP(g, fnt, rx, F_DELETE_COND.getString(), 60, () -> {
                     pushUndo();
                     replaceSelf(new BProgram.Bool.Const(true));
@@ -8048,6 +8058,39 @@ public class BlockEditorScreen extends Screen {
             return px + pw + 6;
         }
 
+        /** 静态连接词（非药丸）：只画字不出命中框，让主句读起来是自然语序。 */
+        private int drawT(GuiGraphics g, Font fnt, int px, String t) {
+            g.drawString(fnt, t, px, ry + 4, C_TEXT_SUB, false);
+            return px + fnt.width(t) + 5;
+        }
+
+        /** 「＋更多…」：低频高级项的唯一入口（合计方式/或更多资源/资源标签/排除/侧面/槽位）。 */
+        private void openMore(BProgram.Bool.Has has) {
+            setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 170,
+                    List.of("set", "res", "with", "except", "sides", "slots"),
+                    List.of(COND_MORE_SET.getString(), COND_MORE_RES.getString(), COND_MORE_WITH.getString(),
+                            COND_MORE_EXCEPT.getString(), COND_MORE_SIDES.getString(), COND_MORE_SLOTS.getString()),
+                    "", picked -> {
+                        switch (picked) {
+                            case "set" -> setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 150,
+                                    List.of("default", "overall", "some", "every", "one", "lone"),
+                                    List.of(V_SET_DEFAULT.getString(), V_SET_OVERALL.getString(), V_SET_SOME.getString(),
+                                            V_SET_EVERY.getString(), V_SET_ONE.getString(), V_SET_LONE.getString()),
+                                    has.setMode.name().toLowerCase(java.util.Locale.ROOT), v -> {
+                                        pushUndo();
+                                        has.setMode = BProgram.Bool.SetMode.valueOf(v.toUpperCase(java.util.Locale.ROOT));
+                                    }));
+                            case "res" -> showResourceListMenu(subAnchorX, subAnchorY, has.resources, M_ADD_COND_RES.getString());
+                            case "with" -> showWithEditor(subAnchorX, subAnchorY, () -> has.with, value -> has.with = value);
+                            case "except" -> showResourceListMenu(subAnchorX, subAnchorY, has.except, M_ADD_EXCEPT_RES.getString());
+                            case "sides" -> showSideEditor(subAnchorX, subAnchorY, has.access);
+                            case "slots" -> setPopup(new Popup.TextPopup(BlockEditorScreen.this, subAnchorX, subAnchorY,
+                                    150, slotText(has.access.slots), F_SLOTS_HINT.getString(),
+                                    value -> setSlotsFromText(has.access.slots, value), null));
+                        }
+                    }));
+        }
+
         /** 落位时按面板剩余空间算 w/h：宽度按最长行收紧，高度按行数展开。
          *  setPopup 顺序保证本方法在 render() 前被调用，渲染时 w/h 已是最终值。 */
         @Override
@@ -8091,23 +8134,35 @@ public class BlockEditorScreen extends Screen {
 
             BProgram.Bool.Has has = asHas();
             if (has != null) {
-                out.add(pillW(fnt, setOpZh(has.setMode), 70));
+                // 与 render() 的药丸序列严格同序同宽（含静态连接词宽），
+                // 否则 applyBounds 算出的行数/高度与实际绘制不符。
+                out.add(fnt.width(T_IO_FROM.getString()) + 5);
                 out.add(pillW(fnt, has.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", has.access.labels), 50));
+                out.add(fnt.width(T_IO_TAKE.getString()) + 5);
                 out.add(pillW(fnt, has.comparison.symbol(), 24));
                 out.add(pillW(fnt, String.valueOf(has.number), 34));
                 BProgram.ResourceRef resource = firstResource(has.resources);
                 out.add(pillW(fnt, resource.kind().chineseName(), 38));
                 out.add(pillW(fnt, resource.isWildcard() ? "□ " + V_ALL.getString() : shortResource(resource), 44));
-                out.add(pillW(fnt, M_ADD_RES.getString(), 54));
-                String withText = has.with == null ? F_ADD_WITH.getString() : shortUi(shortWith(has.with), 15);
-                out.add(pillW(fnt, withText, 80));
-                String exceptText = has.except.isEmpty() ? F_ADD_EXCEPT.getString() : F_EXCEPT_N.getString(has.except.size());
-                out.add(pillW(fnt, exceptText, 70));
-                String sideText = has.access.eachSide || !has.access.sides.isEmpty() ? sidesDisp(has.access) : V_SIDES_ANY.getString();
-                out.add(pillW(fnt, sideText, 58));
-                String slotsText = has.access.slots.isEmpty() ? V_SLOTS_ANY.getString() : slotText(has.access.slots);
-                out.add(pillW(fnt, slotsText, 58));
-                out.add(pillW(fnt, rrDisp(has.access.roundRobin), 64));
+                if (has.setMode != BProgram.Bool.SetMode.DEFAULT) {
+                    out.add(pillW(fnt, setOpZh(has.setMode), 70));
+                }
+                if (has.with != null) {
+                    out.add(pillW(fnt, shortUi(shortWith(has.with), 15), 80));
+                }
+                if (!has.except.isEmpty()) {
+                    out.add(pillW(fnt, F_EXCEPT_N.getString(has.except.size()), 70));
+                }
+                if (has.access.eachSide || !has.access.sides.isEmpty()) {
+                    out.add(pillW(fnt, sidesDisp(has.access), 58));
+                }
+                if (!has.access.slots.isEmpty()) {
+                    out.add(pillW(fnt, slotText(has.access.slots), 58));
+                }
+                if (has.access.roundRobin != BProgram.RoundRobinMode.NONE) {
+                    out.add(pillW(fnt, rrDisp(has.access.roundRobin), 64));
+                }
+                out.add(pillW(fnt, COND_MORE.getString(), 62));
                 out.add(pillW(fnt, F_DELETE_COND.getString(), 60));
             } else if (inner() instanceof BProgram.Bool.Redstone r) {
                 out.add(pillW(fnt, r.comparison == null ? F_HAS_SIGNAL.getString() : r.comparison.symbol(), 30));

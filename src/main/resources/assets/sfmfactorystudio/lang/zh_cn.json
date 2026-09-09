@@ -305,7 +305,6 @@
   "gui.sfmfactorystudio.ed.m_add_has": "＋ 同时满足：方块里有资源",
   "gui.sfmfactorystudio.ed.m_add_kind": "添加%s",
   "gui.sfmfactorystudio.ed.m_add_redstone": "＋ 同时满足：红石信号",
-  "gui.sfmfactorystudio.ed.m_add_res": "＋更多资源",
   "gui.sfmfactorystudio.ed.m_all_of_kind": "该类别的全部资源",
   "gui.sfmfactorystudio.ed.m_another_res": "或者再选一种资源",
   "gui.sfmfactorystudio.ed.m_browse_kind": "浏览%s",
@@ -739,5 +738,12 @@
   "gui.sfmfactorystudio.ed.cmp_ge": "至少（≥）",
   "gui.sfmfactorystudio.ed.cmp_eq": "正好（=）",
   "gui.sfmfactorystudio.ed.cmp_le": "最多（≤）",
-  "gui.sfmfactorystudio.ed.cmp_lt": "不足（<）"
+  "gui.sfmfactorystudio.ed.cmp_lt": "不足（<）",
+  "gui.sfmfactorystudio.ed.cond_more": "＋更多…",
+  "gui.sfmfactorystudio.ed.cond_more_set": "合计方式…",
+  "gui.sfmfactorystudio.ed.cond_more_res": "或更多资源…",
+  "gui.sfmfactorystudio.ed.cond_more_with": "资源标签…",
+  "gui.sfmfactorystudio.ed.cond_more_except": "排除资源…",
+  "gui.sfmfactorystudio.ed.cond_more_sides": "指定侧面…",
+  "gui.sfmfactorystudio.ed.cond_more_slots": "指定槽位…"
 }

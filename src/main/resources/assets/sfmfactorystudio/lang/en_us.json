@@ -305,7 +305,6 @@
   "gui.sfmfactorystudio.ed.m_add_has": "＋ And: block contains resource",
   "gui.sfmfactorystudio.ed.m_add_kind": "Add %s",
   "gui.sfmfactorystudio.ed.m_add_redstone": "＋ And: redstone signal",
-  "gui.sfmfactorystudio.ed.m_add_res": "＋More resources",
   "gui.sfmfactorystudio.ed.m_all_of_kind": "Everything in this category",
   "gui.sfmfactorystudio.ed.m_another_res": "Or pick another resource",
   "gui.sfmfactorystudio.ed.m_browse_kind": "Browse %s",
@@ -739,5 +738,12 @@
   "gui.sfmfactorystudio.ed.cmp_ge": "at least (≥)",
   "gui.sfmfactorystudio.ed.cmp_eq": "exactly (=)",
   "gui.sfmfactorystudio.ed.cmp_le": "at most (≤)",
-  "gui.sfmfactorystudio.ed.cmp_lt": "less than (<)"
+  "gui.sfmfactorystudio.ed.cmp_lt": "less than (<)",
+  "gui.sfmfactorystudio.ed.cond_more": "More…",
+  "gui.sfmfactorystudio.ed.cond_more_set": "Set mode…",
+  "gui.sfmfactorystudio.ed.cond_more_res": "More resources…",
+  "gui.sfmfactorystudio.ed.cond_more_with": "Resource tags…",
+  "gui.sfmfactorystudio.ed.cond_more_except": "Except resources…",
+  "gui.sfmfactorystudio.ed.cond_more_sides": "Sides…",
+  "gui.sfmfactorystudio.ed.cond_more_slots": "Slots…"
 }
