@@ -406,4 +406,26 @@ public class ProgramDiagnosticsTests {
             }
         }
     }
+
+    /**
+     * "拖 If 进自身子树导致模型成环"回归（2026-09-09 崩溃报告）：
+     * 诊断必须能容忍环（截断降级），而不是 StackOverflowError 崩游戏。
+     */
+    @Test
+    public void cyclicTreeDoesNotCrashDiagnostics() {
+        BProgram p = new BProgram();
+        BProgram.TimerTrigger t = new BProgram.TimerTrigger();
+        BProgram.Statement.If iff = new BProgram.Statement.If();
+        BProgram.Branch br = new BProgram.Branch();
+        br.cond = new BProgram.Bool.Const(true);
+        br.body.add(new BProgram.Statement.Input());
+        iff.branches.add(br);
+        iff.hasElse = true;
+        // 环：else 体里再放同一个 If（人工构造的自嵌套）
+        iff.elseBody.add(iff);
+        t.body.add(iff);
+        p.triggers.add(t);
+        var issues = ProgramDiagnostics.check(p);
+        assertNotNull(issues, "诊断应返回结果而非崩溃");
+    }
 }

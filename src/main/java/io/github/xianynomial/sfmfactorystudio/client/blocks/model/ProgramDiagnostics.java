@@ -4,6 +4,8 @@ import io.github.xianynomial.sfmfactorystudio.client.Loc;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -275,6 +277,29 @@ public final class ProgramDiagnostics {
     private static void checkStatements(List<BProgram.Statement> statements, String parent,
                                         Object scope, Context ctx, boolean triggerHasInput,
                                         List<Issue> issues) {
+        checkStatements(statements, parent, scope, ctx, triggerHasInput, issues,
+                Collections.newSetFromMap(new IdentityHashMap<>()));
+    }
+
+    /**
+     * onStack = 当前递归路径上的 body（恒等集合）。模型树若因外部 bug 成环
+     * （如把 If 拖进自身子树），沿环的递归在重复 body 处被截断——诊断降级
+     * 为不完整，而不是 StackOverflowError 崩游戏。
+     */
+    private static void checkStatements(List<BProgram.Statement> statements, String parent,
+                                        Object scope, Context ctx, boolean triggerHasInput,
+                                        List<Issue> issues, Set<List<BProgram.Statement>> onStack) {
+        if (!onStack.add(statements)) return; // 环：当前路径已经过这个 body
+        try {
+            checkStatementsInner(statements, parent, scope, ctx, triggerHasInput, issues, onStack);
+        } finally {
+            onStack.remove(statements);
+        }
+    }
+
+    private static void checkStatementsInner(List<BProgram.Statement> statements, String parent,
+                                             Object scope, Context ctx, boolean triggerHasInput,
+                                             List<Issue> issues, Set<List<BProgram.Statement>> onStack) {
         for (int i = 0; i < statements.size(); i++) {
             BProgram.Statement statement = statements.get(i);
             String path = parent + P_BLOCK.getString(i + 1);
@@ -315,11 +340,11 @@ public final class ProgramDiagnostics {
                         warning(issues, branchPath, W_FALSE_BRANCH.getString(), statement, null, null);
                     }
                     if (branch.body.isEmpty()) warning(issues, branchPath, W_EMPTY_TRUE.getString(), statement, null, null);
-                    checkStatements(branch.body, branchPath, statement, ctx, triggerHasInput, issues);
+                    checkStatements(branch.body, branchPath, statement, ctx, triggerHasInput, issues, onStack);
                 }
                 if (iff.hasElse || !iff.elseBody.isEmpty()) {
                     if (iff.elseBody.isEmpty()) warning(issues, path + P_ELSE.getString(), W_EMPTY_ELSE.getString(), statement, null, null);
-                    checkStatements(iff.elseBody, path + P_ELSE.getString(), statement, ctx, triggerHasInput, issues);
+                    checkStatements(iff.elseBody, path + P_ELSE.getString(), statement, ctx, triggerHasInput, issues, onStack);
                 }
             } else if (statement instanceof BProgram.Statement.Raw raw) {
                 if (!validStatementFragment(raw.text)) {

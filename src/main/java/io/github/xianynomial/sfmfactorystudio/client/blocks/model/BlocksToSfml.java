@@ -14,6 +14,8 @@ import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BProgram.WithE
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BProgram.WithFilter;
 
 import java.util.List;
+import java.util.Collections;
+import java.util.Set;
 
 /**
  * Serializes the block model back into canonical, pretty-printed SFML. The output
@@ -112,8 +114,22 @@ public final class BlocksToSfml {
     }
 
     private static void writeStatements(StringBuilder sb, List<Statement> statements, int depth) {
-        for (Statement s : statements) {
-            writeStatement(sb, s, depth);
+        writeStatements(sb, statements, depth, Collections.newSetFromMap(new java.util.IdentityHashMap<>()));
+    }
+
+    /**
+     * onStack = 当前递归路径上的 body（恒等集合）：模型树若因外部 bug 成环，
+     * 序列化在重复 body 处截断（环内语句被舍弃），宁可输出不完整也不 StackOverflow。
+     */
+    private static void writeStatements(StringBuilder sb, List<Statement> statements, int depth,
+                                        Set<List<Statement>> onStack) {
+        if (!onStack.add(statements)) return;
+        try {
+            for (Statement s : statements) {
+                writeStatement(sb, s, depth);
+            }
+        } finally {
+            onStack.remove(statements);
         }
     }
 

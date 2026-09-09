@@ -2297,6 +2297,7 @@ public class BlockEditorScreen extends Screen {
         mouseX = cx;
         mouseY = cy;
         dropGap = layout.nearestGap(cx, cy);
+        if (dropGap != null && !gapAllowedForDrag(dropGap)) dropGap = null; // 防自嵌套
         insertGroupAt(dropGap);
     }
 
@@ -2412,6 +2413,9 @@ public class BlockEditorScreen extends Screen {
             mouseX = cx;
             mouseY = cy;
             Gap g = layout.nearestGap(cx, cy);
+            // 防自嵌套（成环崩溃根因）：落点缝隙若在被拖语句（尤其 If）自身的
+            // 子树内，视为无缝隙——拖回自己身上=松手放回原位
+            if (g != null && !gapAllowedForDrag(g)) g = null;
             // 缝隙切换阻尼：光标须离开当前缝隙带 >= 阻尼距离才换位——
             // 行边界附近的微小手抖不再让积木来回跳（拖拽"手感实在"）。
             if (g != dropGap && EditorUiMath.shouldSwitchGap(
@@ -2943,6 +2947,33 @@ public class BlockEditorScreen extends Screen {
             }
         }
         return null;
+    }
+
+    /** 落点缝隙是否非法：缝隙的 body 位于拖拽组内任何语句的子树中（会造成自嵌套成环）。 */
+    private boolean gapAllowedForDrag(Gap g) {
+        if (dragGroup == null) return true;
+        List<BProgram.Statement> target = g.body().list();
+        for (BProgram.Statement s : dragGroup.all()) {
+            if (subtreeContainsBody(s, target)) return false;
+        }
+        return true;
+    }
+
+    /** target 是否为以 s 为根的子树中的某个 body（恒等比较）。 */
+    private static boolean subtreeContainsBody(BProgram.Statement s, List<BProgram.Statement> target) {
+        if (!(s instanceof BProgram.Statement.If iff)) return false;
+        for (BProgram.Branch b : iff.branches) {
+            if (b.body == target || subtreeContainsBodyIn(b.body, target)) return true;
+        }
+        if (iff.elseBody == target) return true;
+        return subtreeContainsBodyIn(iff.elseBody, target);
+    }
+
+    private static boolean subtreeContainsBodyIn(List<BProgram.Statement> list, List<BProgram.Statement> target) {
+        for (BProgram.Statement s : list) {
+            if (subtreeContainsBody(s, target)) return true;
+        }
+        return false;
     }
 
     private void applyBandSelection() {
