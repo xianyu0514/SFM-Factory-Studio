@@ -25,6 +25,8 @@ public final class BlockTheme {
     public static final int C_SAVE_H = 0xE60C8F58;
     public static final int C_DIRTY = 0xFFE0483E;
     public static final int C_SELECT = 0xFF2F6FED;
+    /** 选中行的边框：淡淡的一层淡蓝（用户反馈高饱和蓝太吵）。 */
+    public static final int C_SELECT_SOFT = 0xFF8DB0F5;
     public static final int C_BAND = 0x302F6FED;
     public static final int C_BAND_BORDER = 0xFF2F6FED;
     public static final int C_ERR = 0xFFD13438;
