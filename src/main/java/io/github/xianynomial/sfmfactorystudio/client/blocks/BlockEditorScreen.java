@@ -4045,16 +4045,9 @@ public class BlockEditorScreen extends Screen {
             }
         }
 
-        // 选中视觉（重设计，用户反馈"太丑"）：极淡染色 + 单根半透明描边 +
-        // 左侧 2px 强调条——与每条积木自带的左侧色条语言统一，安静但清晰。
-        for (BProgram.Statement s : selection) {
-            int[] r = layout.rowRectOf(s.id);
-            if (r != null && contentVisible(r[0], r[1], r[2], r[3])) {
-                g.fill(r[0], r[1], r[0] + r[2], r[1] + r[3], 0x142F6FED);
-                border(g, r[0] - 1, r[1] - 1, r[2] + 2, r[3] + 2, 0x802F6FED);
-                g.fill(r[0] - 3, r[1] + 1, r[0] - 1, r[1] + r[3] - 1, C_SELECT);
-            }
-        }
+        // 选中视觉：barBase 自带选中态（行底色染蓝 + 边框变 C_SELECT），
+        // 这里不再叠加任何外扩描边/色条——行距只有 4px，相邻两行各画一圈
+        // 外扩边框会在行间叠成粗蓝带（2026-09-09 "中间一道和左侧色条太丑"）。
         // 诊断角标：有问题的积木/触发器常驻红（错误）或黄（提醒）左边条 + "!" 圆标。
         // 画在卡片之后、选区之后，保证任何积木上的问题一眼可见。
         for (var entry : blockSeverity.entrySet()) {
