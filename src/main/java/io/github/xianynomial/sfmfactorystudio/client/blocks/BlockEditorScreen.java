@@ -5556,7 +5556,9 @@ public class BlockEditorScreen extends Screen {
         int n = 0;
         int self = -1;
         for (BProgram.Trigger other : program.triggers) {
-            if (!isCopyOf(other, t)) continue;
+            // 自身恒为候选：isCopyOf 的 copy!=source 守卫会把 t 排除，self 永远
+            // 无法落位 → 本函数恒返回 null → 页脚 − 永久隐藏（2026-09-09 反馈）。
+            if (other != t && !isCopyOf(other, t)) continue;
             int[] or = layout.cardRectOf(other.id);
             if (or == null || Math.abs(or[0] - me[0]) > 8) continue;
             if (other == t) self = n;
