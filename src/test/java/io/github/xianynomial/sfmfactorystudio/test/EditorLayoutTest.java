@@ -335,4 +335,34 @@ public class EditorLayoutTest {
         full.relayout(false, -1);
         assertSameGeometry(full, el, p);
     }
+
+    @Test
+    public void copyStackStaysGluedWhenMemberHeightChanges() {
+        BProgram p = new BProgram();
+        BProgram.TimerTrigger a = new BProgram.TimerTrigger();
+        a.count = 20;
+        a.body.add(input("box"));
+        p.triggers.add(a);
+        p.triggers.add(a.copy()); // ＋ 复制出的副本
+        EditorLayout el = new EditorLayout();
+        el.setProgram(p);
+        el.setCardPos(a.id, 0, 0);
+        el.setCardPos(p.triggers.get(1).id, 0, 0);
+        el.relayout(false, -1);
+        int h = el.cardRectOf(a.id)[3];
+        el.setCardPos(p.triggers.get(1).id, 0, h); // 紧贴成叠
+        el.relayout(false, -1);
+        assertEquals(h, el.cardRectOf(p.triggers.get(1).id)[1]);
+
+        // 顶部卡加一条积木变高（正文已与副本不同=触发头身份）：下方副本
+        // 必须整体下移保持零间距紧贴——没有重对齐时链断出 ±8px 紧贴带：
+        // 页脚 − 消失、＋ 再复制贴着原卡放把旧副本挤飞（用户反馈场景）。
+        a.body.add(input("box2"));
+        el.markModelEdited();
+        el.relayout(false, -1);
+        int h2 = el.cardRectOf(a.id)[3];
+        assertTrue(h2 > h, "顶部卡确实变高");
+        assertEquals(h2, el.cardRectOf(p.triggers.get(1).id)[1],
+                "副本必须跟随上方成员的高度变化保持紧贴");
+    }
 }

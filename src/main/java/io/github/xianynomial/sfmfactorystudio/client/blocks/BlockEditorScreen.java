@@ -5203,23 +5203,8 @@ public class BlockEditorScreen extends Screen {
     /** 副本判定：触发头参数与正文内容完全一致（此前指纹不含正文，改过的卡也会被当副本删掉）。 */
     private boolean isCopyOf(BProgram.Trigger copy, BProgram.Trigger source) {
         return copy != source
-                && sameTriggerHeader(copy, source)
+                && CardLayouts.sameTriggerHeader(copy, source)
                 && identityHashOf(copy) == identityHashOf(source);
-    }
-
-    /**
-     * 触发头等价（与 CardLayouts.triggerKey 的键分量完全一致：类型/数量/单位/
-     * 全局/偏移），但按字段直接比较——本方法被 renderCard 每帧每卡调用
-     * （页脚 − 可见性 → copyFarthestBelow），旧实现每次比较拼 2 个 key 字符串，
-     * 30 卡程序每帧 ~1800 个临时串（60fps ≈ 每秒 10 万+），是显著的 GC 压力源。
-     */
-    private static boolean sameTriggerHeader(BProgram.Trigger a, BProgram.Trigger b) {
-        if (a instanceof BProgram.TimerTrigger ta) {
-            if (!(b instanceof BProgram.TimerTrigger tb)) return false;
-            return ta.count == tb.count && ta.unit == tb.unit
-                    && ta.global == tb.global && ta.plus == tb.plus;
-        }
-        return a instanceof BProgram.PulseTrigger && b instanceof BProgram.PulseTrigger;
     }
 
     /**
@@ -5253,7 +5238,31 @@ public class BlockEditorScreen extends Screen {
         int bottomIdx = CardLayouts.farthestInStack(
                 java.util.Arrays.copyOf(tops, n), java.util.Arrays.copyOf(heights, n), self, 8);
         BProgram.Trigger bottom = candidates.get(bottomIdx);
-        return bottom != t ? bottom : null;
+        if (bottom != t) return bottom;
+        // 紧贴链断（历史版本的高度变化曾把副本挤散）时的兜底：同列下方仍有
+        // 内容相同的副本就照常显示 −，删最靠下的那张（避免"有副本却没 −"）。
+        return lowestCopyBelowLoose(t, true);
+    }
+
+    /** 宽松兜底：同列下方"副本"里最靠下的一张。strict=内容哈希也须相同（− 删除路径，
+     *  绝不误删编辑过的卡）；strict=false 只看触发头（＋ 续叠路径，只决定落点）。 */
+    private @Nullable BProgram.Trigger lowestCopyBelowLoose(BProgram.Trigger t, boolean strict) {
+        int[] me = layout.cardRectOf(t.id);
+        if (me == null) return null;
+        BProgram.Trigger best = null;
+        int bestBottom = Integer.MIN_VALUE;
+        for (BProgram.Trigger other : program.triggers) {
+            if (other == t) continue;
+            if (strict ? !isCopyOf(other, t) : !CardLayouts.sameTriggerHeader(other, t)) continue;
+            int[] or = layout.cardRectOf(other.id);
+            if (or == null || Math.abs(or[0] - me[0]) > 8) continue;
+            if (or[1] <= me[1]) continue;
+            if (or[1] + or[3] > bestBottom) {
+                bestBottom = or[1] + or[3];
+                best = other;
+            }
+        }
+        return best;
     }
 
     private void duplicateTriggerBelow(BProgram.Trigger source, int sourceHeight) {
@@ -5269,6 +5278,7 @@ public class BlockEditorScreen extends Screen {
         int x = cur == null ? 0 : cur[0];
         int bottomY = cur == null ? 0 : cur[1];
         int bottomH = cur == null ? sourceHeight : cur[3];
+        boolean advanced = false;
         while (true) {
             BProgram.Trigger next = null;
             int nextY = Integer.MAX_VALUE;
@@ -5282,9 +5292,21 @@ public class BlockEditorScreen extends Screen {
                 }
             }
             if (next == null) break;
+            advanced = true;
             int[] nr = layout.cardRectOf(next.id);
             bottomY = nr[1];
             bottomH = nr[3];
+        }
+        if (!advanced) {
+            // 紧贴链断的兜底：同列下方同头副本里取最靠下的一张续上。走链只看
+            // 触发头不看正文——副本被编辑过仍是这叠的一员，＋ 要续在最底下，
+            // 绝不贴着原卡放（会与旧副本重叠、被避让整张推走="乱飞"）。
+            BProgram.Trigger loose = lowestCopyBelowLoose(source, false);
+            if (loose != null) {
+                int[] lr = layout.cardRectOf(loose.id);
+                bottomY = lr[1];
+                bottomH = lr[3];
+            }
         }
         layout.setCardPos(copy.id, x, CardLayouts.snap(bottomY + bottomH));
         keepPosTrigger = copy;
