@@ -207,7 +207,6 @@ public class BlockEditorScreen extends Screen {
     static final Loc S_SEARCH_HINT = E("search_hint", "  / 搜索卡片");
     static final Loc T_CODE_EDITOR = E("code_editor", "SFML 代码编辑");
     static final Loc S_CODE_HELP = E("code_help", "Tab缩进 · Ctrl+/注释 · Ctrl+空格检查 · \\ 接受建议");
-    static final Loc S_SEARCH_PROMPT = E("search_prompt", "输入关键词搜索卡片（标签名/摘要），点选定位");
     static final Loc S_NO_MATCH_ITEM = E("no_match_item", "没有找到匹配的物品——检查条件是否太严");
     static final Loc S_PREVIEW_COUNT = E("preview_count", "匹配预览共 %s 件物品");
     static final Loc S_TRIGGER_CREATED = E("trigger_created", "已在此处新建触发器，从左侧拖入积木");
@@ -4718,7 +4717,8 @@ public class BlockEditorScreen extends Screen {
         if (!program.triggers.isEmpty()) {
             String hint = S_SEARCH_HINT.getString();
             int hintX = groupLeft - 8 - this.font.width(hint);
-            if (hintX > titleX) {
+            // 提示与状态字同槽右对齐（panelY+10），同显必叠印：有状态字时让位
+            if (status == null && hintX > titleX) {
                 text(g, hint, hintX, panelY + 10, 0xFF5C6779);
             }
         }
@@ -4781,29 +4781,27 @@ public class BlockEditorScreen extends Screen {
     // ============================================================== card render
     /** 卡片快速定位：搜索卡摘要/标签/名称，点选相机居中。 */
     private void openCardSearch() {
-        List<String> values = new ArrayList<>();
-        List<String> labels = new ArrayList<>();
+        if (program.triggers.isEmpty()) return;
+        List<BProgram.Trigger> triggers = new ArrayList<>();
+        List<String> displays = new ArrayList<>();
         for (BProgram.Trigger t : program.triggers) {
             String summary = cardSummary(t);
             Set<String> cardLabels = new LinkedHashSet<>();
             collectBodyLabels(t.body, cardLabels);
-            values.add("t:" + t.id);
-            labels.add((t instanceof BProgram.TimerTrigger ? G_TIMER_ICON.getString() : "⚡") + " "
+            triggers.add(t);
+            displays.add((t instanceof BProgram.TimerTrigger ? G_TIMER_ICON.getString() : "⚡") + " "
                     + summary + (cardLabels.isEmpty() ? "" : " [" + String.join(",", cardLabels) + "]"));
         }
-        if (values.isEmpty()) return;
-        setPopup(new Popup.ChoicePopup(panelX + PALETTE_W + 30, panelY + TOOLBAR_H + 12, 300,
-                values, labels, "", picked -> {
-            if (!picked.startsWith("t:")) return;
-            long id = Long.parseLong(picked.substring(2));
-            int[] r = layout.cardRectOf(id);
+        setPopup(new Popup.CardSearchPopup(panelX + PALETTE_W + 30, panelY + TOOLBAR_H + 12, 300,
+                triggers, displays, t -> {
+            popup = null;
+            int[] r = layout.cardRectOf(t.id);
             if (r != null) {
                 zoom = Math.max(0.6f, Math.min(1.25f, zoom));
                 viewX = Math.round(r[0] + r[2] / 2f - canvasW / (2f * zoom));
                 viewY = Math.round(r[1] + r[3] / 2f - canvasH / (2f * zoom));
             }
         }));
-        showStatus(S_SEARCH_PROMPT.getString(), C_TEXT_SUB);
     }
 
     private void collectBodyLabels(List<BProgram.Statement> body, Set<String> out) {

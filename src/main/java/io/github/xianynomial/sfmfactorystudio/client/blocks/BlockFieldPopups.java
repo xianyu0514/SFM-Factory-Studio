@@ -1,6 +1,7 @@
 package io.github.xianynomial.sfmfactorystudio.client.blocks;
 import io.github.xianynomial.sfmfactorystudio.client.Loc;
 import io.github.xianynomial.sfmfactorystudio.client.PinyinSearch;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BProgram;
 import io.github.xianynomial.sfmfactorystudio.client.ResourceIndex;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -704,6 +705,180 @@ abstract class Popup {
         private void finish() {
             keepOpen = false;
             onDone.accept(new ArrayList<>(selected));
+        }
+    }
+
+    // ------------------------------------------------------------ card search
+    /**
+     * 「/ 搜索卡片」弹层：真输入框 + 实时过滤列表。此前借用 ChoicePopup 逐字符
+     * 累积过滤——没有可见输入框，输入法组合串不走 charTyped，中文基本输不进去；
+     * EditBox 提供光标/退格/粘贴，配合 PinyinSearch 让拼音直接命中中文标签。
+     */
+    public static class CardSearchPopup extends Popup {
+        private record Entry(BProgram.Trigger trigger, String display) {
+        }
+
+        private final List<Entry> all = new ArrayList<>();
+        private final List<Entry> filtered = new ArrayList<>();
+        private final Consumer<BProgram.Trigger> onPick;
+        private final EditBox box;
+        private int sel = 0;
+        private int scroll = 0;
+        private int maxRows = 8;
+        private static final int BOX_H = 26;
+        private static final int ROW_H = 16;
+        private static final int HINT_H = 12;
+        private int visibleRows = 1;
+        private boolean clipped;
+
+        public CardSearchPopup(int x, int y, int w,
+                               List<BProgram.Trigger> triggers, List<String> displays,
+                               Consumer<BProgram.Trigger> onPick) {
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.onPick = onPick;
+            for (int i = 0; i < triggers.size(); i++) {
+                all.add(new Entry(triggers.get(i), displays.get(i)));
+            }
+            box = new EditBox(Minecraft.getInstance().font, x + 8, y + 7, w - 16, 12,
+                    Component.literal(new Loc("gui.sfmfactorystudio.ed.search_box_hint",
+                            "搜索标签／摘要，支持拼音；Enter 定位，Esc 关闭").getString()));
+            box.setMaxLength(80);
+            box.setBordered(false);
+            box.setTextColor(0xFF1B2432);
+            box.setResponder(s -> refilter());
+            box.setFocused(true);
+            refilter();
+        }
+
+        /** 按当前输入过滤（含拼音），并按结果数与可用空间收敛弹层高度。 */
+        private void refilter() {
+            String q = box.getValue().trim();
+            filtered.clear();
+            for (Entry e : all) {
+                if (q.isEmpty() || PinyinSearch.matches(e.display(), q)) filtered.add(e);
+            }
+            sel = Math.min(sel, Math.max(0, filtered.size() - 1));
+            visibleRows = Math.max(1, Math.min(filtered.size(), maxRows));
+            clipped = filtered.size() > visibleRows;
+            h = BOX_H + visibleRows * ROW_H + (clipped ? HINT_H : 0) + 4;
+            clampScroll();
+        }
+
+        private void clampScroll() {
+            scroll = Math.max(0, Math.min(scroll, Math.max(0, filtered.size() - visibleRows)));
+            if (sel < scroll) scroll = sel;
+            if (sel >= scroll + visibleRows) scroll = sel - visibleRows + 1;
+            scroll = Math.max(0, scroll);
+        }
+
+        @Override
+        public void applyBounds(int minX, int maxX, int minY, int maxY) {
+            maxRows = Math.max(1, (maxY - (y + BOX_H + 4)) / ROW_H);
+            box.setWidth(w - 16);
+            refilter();
+        }
+
+        private String fit(Font font, String text) {
+            int room = w - 16;
+            if (font.width(text) <= room) return text;
+            return font.plainSubstrByWidth(text, Math.max(8, room - 8)) + "…";
+        }
+
+        @Override
+        public void render(GuiGraphics g, Font font, int mx, int my) {
+            panel(g, x, y, w, h);
+            g.fill(x + 8, y + BOX_H - 3, x + w - 8, y + BOX_H - 2,
+                    box.isFocused() ? 0xFF3E6FD8 : 0xFFD9DFEA);
+            box.render(g, mx, my, 0);
+            int ry0 = y + BOX_H;
+            if (filtered.isEmpty()) {
+                g.drawString(font, new Loc("gui.sfmfactorystudio.ed.search_empty", "没有匹配的卡片")
+                        .getString(), x + 8, ry0 + 4, 0xFF8A94A6, false);
+            } else {
+                int rows = Math.min(filtered.size() - scroll, visibleRows);
+                int listBottom = ry0 + visibleRows * ROW_H;
+                for (int i = 0; i < rows; i++) {
+                    int idx = scroll + i;
+                    int ry = ry0 + i * ROW_H;
+                    boolean hover = mx >= x && mx < x + w && my >= ry && my < ry + ROW_H;
+                    row(g, font, x + 2, ry, w - 4, ROW_H, fit(font, filtered.get(idx).display()),
+                            hover, idx == sel);
+                }
+                if (clipped) {
+                    int left = Math.max(0, filtered.size() - scroll - visibleRows);
+                    g.fill(x + 1, listBottom, x + w - 1, listBottom + HINT_H, 0xFFF6F8FC);
+                    g.fill(x + 1, listBottom, x + w - 1, listBottom + 1, 0xFFE1E7F0);
+                    g.drawString(font, new Loc("gui.sfmfactorystudio.blocks.popup.more_below", "↓ 还有 %s 项 · 滚轮查看")
+                            .getString(left), x + 5, listBottom + 2, 0xFF6B7688, false);
+                }
+            }
+        }
+
+        private void pickCurrent() {
+            if (filtered.isEmpty()) return;
+            onPick.accept(filtered.get(sel).trigger());
+            keepOpen = false;
+        }
+
+        private void moveSel(int d) {
+            if (filtered.isEmpty()) return;
+            sel = Math.max(0, Math.min(filtered.size() - 1, sel + d));
+            clampScroll();
+        }
+
+        @Override
+        public boolean mouseClicked(double mx, double my, int button) {
+            if (!isOver(mx, my)) {
+                keepOpen = false;
+                return true; // 点外面只关弹层，不穿透到画布
+            }
+            if (box.mouseClicked(mx, my, button)) {
+                box.setFocused(true);
+                return true;
+            }
+            int ry0 = y + BOX_H;
+            if (my >= ry0 && my < ry0 + visibleRows * ROW_H) {
+                int idx = (int) ((my - ry0) / ROW_H) + scroll;
+                if (idx >= 0 && idx < filtered.size()) {
+                    sel = idx;
+                    pickCurrent();
+                    return true;
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            if (keyCode == 256) return false; // Esc：交给外层统一关闭
+            if (keyCode == 257 || keyCode == 335) {
+                pickCurrent();
+                return true;
+            }
+            if (keyCode == 265) {
+                moveSel(-1);
+                return true;
+            }
+            if (keyCode == 264) {
+                moveSel(1);
+                return true;
+            }
+            return box.keyPressed(keyCode, scanCode, modifiers);
+        }
+
+        @Override
+        public boolean charTyped(char ch, int modifiers) {
+            return box.charTyped(ch, modifiers);
+        }
+
+        @Override
+        public boolean mouseScrolled(double mx, double my, double scrollY) {
+            if (!isOver(mx, my)) return false;
+            scroll -= (int) scrollY;
+            clampScroll();
+            return true;
         }
     }
 }
