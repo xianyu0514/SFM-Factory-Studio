@@ -745,5 +745,12 @@
   "gui.sfmfactorystudio.ed.cond_more_with": "资源标签…",
   "gui.sfmfactorystudio.ed.cond_more_except": "排除资源…",
   "gui.sfmfactorystudio.ed.cond_more_sides": "指定侧面…",
-  "gui.sfmfactorystudio.ed.cond_more_slots": "指定槽位…"
+  "gui.sfmfactorystudio.ed.cond_more_slots": "指定槽位…",
+  "gui.sfmfactorystudio.ed.batch_edit": "批量修改…",
+  "gui.sfmfactorystudio.ed.batch_labels": "统一标签…",
+  "gui.sfmfactorystudio.ed.batch_sides": "统一面…",
+  "gui.sfmfactorystudio.ed.batch_qty": "统一数量…",
+  "gui.sfmfactorystudio.ed.batch_swap": "⇄ 取出↔放入互换",
+  "gui.sfmfactorystudio.ed.batch_done": "✔ 已批量修改 %s 个积木",
+  "gui.sfmfactorystudio.ed.batch_none": "选中的积木里没有取出/放入行"
 }
