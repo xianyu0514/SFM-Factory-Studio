@@ -5034,8 +5034,23 @@ public class BlockEditorScreen extends Screen {
     /** 副本判定：触发头参数与正文内容完全一致（此前指纹不含正文，改过的卡也会被当副本删掉）。 */
     private boolean isCopyOf(BProgram.Trigger copy, BProgram.Trigger source) {
         return copy != source
-                && CardLayouts.triggerKey(copy).equals(CardLayouts.triggerKey(source))
+                && sameTriggerHeader(copy, source)
                 && identityHashOf(copy) == identityHashOf(source);
+    }
+
+    /**
+     * 触发头等价（与 CardLayouts.triggerKey 的键分量完全一致：类型/数量/单位/
+     * 全局/偏移），但按字段直接比较——本方法被 renderCard 每帧每卡调用
+     * （页脚 − 可见性 → copyFarthestBelow），旧实现每次比较拼 2 个 key 字符串，
+     * 30 卡程序每帧 ~1800 个临时串（60fps ≈ 每秒 10 万+），是显著的 GC 压力源。
+     */
+    private static boolean sameTriggerHeader(BProgram.Trigger a, BProgram.Trigger b) {
+        if (a instanceof BProgram.TimerTrigger ta) {
+            if (!(b instanceof BProgram.TimerTrigger tb)) return false;
+            return ta.count == tb.count && ta.unit == tb.unit
+                    && ta.global == tb.global && ta.plus == tb.plus;
+        }
+        return a instanceof BProgram.PulseTrigger && b instanceof BProgram.PulseTrigger;
     }
 
     /**

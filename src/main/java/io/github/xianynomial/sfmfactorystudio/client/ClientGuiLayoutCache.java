@@ -50,6 +50,12 @@ public final class ClientGuiLayoutCache {
     }
 
     private static final Map<String, SlotLayoutData.Layout> BY_POS = new LinkedHashMap<>();
+    /**
+     * 脏标记：捕获窗口内每帧、锚点包突发（27 槽×7 向=一秒 189 包）都会改
+     * BY_POS——此前每次改动都全文件写盘且全在渲染线程。改为只置脏，
+     * 客户端 tick 末统一刷写（每 tick 至多 1 次写盘）。
+     */
+    private static boolean dirty = false;
     private static BlockPos lastClickedPos = null;
     private static long lastClickedAt = 0;
     private static boolean loaded = false;
@@ -183,7 +189,7 @@ public final class ClientGuiLayoutCache {
         BY_POS.put(key(pos), new SlotLayoutData.Layout(title, menuClass, all,
                 SlotLayoutData.mergeAnchors(existing == null ? null : existing.anchors(), null),
                 existing != null && existing.noExposure()));
-        save();
+        dirty = true;   // 写盘合并到 tick 末（见 onClientTick）
     }
 
     /** 应用一个操作学习锚点：按菜单类名应用到所有同类布局（锚点与坐标解耦）。 */
@@ -200,7 +206,7 @@ public final class ClientGuiLayoutCache {
                     new SlotLayoutData.SlotAnchor(mc, dir, containerSlot, x, y, capIndex)));
             applied = true;
         }
-        if (applied) save();
+        if (applied) dirty = true;   // 锚点包常成串到达，写盘合并到 tick 末
     }
 
     /** 标记"槽位未暴露"诊断（学习发现界面槽位在变化而能力面无变化）。 */
@@ -209,7 +215,7 @@ public final class ClientGuiLayoutCache {
         SlotLayoutData.Layout layout = BY_POS.get(key(pos));
         if (layout == null || layout.noExposure()) return;
         BY_POS.put(key(pos), SlotLayoutData.withNoExposure(layout, true));
-        save();
+        dirty = true;
     }
 
     /** 按方块坐标查询捕获的布局；玩家没打开过该容器返回 null。 */
@@ -240,6 +246,15 @@ public final class ClientGuiLayoutCache {
             }
         } catch (IOException | RuntimeException t) {
             SFMGui.LOGGER.warn("slot-layouts.json 读取失败，按空缓存继续: {}", t.toString());
+        }
+    }
+
+    /** 客户端 tick 末：脏则落盘（每 tick 至多一次全文件写）。 */
+    @SubscribeEvent
+    public static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
+        if (dirty) {
+            dirty = false;
+            save();
         }
     }
 
