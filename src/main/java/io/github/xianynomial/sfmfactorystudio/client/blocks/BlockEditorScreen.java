@@ -752,6 +752,10 @@ public class BlockEditorScreen extends Screen {
 
     private @Nullable GroupDrag dragGroup;
     private @Nullable Gap dropGap;
+    /** 待确认的行拖拽：按下时只武装，越过 DRAG_THRESHOLD 才真正抬起——
+     *  快速点按上下积木编辑内容不会再被误判成拖拽而调换顺序。 */
+    private @Nullable DragRef pendingBlockDrag;
+    private boolean pressWasInSelection = false;
     // ---- 卡片自由坐标（方案 A）-----------------------------------------------------
     // 卡片不再硬编码成单列：每张卡有自己的内容坐标，可拖动到任意位置、多卡并排。
     // 坐标只活在客户端（写进 SFML 会让 SFM 编译器拒绝保存），另存 layouts.json。
@@ -2072,7 +2076,7 @@ public class BlockEditorScreen extends Screen {
                         if (!selection.remove(row)) selection.add(row);
                         return true;
                     }
-                    startBlockDrag(h.data, cx, cy);
+                    armBlockDrag((DragRef) h.data, cx, cy);
                     return true;
                 }
                 if (h.kind == K_BODY_SEL) {
@@ -2134,26 +2138,40 @@ public class BlockEditorScreen extends Screen {
         return x >= h.x && x < h.x + h.w && y >= h.y && y < h.y + h.h;
     }
 
-    private void startBlockDrag(Object data, double cx, double cy) {
-        if (data instanceof DragRef d) {
-            List<BProgram.Statement> group = new ArrayList<>();
-            if (selection.contains(d.statement())) {
-                group.addAll(orderedSelection());
-            } else {
-                selection.clear();
-                selection.add(d.statement());
-                group.add(d.statement());
-            }
-            pushUndo(); // one undo entry per drag
-            for (BProgram.Statement s : group) {
-                removeFromAll(s); // detach right away: the block travels with the cursor
-            }
-            dragGroup = new GroupDrag(group, d.list(), d.index(), d.label(), d.accent());
-            mouseX = cx;
-            mouseY = cy;
-            dropGap = layout.nearestGap(cx, cy);
-            insertGroupAt(dropGap); // place it immediately
+    /**
+     * 按下积木行：只记下"待拖拽"状态，不改模型、不压撤销——真正的抬起
+     * （脱离原位、插入最近缝隙、记一次撤销）延迟到 mouseDragged 越过
+     * DRAG_THRESHOLD 才发生。此前按下即抬起重插：快速点按上下相邻积木
+     * 修改内容时，nearestGap 会随点击落点偏上/偏下落到相邻缝隙，块被
+     * 误移一位（"误触调换顺序"反馈的根因），且每次点按都压一条无意义
+     * 撤销记录。
+     */
+    private void armBlockDrag(DragRef d, double cx, double cy) {
+        pendingBlockDrag = d;
+        pressWasInSelection = selection.contains(d.statement());
+        pressX = cx;
+        pressY = cy;
+    }
+
+    /** 越过拖拽阈值后的真正抬起（原 startBlockDrag 的模型操作部分）。 */
+    private void startBlockDragNow(DragRef d, double cx, double cy) {
+        List<BProgram.Statement> group = new ArrayList<>();
+        if (pressWasInSelection) {
+            group.addAll(orderedSelection());
+        } else {
+            selection.clear();
+            selection.add(d.statement());
+            group.add(d.statement());
         }
+        pushUndo(); // one undo entry per real drag
+        for (BProgram.Statement s : group) {
+            removeFromAll(s); // detach: the block travels with the cursor
+        }
+        dragGroup = new GroupDrag(group, d.list(), d.index(), d.label(), d.accent());
+        mouseX = cx;
+        mouseY = cy;
+        dropGap = layout.nearestGap(cx, cy);
+        insertGroupAt(dropGap);
     }
 
     /**
@@ -2255,11 +2273,23 @@ public class BlockEditorScreen extends Screen {
             linkDragY = cy;
             return true;
         }
+        // 待拖拽：越过阈值才真正抬起（纯点击在 mouseReleased 里仅选中）
+        if (pendingBlockDrag != null) {
+            if (Math.abs(mx - pressX) + Math.abs(my - pressY) >= DRAG_THRESHOLD) {
+                DragRef d = pendingBlockDrag;
+                pendingBlockDrag = null;
+                startBlockDragNow(d, cx, cy);
+            }
+            return true; // 未抬起前吞掉拖拽事件，杜绝误触换序
+        }
         if (dragGroup != null) {
             mouseX = cx;
             mouseY = cy;
             Gap g = layout.nearestGap(cx, cy);
-            if (g != dropGap) {
+            // 缝隙切换阻尼：光标须离开当前缝隙带 ≥ 阻尼距离才换位——
+            // 行边界附近的微小手抖不再让积木来回跳（拖拽"手感实在"）。
+            if (g != dropGap && EditorUiMath.shouldSwitchGap(
+                    cy, dropGap == null ? 0 : dropGap.y(), g != null, EditorUiMath.GAP_SWITCH_DAMP_PX)) {
                 dropGap = g;
                 insertGroupAt(g); // the block really travels through the list live
             }
@@ -2371,6 +2401,14 @@ public class BlockEditorScreen extends Screen {
     public boolean mouseReleased(double mx, double my, int button) {
         mx /= edScale; my /= edScale;
         double cx = ctX(mx), cy = ctY(my);
+        // 纯点击（未越过阈值松手）：只选中该积木行——模型零改动、零撤销记录
+        if (pendingBlockDrag != null) {
+            DragRef d = pendingBlockDrag;
+            pendingBlockDrag = null;
+            selection.clear();
+            selection.add(d.statement());
+            return true;
+        }
         if (zoneDrag) {
             zoneDrag = false;
             zoneDrawing = false;
@@ -3842,13 +3880,14 @@ public class BlockEditorScreen extends Screen {
                 g.fill(snapGuideXL, snapGuideY, snapGuideXR, snapGuideY + 2, C_SELECT);
             }
         }
-        // selection: bold tint + double border so it reads at any zoom
+        // 选中视觉（重设计，用户反馈"太丑"）：极淡染色 + 单根半透明描边 +
+        // 左侧 2px 强调条——与每条积木自带的左侧色条语言统一，安静但清晰。
         for (BProgram.Statement s : selection) {
             int[] r = layout.rowRectOf(s.id);
             if (r != null && contentVisible(r[0], r[1], r[2], r[3])) {
-                g.fill(r[0], r[1], r[0] + r[2], r[1] + r[3], 0x262F6FED);
-                border(g, r[0] - 2, r[1] - 2, r[2] + 4, r[3] + 4, C_SELECT);
-                border(g, r[0] - 1, r[1] - 1, r[2] + 2, r[3] + 2, 0xFF9CC7FF);
+                g.fill(r[0], r[1], r[0] + r[2], r[1] + r[3], 0x142F6FED);
+                border(g, r[0] - 1, r[1] - 1, r[2] + 2, r[3] + 2, 0x802F6FED);
+                g.fill(r[0] - 3, r[1] + 1, r[0] - 1, r[1] + r[3] - 1, C_SELECT);
             }
         }
         // 诊断角标：有问题的积木/触发器常驻红（错误）或黄（提醒）左边条 + "!" 圆标。
@@ -4732,7 +4771,6 @@ public class BlockEditorScreen extends Screen {
         // trigger-level selection / drag feedback: bold blue frame
         if (selectedTriggers.contains(t) || t == dragTrigger) {
             border(g, x - 2, y - 2, w + 4, h + 1, C_SELECT);
-            border(g, x - 1, y - 1, w + 2, h - 1, 0xFF9CC7FF);
         }
         // header grab zone — registered BEFORE the header's own fields so the
         // number/unit/icon hits (added later) keep priority over the drag zone

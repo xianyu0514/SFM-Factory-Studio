@@ -21,6 +21,20 @@ public final class EditorUiMath {
     }
 
     /**
+     * 拖拽缝隙切换阻尼（px）：光标须离开当前缝隙带该距离才允许换位——
+     * 行边界附近的微小手抖不再让积木来回跳（拖拽"手感实在"）。
+     */
+    public static final double GAP_SWITCH_DAMP_PX = 15.0;
+
+    /**
+     * 缝隙切换判定（纯函数可单测）：无候选（光标已离开卡片区域）立即切换；
+     * 有候选时光标须离开当前缝隙带 ≥ damping 才换位。
+     */
+    public static boolean shouldSwitchGap(double cursorY, double currentGapY, boolean hasCandidate, double damping) {
+        return !hasCandidate || Math.abs(cursorY - currentGapY) > damping;
+    }
+
+    /**
      * 工具栏声明行数的按宽猜测下限。窄面板需要更多行。
      * 注意 <380 必须先于 <560 判断，否则 3 行分支永不可达
      * （2026-09-08 曾因三目顺序写反导致按钮溢出进画布）。
