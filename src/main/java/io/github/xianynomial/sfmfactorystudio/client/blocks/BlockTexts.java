@@ -38,7 +38,7 @@ public final class BlockTexts {
     public static final Loc T_QTY_TOTAL = new Loc("gui.sfmfactorystudio.blocks.qty_total", "合计");
     public static final Loc T_ENERGY_TRANSFER = new Loc("gui.sfmfactorystudio.blocks.energy_transfer", "高频传输能量");
     public static final Loc T_FORGET = new Loc("gui.sfmfactorystudio.blocks.forget", "清空取出记录");
-    public static final Loc T_IF = new Loc("gui.sfmfactorystudio.blocks.if", "如果");
+    public static final Loc T_IF = new Loc("gui.sfmfactorystudio.blocks.if", "满足");
     public static final Loc T_RAW = new Loc("gui.sfmfactorystudio.blocks.raw", "旧版内容（只读）");
     public static final Loc T_COMMENT = new Loc("gui.sfmfactorystudio.blocks.comment", "注释");
     public static final Loc T_EVERY = new Loc("gui.sfmfactorystudio.blocks.every", "每");
@@ -55,18 +55,27 @@ public final class BlockTexts {
 
 
     // 条件句族=如果/那么/否则如果/否则（Scratch 系标准搭配，「否则」靠「如果」锚定才自解释）
-    public static final Loc T_ELSE = new Loc("gui.sfmfactorystudio.blocks.else", "否则：");
-    // 否则如果行的行前缀（与「+ 否则如果」按钮叫法一致）
-    public static final Loc T_ELSEIF = new Loc("gui.sfmfactorystudio.blocks.elseif", "否则如果");
+    // 条件句族=满足…时 / 或满足…时 / 都不满足时：三行同一词根（满足），
+    // 分支关系用 或/都 表达——「否则如果」这类程序腔用户看不懂（第三轮措辞迭代）
+    public static final Loc T_ELSE = new Loc("gui.sfmfactorystudio.blocks.else", "都不满足时：");
+    // 否则如果行的行前缀（与「+ 或满足…」按钮叫法一致）
+    public static final Loc T_ELSEIF = new Loc("gui.sfmfactorystudio.blocks.elseif", "或满足");
     public static final Loc T_ADDELSE = new Loc("gui.sfmfactorystudio.blocks.addelse", "+ 否则");
     public static final Loc T_ADDCOND = new Loc("gui.sfmfactorystudio.blocks.addcond", "＋ 添加判断");
-    public static final Loc T_ADDELSEIF = new Loc("gui.sfmfactorystudio.blocks.addelseif", "+ 否则如果");
+    public static final Loc T_ADDELSEIF = new Loc("gui.sfmfactorystudio.blocks.addelseif", "+ 或满足…");
 
     public static final Loc T_AND = new Loc("gui.sfmfactorystudio.blocks.and", "且");
     public static final Loc T_OR = new Loc("gui.sfmfactorystudio.blocks.or", "或");
     public static final Loc T_COND = new Loc("gui.sfmfactorystudio.blocks.cond", "条件");
     // has 条件的存在动词：与代码层 `if a has …` 一词对应（勿用「取出」这类动作词）
     public static final Loc T_COND_HAS = new Loc("gui.sfmfactorystudio.blocks.cond_has", "中有");
+    // 比较符的自然中文转写（主判断行可读性：「>= 1 物品」→「至少 1 个物品」）+ 量词
+    public static final Loc T_CMP_GT = new Loc("gui.sfmfactorystudio.blocks.cmp_gt", "多于");
+    public static final Loc T_CMP_GE = new Loc("gui.sfmfactorystudio.blocks.cmp_ge", "至少");
+    public static final Loc T_CMP_EQ = new Loc("gui.sfmfactorystudio.blocks.cmp_eq", "正好");
+    public static final Loc T_CMP_LE = new Loc("gui.sfmfactorystudio.blocks.cmp_le", "最多");
+    public static final Loc T_CMP_LT = new Loc("gui.sfmfactorystudio.blocks.cmp_lt", "不足");
+    public static final Loc T_COND_UNIT = new Loc("gui.sfmfactorystudio.blocks.cond_unit", "个");
     public static final Loc T_LABEL = new Loc("gui.sfmfactorystudio.blocks.label", "标签");
     public static final Loc T_ADDSTMT = new Loc("gui.sfmfactorystudio.blocks.add_stmt", "+ 放入积木");
 
