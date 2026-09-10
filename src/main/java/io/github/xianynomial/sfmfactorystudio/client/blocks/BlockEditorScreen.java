@@ -3965,10 +3965,15 @@ public class BlockEditorScreen extends Screen {
         String saveLbl = T_MY_SAVE.getString();
         int saveW = this.font.width(saveLbl) + 12;
         int saveX = px + pw - saveW - 6;
+        // 状态切换（用户反馈）：无选区=灰色胶囊待机观感，框选积木后变绿=就绪
+        boolean saveHasSel = !selection.isEmpty() || !selectedTriggers.isEmpty();
+        int saveAccent = saveHasSel ? 0xFF0FA968 : 0xFF8A94A0;
         boolean saveHover = mx >= saveX && mx < saveX + saveW && my >= myHdrY && my < myHdrY + 15;
-        rounded(g, saveX, myHdrY + 1, saveW, 14, 6, saveHover ? 0x330FA968 : 0x1A0FA968);
-        if (saveHover) border(g, saveX, myHdrY + 1, saveW, 14, 0x660FA968);
-        text(g, saveLbl, saveX + 6, myHdrY + 4, 0xFF0FA968);
+        rounded(g, saveX, myHdrY + 1, saveW, 14, 6, saveHasSel
+                ? (saveHover ? 0x330FA968 : 0x1A0FA968)
+                : (saveHover ? 0x2A8A94A0 : 0x148A94A0));
+        if (saveHover) border(g, saveX, myHdrY + 1, saveW, 14, saveHasSel ? 0x660FA968 : 0x558A94A0);
+        text(g, saveLbl, saveX + 6, myHdrY + 4, saveAccent);
         uiHits.add(hit(saveX, myHdrY, saveW, 15, K_PALETTE, "mytpl_save", null));
         if (mine.isEmpty()) {
             text(g, T_MY_HINT.getString(), px + 10, py + 2, C_TEXT_SUB);

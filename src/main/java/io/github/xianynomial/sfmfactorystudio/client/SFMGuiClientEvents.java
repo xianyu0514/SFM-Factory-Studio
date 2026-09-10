@@ -5,6 +5,7 @@ import io.github.xianynomial.sfmfactorystudio.SFMGui;
 import io.github.xianynomial.sfmfactorystudio.net.OpenEditorHelper;
 import io.github.xianynomial.sfmfactorystudio.net.PullLabelsPacket;
 import io.github.xianynomial.sfmfactorystudio.net.SFMGuiNetwork;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraftforge.api.distmarker.Dist;
@@ -87,6 +88,11 @@ public final class SFMGuiClientEvents {
         }
         visualBtn.render(event.getGuiGraphics(), event.getMouseX(), event.getMouseY(), event.getPartialTick());
         pullBtn.render(event.getGuiGraphics(), event.getMouseX(), event.getMouseY(), event.getPartialTick());
+        // 专属标识（用户反馈：要能和原生按钮区分）——左缘竖向强调条，与编辑器卡片的左色条同一视觉语言
+        GuiGraphics g = event.getGuiGraphics();
+        int x = colX(ms);
+        g.fill(x + 2, visualY(ms) + 2, x + 5, visualY(ms) + BTN_H - 2, 0xFF2F6FED);
+        g.fill(x + 2, pullY(ms) + 2, x + 5, pullY(ms) + BTN_H - 2, 0xFF2F6FED);
     }
 
     @SubscribeEvent
