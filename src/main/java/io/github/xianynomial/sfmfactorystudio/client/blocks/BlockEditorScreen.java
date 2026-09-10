@@ -6936,8 +6936,8 @@ public class BlockEditorScreen extends Screen {
                 }
                 fx = drawText(g, fx, y, first ? T_IF.getString() : T_ELSEIF.getString());
                 fx = renderCond(g, b.cond, fx, y, mx, my);
+                fx = drawText(g, fx, y, T_WHEN_THEN.getString());
                 if (first) {
-                    fx = drawText(g, fx, y, T_WHEN_THEN.getString());
                     fx = drawIcon(g, fx, y, "▼", () -> toggleIfCollapse(iff), mx, my, C_TEXT_SUB);
                 }
                 final int fbi = bi;
@@ -7032,18 +7032,32 @@ public class BlockEditorScreen extends Screen {
     }
 
     private String condSummary(BProgram.Bool.Has h) {
-        // has 条件是查询不是动作：句子用存在动词，与代码层 `if a has …` 一词对应
-        // （用户反馈「从 a 取出」读不懂）：当 [仓库] 中有 >= 64 铁锭 时：
+        // has 条件是查询不是动作：句子用存在动词，与代码层 `if a has …` 一词对应；
+        // 比较符转写自然词 + 量词「个」（用户反馈「>= 1 物品」不自然）：
+        // 满足 [仓库 中有 至少 1 个 物品] 时：
         StringBuilder sb = new StringBuilder(h.access.labels.isEmpty() ? "?" : String.join("+", h.access.labels));
         sb.append(' ').append(T_COND_HAS.getString());
         if (h.setMode != BProgram.Bool.SetMode.DEFAULT) sb.append(' ').append(setOpZh(h.setMode));
-        sb.append(' ').append(h.comparison.symbol()).append(' ').append(h.number);
+        sb.append(' ').append(cmpWord(h.comparison).getString()).append(' ').append(h.number)
+                .append(T_COND_UNIT.getString());
         if (!h.resources.isEmpty()) {
             BProgram.ResourceRef resource = h.resources.get(0);
-            // 通配显示类别名（物品/流体…），具体资源只显示短名——主行读作「仓库 中有 >= 1 物品」
+            // 通配显示类别名（物品/流体…），具体资源只显示短名——主行读作「仓库 中有 至少 1 个 物品」
             sb.append(' ').append(resource.isWildcard() ? resource.kind().chineseName() : shortResource(resource));
         }
         return sb.toString();
+    }
+
+    /** 比较符的自然中文转写（与比较符菜单的多于/至少/正好/最多/不足一一对应）。 */
+    private static Loc cmpWord(BProgram.Bool.Comparison c) {
+        BProgram.Bool.Comparison cmp = c == null ? BProgram.Bool.Comparison.GE : c;
+        return switch (cmp) {
+            case GT -> T_CMP_GT;
+            case GE -> T_CMP_GE;
+            case EQ -> T_CMP_EQ;
+            case LE -> T_CMP_LE;
+            case LT -> T_CMP_LT;
+        };
     }
 
     private String setOpZh(BProgram.Bool.SetMode op) {
@@ -8105,7 +8119,7 @@ public class BlockEditorScreen extends Screen {
                         has.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", has.access.labels), 50,
                         () -> showLabelEditor(subAnchorX, subAnchorY, has.access.labels, false), mx, my);
                 rx = drawT(g, fnt, rx, T_COND_HAS.getString());
-                rx = drawP(g, fnt, rx, has.comparison.symbol(), 24, () -> setPopup(new Popup.ChoicePopup(
+                rx = drawP(g, fnt, rx, cmpWord(has.comparison).getString(), 36, () -> setPopup(new Popup.ChoicePopup(
                         subAnchorX, subAnchorY, 90, List.of(">", ">=", "=", "<=", "<"),
                         List.of("多于（>）", "至少（≥）", "正好（=）", "最多（≤）", "不足（<）"), has.comparison.symbol(), v -> {
                             pushUndo();
