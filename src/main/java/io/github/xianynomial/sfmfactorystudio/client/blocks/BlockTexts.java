@@ -38,7 +38,7 @@ public final class BlockTexts {
     public static final Loc T_QTY_TOTAL = new Loc("gui.sfmfactorystudio.blocks.qty_total", "合计");
     public static final Loc T_ENERGY_TRANSFER = new Loc("gui.sfmfactorystudio.blocks.energy_transfer", "高频传输能量");
     public static final Loc T_FORGET = new Loc("gui.sfmfactorystudio.blocks.forget", "清空取出记录");
-    public static final Loc T_IF = new Loc("gui.sfmfactorystudio.blocks.if", "当");
+    public static final Loc T_IF = new Loc("gui.sfmfactorystudio.blocks.if", "如果");
     public static final Loc T_RAW = new Loc("gui.sfmfactorystudio.blocks.raw", "旧版内容（只读）");
     public static final Loc T_COMMENT = new Loc("gui.sfmfactorystudio.blocks.comment", "注释");
     public static final Loc T_EVERY = new Loc("gui.sfmfactorystudio.blocks.every", "每");
@@ -54,7 +54,8 @@ public final class BlockTexts {
 
 
 
-    public static final Loc T_ELSE = new Loc("gui.sfmfactorystudio.blocks.else", "以上都不满足时：");
+    // 条件句族=如果/那么/否则如果/否则（Scratch 系标准搭配，「否则」靠「如果」锚定才自解释）
+    public static final Loc T_ELSE = new Loc("gui.sfmfactorystudio.blocks.else", "否则：");
     // 否则如果行的行前缀（与「+ 否则如果」按钮叫法一致）
     public static final Loc T_ELSEIF = new Loc("gui.sfmfactorystudio.blocks.elseif", "否则如果");
     public static final Loc T_ADDELSE = new Loc("gui.sfmfactorystudio.blocks.addelse", "+ 否则");
