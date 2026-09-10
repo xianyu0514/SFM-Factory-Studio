@@ -5,8 +5,7 @@ import io.github.xianynomial.sfmfactorystudio.SFMGui;
 import io.github.xianynomial.sfmfactorystudio.net.OpenEditorHelper;
 import io.github.xianynomial.sfmfactorystudio.net.PullLabelsPacket;
 import io.github.xianynomial.sfmfactorystudio.net.SFMGuiNetwork;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -16,9 +15,10 @@ import net.minecraftforge.event.TagsUpdatedEvent;
 
 /**
  * Injects addon buttons ("Visual Edit" and "Pull Labels") onto SFM's manager
- * screen without modifying SFM. Buttons are drawn and click-handled entirely
- * from screen events, stacked in SFM's left button column just above the "Edit"
- * button (in the gap below "Paste from clipboard").
+ * screen without modifying SFM. The buttons are real vanilla {@link Button}
+ * widgets rendered from the render event, so they look exactly like SFM's own
+ * buttons (user feedback: hand-drawn flat fills read as "not clickable").
+ * Clicks are still handled from the mouse event with the same bounds.
  */
 @Mod.EventBusSubscriber(modid = SFMGui.MOD_ID, value = Dist.CLIENT)
 public final class SFMGuiClientEvents {
@@ -45,6 +45,10 @@ public final class SFMGuiClientEvents {
     private static final int BTN_H = 16;
     private static final int COL_DX = 120; // left column offset from guiLeft
 
+    /** Render-only vanilla widgets; recreated on every screen init (covers resize). */
+    private static Button visualBtn;
+    private static Button pullBtn;
+
     private SFMGuiClientEvents() {
     }
 
@@ -63,22 +67,26 @@ public final class SFMGuiClientEvents {
     }
 
     @SubscribeEvent
-    public static void onRenderPost(ScreenEvent.Render.Post event) {
+    public static void onInitPost(ScreenEvent.Init.Post event) {
         if (!(event.getScreen() instanceof ManagerScreen ms)) {
+            visualBtn = null;
+            pullBtn = null;
             return;
         }
-        GuiGraphics g = event.getGuiGraphics();
         int x = colX(ms);
-        drawButton(g, x, visualY(ms), VISUAL_EDIT.getComponent().getString(),
-                inside(event.getMouseX(), event.getMouseY(), x, visualY(ms)));
-        drawButton(g, x, pullY(ms), PULL_LABELS.getComponent().getString(),
-                inside(event.getMouseX(), event.getMouseY(), x, pullY(ms)));
+        visualBtn = Button.builder(VISUAL_EDIT.getComponent(), b -> {
+        }).bounds(x, visualY(ms), BTN_W, BTN_H).build();
+        pullBtn = Button.builder(PULL_LABELS.getComponent(), b -> {
+        }).bounds(x, pullY(ms), BTN_W, BTN_H).build();
     }
 
-    private static void drawButton(GuiGraphics g, int x, int y, String text, boolean hover) {
-        g.fill(x, y, x + BTN_W, y + BTN_H, 0xFF000000);
-        g.fill(x + 1, y + 1, x + BTN_W - 1, y + BTN_H - 1, hover ? 0xFF5A5A5A : 0xFF3A3A3A);
-        g.drawCenteredString(Minecraft.getInstance().font, text, x + BTN_W / 2, y + 3, 0xFFFFFFFF);
+    @SubscribeEvent
+    public static void onRenderPost(ScreenEvent.Render.Post event) {
+        if (!(event.getScreen() instanceof ManagerScreen ms) || visualBtn == null || pullBtn == null) {
+            return;
+        }
+        visualBtn.render(event.getGuiGraphics(), event.getMouseX(), event.getMouseY(), event.getPartialTick());
+        pullBtn.render(event.getGuiGraphics(), event.getMouseX(), event.getMouseY(), event.getPartialTick());
     }
 
     @SubscribeEvent

@@ -15,12 +15,15 @@ public final class BlockTexts {
     public static final Loc T_UNDO = new Loc("gui.sfmfactorystudio.blocks.undo", "撤销");
     public static final Loc T_FIT = new Loc("gui.sfmfactorystudio.blocks.fit", "适配");
     public static final Loc T_NAME = new Loc("gui.sfmfactorystudio.blocks.name", "程序名");
-    public static final Loc T_CAT_TRIGGER = new Loc("gui.sfmfactorystudio.blocks.cat_trigger", "触发器");
-    public static final Loc T_CAT_MOVE = new Loc("gui.sfmfactorystudio.blocks.cat_move", "搬运资源");
+    public static final Loc T_CAT_TRIGGER = new Loc("gui.sfmfactorystudio.blocks.cat_trigger", "新建任务");
+    public static final Loc T_CAT_MOVE = new Loc("gui.sfmfactorystudio.blocks.cat_move", "插入积木");
     public static final Loc T_CAT_LOGIC = new Loc("gui.sfmfactorystudio.blocks.cat_logic", "判断");
     public static final Loc T_CAT_RAW = new Loc("gui.sfmfactorystudio.blocks.cat_raw", "说明");
     public static final Loc T_CAT_TPL = new Loc("gui.sfmfactorystudio.blocks.cat_tpl", "一键模板");
     public static final Loc T_CAT_MY = new Loc("gui.sfmfactorystudio.blocks.cat_my", "我的模板");
+    // 「我的模板」分组头右侧的保存入口 + 空态提示（存为模板从框选动作条迁来，动作条减负）
+    public static final Loc T_MY_SAVE = new Loc("gui.sfmfactorystudio.blocks.mytpl_save", "★ 保存");
+    public static final Loc T_MY_HINT = new Loc("gui.sfmfactorystudio.blocks.mytpl_hint", "框选积木后点「★ 保存」");
     public static final Loc T_TIMER = new Loc("gui.sfmfactorystudio.blocks.timer", "定时重复执行");
     public static final Loc T_PULSE = new Loc("gui.sfmfactorystudio.blocks.pulse", "收到红石脉冲时");
     public static final Loc T_INPUT = new Loc("gui.sfmfactorystudio.blocks.input", "从方块取出");
@@ -34,7 +37,7 @@ public final class BlockTexts {
     public static final Loc T_QTY_EACH_KIND = new Loc("gui.sfmfactorystudio.blocks.qty_each_kind", "每种");
     public static final Loc T_QTY_TOTAL = new Loc("gui.sfmfactorystudio.blocks.qty_total", "合计");
     public static final Loc T_ENERGY_TRANSFER = new Loc("gui.sfmfactorystudio.blocks.energy_transfer", "高频传输能量");
-    public static final Loc T_FORGET = new Loc("gui.sfmfactorystudio.blocks.forget", "清空本轮取出记录");
+    public static final Loc T_FORGET = new Loc("gui.sfmfactorystudio.blocks.forget", "清空取出记录");
     public static final Loc T_IF = new Loc("gui.sfmfactorystudio.blocks.if", "当");
     public static final Loc T_RAW = new Loc("gui.sfmfactorystudio.blocks.raw", "旧版内容（只读）");
     public static final Loc T_COMMENT = new Loc("gui.sfmfactorystudio.blocks.comment", "注释");
@@ -51,7 +54,9 @@ public final class BlockTexts {
 
 
 
-    public static final Loc T_ELSE = new Loc("gui.sfmfactorystudio.blocks.else", "否则：");
+    public static final Loc T_ELSE = new Loc("gui.sfmfactorystudio.blocks.else", "以上都不满足时：");
+    // 否则如果行的行前缀（与「+ 否则如果」按钮叫法一致）
+    public static final Loc T_ELSEIF = new Loc("gui.sfmfactorystudio.blocks.elseif", "否则如果");
     public static final Loc T_ADDELSE = new Loc("gui.sfmfactorystudio.blocks.addelse", "+ 否则");
     public static final Loc T_ADDCOND = new Loc("gui.sfmfactorystudio.blocks.addcond", "＋ 添加判断");
     public static final Loc T_ADDELSEIF = new Loc("gui.sfmfactorystudio.blocks.addelseif", "+ 否则如果");
@@ -59,6 +64,8 @@ public final class BlockTexts {
     public static final Loc T_AND = new Loc("gui.sfmfactorystudio.blocks.and", "且");
     public static final Loc T_OR = new Loc("gui.sfmfactorystudio.blocks.or", "或");
     public static final Loc T_COND = new Loc("gui.sfmfactorystudio.blocks.cond", "条件");
+    // has 条件的存在动词：与代码层 `if a has …` 一词对应（勿用「取出」这类动作词）
+    public static final Loc T_COND_HAS = new Loc("gui.sfmfactorystudio.blocks.cond_has", "中有");
     public static final Loc T_LABEL = new Loc("gui.sfmfactorystudio.blocks.label", "标签");
     public static final Loc T_ADDSTMT = new Loc("gui.sfmfactorystudio.blocks.add_stmt", "+ 放入积木");
 
