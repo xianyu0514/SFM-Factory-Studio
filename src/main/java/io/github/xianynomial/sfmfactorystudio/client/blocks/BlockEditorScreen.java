@@ -1136,6 +1136,9 @@ public class BlockEditorScreen extends Screen {
     private BProgram.Bool.Has newConditionHas() {
         var has = new BProgram.Bool.Has();
         has.access.labels.add(knownLabels.isEmpty() ? "a" : knownLabels.get(0));
+        // 默认 >= 1（「a 中有至少 1 个」= 非空判断，句子有真实含义）；
+        // >= 0 恒真，是无意义的空句（用户反馈原话"这句话读不懂"的另一半根因）
+        has.number = 1;
         return has;
     }
 
@@ -2943,6 +2946,13 @@ public class BlockEditorScreen extends Screen {
             case "ex_recovery" -> loadExample("ex_recovery");
             case "tpl_even" -> templateEven();
             case "tpl_fast" -> templateFast();
+            case "mytpl_save" -> {
+                if (selection.isEmpty() && selectedTriggers.isEmpty()) {
+                    showStatus(S_SELECT_TO_SAVE.getString(), 0xFFB45309);
+                } else {
+                    saveSelectionAsTemplate();
+                }
+            }
             default -> {
                 if (kind.startsWith("mytpl:")) {
                     insertTemplate(kind.substring(6));
@@ -3766,8 +3776,6 @@ public class BlockEditorScreen extends Screen {
         py += 21;
         paletteItem(g, px + 4, py, pw - 8, "output", T_OUTPUT.getString(), A_OUTPUT, mx, my);
         py += 21;
-        paletteItem(g, px + 4, py, pw - 8, "energy", T_ENERGY_TRANSFER.getString(), A_ENERGY, mx, my);
-        py += 21;
         paletteItem(g, px + 4, py, pw - 8, "forget", T_FORGET.getString(), A_FORGET, mx, my);
         py += 26;
         py = section(g, px, py, T_CAT_LOGIC.getString(), A_IF);
@@ -3784,10 +3792,28 @@ public class BlockEditorScreen extends Screen {
         paletteItem(g, px + 4, py, pw - 8, "tpl_even", T_TPL_EVEN.getString(), C_SELECT, mx, my);
         py += 21;
         paletteItem(g, px + 4, py, pw - 8, "tpl_fast", T_TPL_FAST.getString(), C_SELECT, mx, my);
+        py += 21;
+        // 高频传输能量是整张任务卡（模板），不是插进卡里的语句——从「插入积木」迁来
+        //（用户反馈：上下都是插入语句、唯独它新建任务，操作逻辑不顺）
+        paletteItem(g, px + 4, py, pw - 8, "energy", T_ENERGY_TRANSFER.getString(), A_ENERGY, mx, my);
         py += 26;
         List<TplEntry> mine = loadTemplates();
-        if (!mine.isEmpty()) {
-            py = section(g, px, py, T_CAT_MY.getString(), 0xFF0FA968);
+        // 「我的模板」分组常驻：保存入口钉在分组头右侧（原框选动作条的 ★ 存为模板 迁来，
+        // 动作条减负），空态给一行灰字提示——用户反馈"找不到保存模板"，功能在但不可见等于没有
+        int myHdrY = py;
+        py = section(g, px, py, T_CAT_MY.getString(), 0xFF0FA968);
+        String saveLbl = T_MY_SAVE.getString();
+        int saveW = this.font.width(saveLbl) + 12;
+        int saveX = px + pw - saveW - 6;
+        boolean saveHover = mx >= saveX && mx < saveX + saveW && my >= myHdrY && my < myHdrY + 15;
+        rounded(g, saveX, myHdrY + 1, saveW, 14, 6, saveHover ? 0x330FA968 : 0x1A0FA968);
+        if (saveHover) border(g, saveX, myHdrY + 1, saveW, 14, 0x660FA968);
+        text(g, saveLbl, saveX + 6, myHdrY + 4, 0xFF0FA968);
+        uiHits.add(hit(saveX, myHdrY, saveW, 15, K_PALETTE, "mytpl_save", null));
+        if (mine.isEmpty()) {
+            text(g, T_MY_HINT.getString(), px + 10, py + 2, C_TEXT_SUB);
+            py += 16;
+        } else {
             for (TplEntry e : mine) {
                 paletteItem(g, px + 4, py, pw - 8, "mytpl:" + e.name(), e.name(), 0xFF0FA968, mx, my);
                 py += 21;
@@ -4413,14 +4439,15 @@ public class BlockEditorScreen extends Screen {
             actionBarVisible = hasSel && actionBarVisible;
             if (!actionBarVisible) return;
         }
-        int w = 5 * 62 + 10;
+        int w = 4 * 62 + 10;
         int h = 24;
         rounded(g, abX + 2, abY + 3, w, h, 8, G_SHADOW);
         rounded(g, abX, abY, w, h, 8, 0xF4FFFFFF);
         border(g, abX, abY, w, h, 0x802F6FED);
-        String[] labels = {M_BATCH_EDIT.getString(), T_AB_COPY.getString(), T_AB_TPL.getString(),
+        // ★ 存为模板 已迁到积木库「我的模板」分组头（常驻可见），动作条只留高频操作
+        String[] labels = {M_BATCH_EDIT.getString(), T_AB_COPY.getString(),
                 T_AB_DEL.getString(), T_AB_CANCEL.getString()};
-        int[] colors = {0xFF0C8F58, 0xFF2F6FED, 0xFF7C3AED, 0xFFDC2626, 0xFF5B6472};
+        int[] colors = {0xFF0C8F58, 0xFF2F6FED, 0xFFDC2626, 0xFF5B6472};
         int bx = abX + 5;
         for (int i = 0; i < labels.length; i++) {
             int bw = 58;
@@ -4432,8 +4459,7 @@ public class BlockEditorScreen extends Screen {
                 switch (idx) {
                     case 0 -> openBatchEditMenu(abX, abY + 26);
                     case 1 -> copySelection();
-                    case 2 -> saveSelectionAsTemplate();
-                    case 3 -> deleteSelection();
+                    case 2 -> deleteSelection();
                     default -> {
                         selection.clear();
                         selectedTriggers.clear();
@@ -6570,7 +6596,7 @@ public class BlockEditorScreen extends Screen {
                 } else {
                     fx = x + 12;
                 }
-                fx = drawText(g, fx, y, first ? T_IF.getString() : T_ELSE.getString());
+                fx = drawText(g, fx, y, first ? T_IF.getString() : T_ELSEIF.getString());
                 fx = renderCond(g, b.cond, fx, y, mx, my);
                 if (first) {
                     fx = drawText(g, fx, y, T_WHEN_THEN.getString());
@@ -6668,11 +6694,10 @@ public class BlockEditorScreen extends Screen {
     }
 
     private String condSummary(BProgram.Bool.Has h) {
-        // has 条件语义=「从该标签取出的数量」，句子补出 从/取出 动词才自然：
-        // 当 从 [仓库] 取出 >= 64 铁锭 时：
-        StringBuilder sb = new StringBuilder(T_IO_FROM.getString()).append(' ');
-        sb.append(h.access.labels.isEmpty() ? "?" : String.join("+", h.access.labels));
-        sb.append(' ').append(T_IO_TAKE.getString());
+        // has 条件是查询不是动作：句子用存在动词，与代码层 `if a has …` 一词对应
+        // （用户反馈「从 a 取出」读不懂）：当 [仓库] 中有 >= 64 铁锭 时：
+        StringBuilder sb = new StringBuilder(h.access.labels.isEmpty() ? "?" : String.join("+", h.access.labels));
+        sb.append(' ').append(T_COND_HAS.getString());
         if (h.setMode != BProgram.Bool.SetMode.DEFAULT) sb.append(' ').append(setOpZh(h.setMode));
         sb.append(' ').append(h.comparison.symbol()).append(' ').append(h.number);
         if (!h.resources.isEmpty()) sb.append(' ').append(shortResource(h.resources.get(0)));
@@ -7812,15 +7837,12 @@ public class BlockEditorScreen extends Screen {
                     }, mx, my);
             BProgram.Bool.Has has = asHas();
             if (has != null) {
-                // 自然语序（对照 If 行 v3）：从 [标签] 取出 [比较] [数量] [资源]。
-                // 低频高级项不再全铺（官方 8 示例的条件只出现过 标签+比较+数量+资源，
-                // 合计/资源标签/排除/侧面/槽位/轮流全部零使用）：已配置的以药丸回显
-                // 可编辑，未配置的收进「＋更多…」子菜单——弹窗从 14 颗回到主句。
-                rx = drawT(g, fnt, rx, T_IO_FROM.getString());
+                // 自然语序：[标签] 中有 [比较] [数量] [资源]。存在动词与代码层 has 一词
+                // 对应（用户反馈「取出」读作动作、条件句难懂），低频高级项收进「＋更多…」。
                 rx = drawP(g, fnt, rx,
                         has.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", has.access.labels), 50,
                         () -> showLabelEditor(subAnchorX, subAnchorY, has.access.labels, false), mx, my);
-                rx = drawT(g, fnt, rx, T_IO_TAKE.getString());
+                rx = drawT(g, fnt, rx, T_COND_HAS.getString());
                 rx = drawP(g, fnt, rx, has.comparison.symbol(), 24, () -> setPopup(new Popup.ChoicePopup(
                         subAnchorX, subAnchorY, 90, List.of(">", ">=", "=", "<=", "<"),
                         List.of("多于（>）", "至少（≥）", "正好（=）", "最多（≤）", "不足（<）"), has.comparison.symbol(), v -> {
