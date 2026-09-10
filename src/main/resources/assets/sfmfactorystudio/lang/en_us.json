@@ -444,6 +444,8 @@
   "gui.sfmfactorystudio.ed.tpl_only_comments": "This template has no real blocks (only comments) — please save it again",
   "gui.sfmfactorystudio.ed.tpl_save_failed": "Saving the template failed — check that the config folder is writable",
   "gui.sfmfactorystudio.ed.tpl_saved": "Template \"%s\" saved",
+  "gui.sfmfactorystudio.ed.tpl_delete": "✕ Delete template \"%s\"",
+  "gui.sfmfactorystudio.ed.tpl_deleted": "✔ Template \"%s\" deleted",
   "gui.sfmfactorystudio.ed.trigger_created": "New trigger created here — drag blocks in from the left",
   "gui.sfmfactorystudio.ed.undo_failed": "Undo failed: the history entry cannot be parsed",
   "gui.sfmfactorystudio.ed.undone": "Undone",
