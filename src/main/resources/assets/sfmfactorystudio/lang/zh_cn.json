@@ -461,6 +461,8 @@
   "gui.sfmfactorystudio.ed.tpl_only_comments": "这个模板没有任何有效积木（只有注释），请重新保存",
   "gui.sfmfactorystudio.ed.tpl_save_failed": "模板保存失败，请检查配置目录是否可写",
   "gui.sfmfactorystudio.ed.tpl_saved": "已保存模板「%s」",
+  "gui.sfmfactorystudio.ed.tpl_delete": "✕ 删除模板「%s」",
+  "gui.sfmfactorystudio.ed.tpl_deleted": "✔ 已删除模板「%s」",
   "gui.sfmfactorystudio.ed.trigger_created": "已在此处新建触发器，从左侧拖入积木",
   "gui.sfmfactorystudio.ed.undo_failed": "撤销失败：历史内容无法解析",
   "gui.sfmfactorystudio.ed.undone": "已撤销上一步操作",

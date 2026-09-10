@@ -183,6 +183,8 @@ public class BlockEditorScreen extends Screen {
     static final Loc S_MY_TEMPLATES = E("my_templates", "我的模板");
     static final Loc S_TPL_NAME_EMPTY = E("tpl_name_empty", "模板名称不能为空");
     static final Loc S_TPL_SAVED = E("tpl_saved", "已保存模板「%s」");
+    static final Loc S_TPL_DELETE = E("tpl_delete", "✕ 删除模板「%s」");
+    static final Loc S_TPL_DELETED = E("tpl_deleted", "✔ 已删除模板「%s」");
     static final Loc S_TPL_SAVE_FAILED = E("tpl_save_failed", "模板保存失败，请检查配置目录是否可写");
     static final Loc S_SAVE_TEMPLATE = E("save_template", "保存模板");
     static final Loc S_DRAFT_CHANGED = E("draft_changed", "已保存内容后来有变化，请确认是否恢复旧草稿。");
@@ -3719,6 +3721,39 @@ public class BlockEditorScreen extends Screen {
         }
     }
 
+    private boolean deleteTemplateFile(String name) {
+        try {
+            Path dir = FMLPaths.CONFIGDIR.get().resolve("sfmfactorystudio");
+            Files.createDirectories(dir);
+            Path file = dir.resolve("templates.json");
+            Path temp = dir.resolve("templates.json.tmp");
+            List<TplEntry> list = new ArrayList<>(loadTemplates());
+            list.removeIf(e -> e.name().equals(name));
+            Files.writeString(temp, GSON.toJson(list));
+            try {
+                Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException noAtomicMove) {
+                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+            }
+            templateCache = List.copyOf(list);
+            return true;
+        } catch (IOException ignored) {
+            return false;
+        }
+    }
+
+    /** 删除「我的模板」：悬停条目右侧 ✕ → 二次确认（用户反馈：模板无法删除）。 */
+    private void confirmDeleteTemplate(String name) {
+        setPopup(new Popup.ChoicePopup(sX(panelX + panelW / 2 - 90), sY(panelY + panelH / 2 - 20), 180,
+                List.of("delete", "cancel"),
+                List.of(S_TPL_DELETE.getString(name), T_AB_CANCEL.getString()), "",
+                action -> {
+                    if (action.equals("delete") && deleteTemplateFile(name)) {
+                        showStatus(S_TPL_DELETED.getString(name), 0xFF0C8F58);
+                    }
+                }));
+    }
+
     private void insertTemplate(String name) {
         for (TplEntry e : loadTemplates()) {
             if (e.name().equals(name)) {
@@ -3981,6 +4016,12 @@ public class BlockEditorScreen extends Screen {
         } else {
             for (TplEntry e : mine) {
                 paletteItem(g, px + 4, py, pw - 8, "mytpl:" + e.name(), e.name(), 0xFF0FA968, mx, my);
+                // 悬停 ✕ 删除模板（用户反馈：我的模板没有删除入口）；注册在整行命中之后=优先命中
+                final TplEntry tplEntry = e;
+                int delX = px + pw - 20;
+                boolean delHover = mx >= delX && mx < delX + 16 && my >= py && my < py + 17;
+                text(g, "✕", delX + 4, py + 4, delHover ? 0xFFDC2626 : 0x80808896);
+                uiHits.add(hit(delX, py, 16, 17, K_CLICK, null, () -> confirmDeleteTemplate(tplEntry.name())));
                 py += 21;
             }
             py += 4;

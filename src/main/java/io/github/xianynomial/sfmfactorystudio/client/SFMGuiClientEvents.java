@@ -46,9 +46,12 @@ public final class SFMGuiClientEvents {
     private static final int BTN_H = 16;
     private static final int COL_DX = 120; // left column offset from guiLeft
 
-    /** Render-only vanilla widgets; recreated on every screen init (covers resize). */
+    /** Render-only vanilla widgets; lazily (re)created at render time so the buttons
+     *  exist for EVERY ManagerScreen render, however the screen came back — user report:
+     *  after opening SFM's own editor and returning, Init-only creation left them gone. */
     private static Button visualBtn;
     private static Button pullBtn;
+    private static AbstractContainerScreen<?> lastScreen;
 
     private SFMGuiClientEvents() {
     }
@@ -68,23 +71,20 @@ public final class SFMGuiClientEvents {
     }
 
     @SubscribeEvent
-    public static void onInitPost(ScreenEvent.Init.Post event) {
+    public static void onRenderPost(ScreenEvent.Render.Post event) {
         if (!(event.getScreen() instanceof ManagerScreen ms)) {
             visualBtn = null;
             pullBtn = null;
+            lastScreen = null;
             return;
         }
-        int x = colX(ms);
-        visualBtn = Button.builder(VISUAL_EDIT.getComponent(), b -> {
-        }).bounds(x, visualY(ms), BTN_W, BTN_H).build();
-        pullBtn = Button.builder(PULL_LABELS.getComponent(), b -> {
-        }).bounds(x, pullY(ms), BTN_W, BTN_H).build();
-    }
-
-    @SubscribeEvent
-    public static void onRenderPost(ScreenEvent.Render.Post event) {
-        if (!(event.getScreen() instanceof ManagerScreen ms) || visualBtn == null || pullBtn == null) {
-            return;
+        if (visualBtn == null || pullBtn == null || lastScreen != ms) {
+            int x = colX(ms);
+            visualBtn = Button.builder(VISUAL_EDIT.getComponent(), b -> {
+            }).bounds(x, visualY(ms), BTN_W, BTN_H).build();
+            pullBtn = Button.builder(PULL_LABELS.getComponent(), b -> {
+            }).bounds(x, pullY(ms), BTN_W, BTN_H).build();
+            lastScreen = ms;
         }
         visualBtn.render(event.getGuiGraphics(), event.getMouseX(), event.getMouseY(), event.getPartialTick());
         pullBtn.render(event.getGuiGraphics(), event.getMouseX(), event.getMouseY(), event.getPartialTick());
