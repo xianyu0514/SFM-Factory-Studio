@@ -1227,9 +1227,11 @@ public class BlockEditorScreen extends Screen {
     private BProgram.Bool.Has newConditionHas() {
         var has = new BProgram.Bool.Has();
         has.access.labels.add(knownLabels.isEmpty() ? "a" : knownLabels.get(0));
-        // 默认 >= 1（「a 中有至少 1 个」= 非空判断，句子有真实含义）；
-        // >= 0 恒真，是无意义的空句（用户反馈原话"这句话读不懂"的另一半根因）
+        // 默认「<标签> 中有 >= 1 物品」：>= 1 是真实的非空判断（>= 0 恒真=无意义空句，
+        // 用户反馈原话"这句话读不懂"的另一半根因）；通配物品让资源类别在主判断行可见
+        //（用户反馈：资源类别不该藏在编辑菜单里）
         has.number = 1;
+        has.resources.add(BProgram.ResourceRef.forKind(BProgram.ResourceKind.ITEM));
         return has;
     }
 
@@ -7031,7 +7033,11 @@ public class BlockEditorScreen extends Screen {
         sb.append(' ').append(T_COND_HAS.getString());
         if (h.setMode != BProgram.Bool.SetMode.DEFAULT) sb.append(' ').append(setOpZh(h.setMode));
         sb.append(' ').append(h.comparison.symbol()).append(' ').append(h.number);
-        if (!h.resources.isEmpty()) sb.append(' ').append(shortResource(h.resources.get(0)));
+        if (!h.resources.isEmpty()) {
+            BProgram.ResourceRef resource = h.resources.get(0);
+            // 通配显示类别名（物品/流体…），具体资源只显示短名——主行读作「仓库 中有 >= 1 物品」
+            sb.append(' ').append(resource.isWildcard() ? resource.kind().chineseName() : shortResource(resource));
+        }
         return sb.toString();
     }
 
