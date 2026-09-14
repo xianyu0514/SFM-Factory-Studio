@@ -26,7 +26,7 @@ public class SFMGui {
     public static final Logger LOGGER = LoggerFactory.getLogger("SFMGui");
 
     public SFMGui() {
-        LOGGER.info("SFM Factory Studio (SFM 智造工坊) 1.20.1 Forge port loaded");
+        LOGGER.info("SFM Factory Studio 1.20.1 Forge port loaded");
         // 服务端 TPS 节流（与 1.21.1 版对齐）：config/sfmfactorystudio-common.toml，
         // 默认全关 = 与原版 SFM 行为完全一致
         TpsConfig.register();

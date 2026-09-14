@@ -57,7 +57,7 @@ public final class TpsConfig {
                     TICK_BUDGET_MS.get());
         } catch (Throwable t) {
             // 配置未就绪按默认值跑（默认=全关，与原版一致）
-            SFMGui.LOGGER.warn("TPS 配置读取失败，按默认值（全关）运行: {}", t.toString());
+            SFMGui.LOGGER.warn("Failed to load TPS config, running with defaults (all off): {}", t.toString());
         }
     }
 

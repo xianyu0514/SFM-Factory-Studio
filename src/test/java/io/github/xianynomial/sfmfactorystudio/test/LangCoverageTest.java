@@ -110,4 +110,28 @@ public class LangCoverageTest {
         assertEquals(new HashSet<>(loadLang("zh_cn").keySet()),
                 new HashSet<>(loadLang("en_us").keySet()));
     }
+
+    /** 占位符护栏（2026-09-10 i18n 收尾）：中英 %s 数量必须一致，否则格式化错位。 */
+    @Test
+    public void placeholderCountsMatchBetweenZhAndEn() throws IOException {
+        Map<String, String> zh = loadLang("zh_cn");
+        Map<String, String> en = loadLang("en_us");
+        List<String> bad = new ArrayList<>();
+        for (String key : zh.keySet()) {
+            int a = zh.get(key).split("%s", -1).length - 1;
+            int b = en.get(key).split("%s", -1).length - 1;
+            if (a != b) bad.add(key + " zh=%s×" + a + " en=%s×" + b);
+        }
+        assertTrue(bad.isEmpty(), "中英占位符数量不一致: " + bad);
+    }
+
+    /** 英文残留护栏（2026-09-10 用户反馈"英文界面存在中文"）：en_us 值不得含 CJK。 */
+    @Test
+    public void englishValuesContainNoChinese() throws IOException {
+        List<String> bad = loadLang("en_us").entrySet().stream()
+                .filter(e -> e.getValue().codePoints().anyMatch(c -> c >= 0x4E00 && c <= 0x9FA5))
+                .map(e -> e.getKey() + " = " + e.getValue())
+                .sorted().toList();
+        assertTrue(bad.isEmpty(), "英文语言文件存在中文残留: " + bad);
+    }
 }

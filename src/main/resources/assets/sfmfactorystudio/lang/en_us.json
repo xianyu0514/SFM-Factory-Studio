@@ -54,7 +54,7 @@
   "gui.sfmfactorystudio.blocks.output": "Output",
   "gui.sfmfactorystudio.blocks.picker.count": "%s items",
   "gui.sfmfactorystudio.blocks.picker.search": "Search items/fluids/chemicals...",
-  "gui.sfmfactorystudio.blocks.picker.title": "Pick a resource",
+  "gui.sfmfactorystudio.blocks.picker.title": "Select %s",
   "gui.sfmfactorystudio.blocks.popup.bound_count": "%s blocks",
   "gui.sfmfactorystudio.blocks.popup.browse": "Browse...",
   "gui.sfmfactorystudio.blocks.popup.cancel": "Cancel",
