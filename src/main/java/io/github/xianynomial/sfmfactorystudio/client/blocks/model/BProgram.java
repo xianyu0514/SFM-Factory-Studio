@@ -644,7 +644,7 @@ public final class BProgram {
                     case "=", "eq" -> EQ;
                     case "<=", "le" -> LE;
                     case "<", "lt" -> LT;
-                    default -> throw new IllegalArgumentException("不支持的比较符号: " + text);
+                    default -> throw new IllegalArgumentException("Unsupported comparison: " + text);
                 };
             }
         }

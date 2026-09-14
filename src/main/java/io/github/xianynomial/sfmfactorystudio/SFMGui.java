@@ -21,7 +21,7 @@ public class SFMGui {
     public static final Logger LOGGER = LoggerFactory.getLogger("SFMGui");
 
     public SFMGui(IEventBus modEventBus, ModContainer modContainer) {
-        LOGGER.info("SFM Factory Studio (SFM 智造工坊) loaded");
+        LOGGER.info("SFM Factory Studio loaded");
         // 标准配置系统：Configured 等界面模组自动生成可视化编辑页，中文键见 lang 文件
         TpsConfig.register(modEventBus, modContainer);
         // 自带中文配置界面：原版模组列表「配置」按钮即可打开，无需第三方模组

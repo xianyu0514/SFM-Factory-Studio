@@ -102,12 +102,12 @@
 ### 1.21.1（NeoForge）
 
 1. 安装 [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. 把 `SFM-Factory-Studio-1.21.1-0.8.jar` 放进 `mods` 文件夹
+2. 把 `SFM-Factory-Studio-1.21.1-0.8.9.jar` 放进 `mods` 文件夹
 
 ### 1.20.1（Forge）
 
 1. 安装 [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. 把 `SFM-Factory-Studio-1.20.1-0.8.jar` 放进 `mods` 文件夹
+2. 把 `SFM-Factory-Studio-1.20.1-0.8.9.jar` 放进 `mods` 文件夹
 
 | 安装方式 | 编辑器 | NBT 标签筛选 | TPS 工具 |
 |---|---|---|---|

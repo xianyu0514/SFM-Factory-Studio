@@ -1175,19 +1175,19 @@ public class BlockEditorScreen extends Screen {
      */
     private void debugAssertState() {
         if (codeTextEdited && blocksNewerThanCode) {
-            io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.warn("[sfmjimu-state] codeAuthoritative but blocksNewer —— 代码权威期间积木侧又编辑了，确认同步链是否覆盖");
+            io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.warn("[sfmjimu-state] codeAuthoritative but blocksNewer - blocks edited while code was authoritative, check sync chain");
         }
         if (codeAwaitingValidation) {
             awaitingValidationTicks++;
             if (awaitingValidationTicks == 40) {
-                io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.warn("[sfmjimu-state] awaitingValidation > 40 ticks —— 代码校验防抖悬停过久，校验链可能卡死");
+                io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.warn("[sfmjimu-state] awaitingValidation > 40 ticks - validation debounce stuck, chain may be deadlocked");
             }
         } else {
             awaitingValidationTicks = 0;
         }
         if (codeTextEdited && codeEditor != null && !codeAwaitingValidation
                 && codeEditor.value().equals(generated())) {
-            io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.warn("[sfmjimu-state] stale codeText but model unchanged —— 代码权威但两侧内容相等，权威切换可能丢失");
+            io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.warn("[sfmjimu-state] stale codeText but model unchanged - authority switch may be lost");
         }
     }
 
@@ -4694,7 +4694,9 @@ public class BlockEditorScreen extends Screen {
                 boolean hover = mx >= bx && mx < bx + bw && my >= y && my < y + 20;
                 rounded(g, bx, y, bw, 20, 5, hover ? C_SELECT : 0xFFE3ECFB);
                 border(g, bx, y, bw, 20, hover ? 0xFF1F5FD0 : 0xFFB9CDE8);
-                g.drawString(this.font, e.title(), bx + (bw - Math.min(this.font.width(e.title()), bw - 4)) / 2,
+                // 英文标题可能超宽：省略号截断后再居中（审计：只夹了居中计算没截字符串）
+                String exTitle = ellipsize(e.title(), bw - 8);
+                g.drawString(this.font, exTitle, bx + (bw - this.font.width(exTitle)) / 2,
                         y + 6, hover ? 0xFFFFFFFF : 0xFF1B4FA0, false);
                 uiHits.add(hit(bx, y, bw, 20, K_CLICK, null, () -> {
                     loadExample(eid);
@@ -4989,7 +4991,7 @@ public class BlockEditorScreen extends Screen {
         String[][] guides = {
                 {"▶", E("g_ex_smelt", "熔炉流水线").getString(), "ex_smelt"},
                 {"⟳", E("g_ex_energy", "能量自动供电").getString(), "ex_energy"},
-                {"当", E("g_ex_fullstack", "整组转运").getString(), "ex_fullstack"}};
+                {"⧉", E("g_ex_fullstack", "整组转运").getString(), "ex_fullstack"}};
         int gw = 160, gh = 44, gap = 12;
         int total = guides.length * gw + (guides.length - 1) * gap;
         int startX = canvasX + (canvasW - total) / 2;
@@ -6741,6 +6743,16 @@ public class BlockEditorScreen extends Screen {
         return x;
     }
 
+    /** 超宽文本省略号截断（英文标题可能比中文长一截；固定宽度按钮用）。 */
+    private String ellipsize(String s, int maxW) {
+        if (this.font.width(s) <= maxW) return s;
+        String cut = s;
+        while (!cut.isEmpty() && this.font.width(cut + "…") > maxW) {
+            cut = cut.substring(0, cut.length() - 1);
+        }
+        return cut + "…";
+    }
+
     private String condSummary(BProgram.Bool.Has h) {
         // has 条件是查询不是动作：句子用存在动词，与代码层 `if a has …` 一词对应；
         // 比较符转写自然词 + 量词「个」（用户反馈「>= 1 物品」不自然）：
@@ -7911,7 +7923,8 @@ public class BlockEditorScreen extends Screen {
                 rx = drawT(g, fnt, rx, T_COND_HAS.getString());
                 rx = drawP(g, fnt, rx, cmpWord(has.comparison).getString(), 36, () -> setPopup(new Popup.ChoicePopup(
                         subAnchorX, subAnchorY, 90, List.of(">", ">=", "=", "<=", "<"),
-                        List.of("多于（>）", "至少（≥）", "正好（=）", "最多（≤）", "不足（<）"), has.comparison.symbol(), v -> {
+                        List.of(CMP_GT.getString(), CMP_GE.getString(), CMP_EQ.getString(), CMP_LE.getString(), CMP_LT.getString()),
+                        has.comparison.symbol(), v -> {
                             pushUndo();
                             has.comparison = BProgram.Bool.Comparison.fromSfml(v);
                         })), mx, my);
@@ -8002,9 +8015,9 @@ public class BlockEditorScreen extends Screen {
                 // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 String redstoneComparison = r.comparison == null ? F_HAS_SIGNAL.getString() : r.comparison.symbol();
                 rx = drawP(g, fnt, rx, r.comparison == null ? F_HAS_SIGNAL.getString() : r.comparison.symbol(), 30,
-                        () -> setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 100,
+                        () -> setPopup(new Popup.ChoicePopup(subAnchorX, subAnchorY, 110,
                                 List.of("any", ">", ">=", "=", "<=", "<"),
-                                List.of(F_HAS_SIGNAL.getString(), "多于（>）", "至少（≥）", "正好（=）", "最多（≤）", "不足（<）"), redstoneComparison, v -> {
+                                List.of(F_HAS_SIGNAL.getString(), CMP_GT.getString(), CMP_GE.getString(), CMP_EQ.getString(), CMP_LE.getString(), CMP_LT.getString()), redstoneComparison, v -> {
                             pushUndo();
                             r.comparison = v.equals("any") ? null : BProgram.Bool.Comparison.fromSfml(v);
                         })), mx, my);

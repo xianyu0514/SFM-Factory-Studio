@@ -617,7 +617,8 @@ abstract class Popup {
                 int bg = sel ? 0xFFE3ECFB : hover ? 0xFFF1F4F9 : 0xFFFFFFFF;
                 g.fill(x + 2, ry, x + w - 2, ry + rowH, bg);
                 String count = !showCounts ? null : knownCounts.getOrDefault(label, 0) > 0
-                        ? knownCounts.get(label) + " 个方块" : new Loc("gui.sfmfactorystudio.blocks.popup.unbound", "未绑定").getString();
+                        ? new Loc("gui.sfmfactorystudio.blocks.popup.bound_count", "%s 个方块").getString(knownCounts.get(label))
+                        : new Loc("gui.sfmfactorystudio.blocks.popup.unbound", "未绑定").getString();
                 int countColor = knownCounts.getOrDefault(label, 0) > 0 ? 0xFF18794E : 0xFFB54708;
                 int countW = count != null ? font.width(count) : 0;
                 String prefix = sel ? "✓ " : "○ ";

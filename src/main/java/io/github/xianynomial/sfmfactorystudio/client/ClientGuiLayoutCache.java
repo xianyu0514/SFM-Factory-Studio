@@ -197,7 +197,7 @@ public final class ClientGuiLayoutCache {
                                    int containerSlot, int x, int y, int capIndex) {
         ensureLoaded();
         String mc = menuClass == null ? "" : menuClass;
-        SFMGui.LOGGER.info("[sfmjimu-calib] 锚点入库: 菜单 {} 朝向 {} 容器槽 {} ({},{}) → 能力槽 {}",
+        SFMGui.LOGGER.info("[sfmjimu-calib] anchor stored: menu {} dir {} containerSlot {} ({},{}) -> capSlot {}",
                 mc, dir, containerSlot, x, y, capIndex);
         boolean applied = false;
         for (Map.Entry<String, SlotLayoutData.Layout> e : BY_POS.entrySet()) {
@@ -245,7 +245,7 @@ public final class ClientGuiLayoutCache {
                 BY_POS.putAll(read);
             }
         } catch (IOException | RuntimeException t) {
-            SFMGui.LOGGER.warn("slot-layouts.json 读取失败，按空缓存继续: {}", t.toString());
+            SFMGui.LOGGER.warn("Failed to read slot-layouts.json, continuing with empty cache: {}", t.toString());
         }
     }
 
@@ -263,7 +263,7 @@ public final class ClientGuiLayoutCache {
             Files.createDirectories(file().getParent());
             Files.writeString(file(), SlotLayoutData.writeAll(BY_POS));
         } catch (IOException t) {
-            SFMGui.LOGGER.warn("slot-layouts.json 写入失败: {}", t.toString());
+            SFMGui.LOGGER.warn("Failed to write slot-layouts.json: {}", t.toString());
         }
     }
 }

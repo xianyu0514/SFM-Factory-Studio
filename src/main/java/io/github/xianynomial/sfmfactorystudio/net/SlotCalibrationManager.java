@@ -107,14 +107,14 @@ public final class SlotCalibrationManager {
         if (player == null || pos == null || containerId < 0 || player.getServer() == null) return;
         SESSIONS.put(player.getUUID(), new Session(pos, containerId,
                 menuClass == null ? "" : menuClass, player.getServer()));
-        SFMGui.LOGGER.info("[sfmjimu-calib] 会话开始: 玩家 {} 方块 {} 菜单 {} containerId {}",
+        SFMGui.LOGGER.info("[sfmjimu-calib] session start: player {} pos {} menu {} containerId {}",
                 player.getGameProfile().getName(), pos, menuClass, containerId);
     }
 
     public static void forget(UUID playerId, String reason) {
         Session s = SESSIONS.remove(playerId);
         if (s != null) {
-            SFMGui.LOGGER.info("[sfmjimu-calib] 会话结束({}): 方块 {} 菜单 {}", reason, s.pos, s.menuClass);
+            SFMGui.LOGGER.info("[sfmjimu-calib] session end({}): pos {} menu {}", reason, s.pos, s.menuClass);
         }
     }
 
@@ -125,7 +125,7 @@ public final class SlotCalibrationManager {
             UUID id = entry.getKey();
             Session s = entry.getValue();
             if (--s.ticksLeft <= 0) {
-                forget(id, "超时");
+                forget(id, "timeout");
                 continue;
             }
             ServerPlayer player = server.getPlayerList().getPlayer(id);
@@ -134,7 +134,7 @@ public final class SlotCalibrationManager {
                 continue;
             }
             if (player.containerMenu == null || player.containerMenu.containerId != s.containerId) {
-                forget(id, "界面已关闭");
+                forget(id, "screen closed");
                 continue;
             }
             if (++s.sampleAcc % SAMPLE_INTERVAL_TICKS != 0) continue; // 采样节流
@@ -199,7 +199,7 @@ public final class SlotCalibrationManager {
                     s.noExposureSent = true;
                     PacketDistributor.sendToPlayer(player,
                             new SlotCalibrationInfoPayload(s.pos, INFO_NO_EXPOSURE));
-                    SFMGui.LOGGER.info("[sfmjimu-calib] 诊断: 界面槽位在变化但能力面无变化 → 判定槽位未暴露, pos {}", s.pos);
+                    SFMGui.LOGGER.info("[sfmjimu-calib] diagnose: menu slots change but capability face static -> slots not exposed, pos {}", s.pos);
                 }
             } else if (capChangedAny) {
                 s.noExposureStreak = 0;
@@ -268,7 +268,7 @@ public final class SlotCalibrationManager {
         }
 
         if (anchorsThisSample > 0) {
-            SFMGui.LOGGER.info("[sfmjimu-calib] 被动关联锚定: 菜单 {} 本轮锚定 {} 对（菜单格 ↔ 能力槽）",
+            SFMGui.LOGGER.info("[sfmjimu-calib] passive pairing anchored: menu {} anchored {} pairs this pass (menu slot <-> cap slot)",
                     s.menuClass, anchorsThisSample);
         }
         s.prevMenu = menuNow;

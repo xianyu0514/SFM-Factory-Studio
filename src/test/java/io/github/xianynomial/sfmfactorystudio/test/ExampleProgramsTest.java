@@ -84,6 +84,19 @@ public class ExampleProgramsTest {
         assertRoundTripKeepsStatements("ex_recovery");
     }
 
+    /** 国际化护栏（2026-09-10）：示例的中文版与英文版都必须通过真编译器。 */
+    @Test
+    public void bothLanguageVariantsCompile() {
+        for (boolean en : new boolean[]{false, true}) {
+            for (ExamplePrograms.Example e : ExamplePrograms.all(en)) {
+                String sfml = BlocksToSfml.toSfml(e.program());
+                List<String> errors = SfmlValidate.check(sfml);
+                assertTrue(errors.isEmpty(),
+                        "示例 " + e.id() + (en ? "(en)" : "(zh)") + " 必须通过 SFM 编译器: " + errors + "\n" + sfml);
+            }
+        }
+    }
+
     @Test
     public void everyExampleIsReachableById() {
         List<String> ids = new ArrayList<>(ExamplePrograms.all().stream().map(ExamplePrograms.Example::id).toList());

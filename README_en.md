@@ -92,12 +92,12 @@ Mod list → select this mod → **Config** (in-game GUI, or edit `config/sfmfac
 ### 1.21.1 (NeoForge)
 
 1. Install [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. Drop `SFM-Factory-Studio-1.21.1-0.8.jar` into `mods/`
+2. Drop `SFM-Factory-Studio-1.21.1-0.8.9.jar` into `mods/`
 
 ### 1.20.1 (Forge)
 
 1. Install [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. Drop `SFM-Factory-Studio-1.20.1-0.8.jar` into `mods/`
+2. Drop `SFM-Factory-Studio-1.20.1-0.8.9.jar` into `mods/`
 
 | Setup | Editor | NBT tag filter | TPS tools |
 |---|---|---|---|

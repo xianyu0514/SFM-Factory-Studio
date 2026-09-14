@@ -19,6 +19,10 @@ public final class ProgramCost {
     private ProgramCost() {
     }
 
+    // 成本提示整句 Loc 化（1.20.1 同款实现——修复曾只落在一个版本上）
+    private static final Loc C_BIND = new Loc("gui.sfmfactorystudio.cost.bind", "绑定约 %s 个方块 × 每 %s 刻（%s秒）×");
+    private static final Loc C_PER_SEC = new Loc("gui.sfmfactorystudio.cost.per_sec", " ≈ 每秒 %s 次等效试探");
+
     /** 单卡成本快照。 */
     public record Cost(int score, String detail) {
         public enum Level {LOW, MEDIUM, HIGH}
@@ -81,11 +85,10 @@ public final class ProgramCost {
         double perSecond = perRun * 20.0 / intervalTicks;
         int score = (int) Math.min(Integer.MAX_VALUE / 2, perSecond);
         StringBuilder detail = new StringBuilder();
-        detail.append("绑定约 ").append(blocks).append(" 个方块 × 每 ")
-                .append(intervalTicks).append(" 刻（")
-                .append(String.format(java.util.Locale.ROOT, "%.1f", intervalTicks / 20.0)).append("秒）×")
+        detail.append(C_BIND.getString(blocks, intervalTicks,
+                String.format(java.util.Locale.ROOT, "%.1f", intervalTicks / 20.0)))
                 .append(wildcard ? new Loc("gui.sfmfactorystudio.cost.scan_all", " 全部槽位扫描").getString() : energy ? new Loc("gui.sfmfactorystudio.cost.energy_light", " 纯能量轻路径").getString() : new Loc("gui.sfmfactorystudio.cost.directed", " 定向资源").getString());
-        detail.append(" ≈ 每秒 ").append(score).append(" 次等效试探");
+        detail.append(C_PER_SEC.getString(score));
         if (wildcard && intervalTicks < 20) {
             detail.append(new Loc("gui.sfmfactorystudio.cost.high_freq", "（高频+全扫：建议加资源标签或拉长间隔）").getString());
         }
