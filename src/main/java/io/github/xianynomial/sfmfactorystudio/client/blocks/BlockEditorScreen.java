@@ -25,6 +25,7 @@ import io.github.xianynomial.sfmfactorystudio.client.ClientGuiLayoutCache;
 import io.github.xianynomial.sfmfactorystudio.client.SlotPickerScreen;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlSyntax;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlValidate;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.CodePaneLayout;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.TimerRules;
 import io.github.xianynomial.sfmfactorystudio.net.SFMGuiNetwork;
 import io.github.xianynomial.sfmfactorystudio.net.SfmCaps;
@@ -214,7 +215,7 @@ public class BlockEditorScreen extends Screen {
     static final Loc S_ZONE_DRAW_HINT = E("zone_draw_hint", "在画布空白处拖出一个矩形即可创建分区（再点「分区」取消）");
     static final Loc S_SEARCH_HINT = E("search_hint", "  / 搜索卡片");
     static final Loc T_CODE_EDITOR = E("code_editor", "SFML 代码编辑");
-    static final Loc S_CODE_HELP = E("code_help", "Tab缩进 · Ctrl+/注释 · Ctrl+空格检查 · \\ 接受建议");
+    static final Loc S_CODE_HELP = E("code_help", "Ctrl+F 查找 · Ctrl+G 跳行 · F7 专注 · Alt+Z 换行 · Ctrl+空格补全");
     static final Loc S_NO_MATCH_ITEM = E("no_match_item", "没有找到匹配的物品——检查条件是否太严");
     static final Loc S_PREVIEW_COUNT = E("preview_count", "匹配预览共 %s 件物品");
     static final Loc S_TRIGGER_CREATED = E("trigger_created", "已在此处新建触发器，从左侧拖入积木");
@@ -499,6 +500,24 @@ public class BlockEditorScreen extends Screen {
     private boolean draftPromptChecked = false;
     private boolean closingWithoutPrompt = false;
 
+    private boolean codeWrapPreference;
+    private boolean codeOnly;
+    private boolean codeOnlyEffective;
+    private boolean draggingCodeDivider;
+    private double codeDividerGrabOffset;
+    private int codeDividerTop, codeDividerBottom;
+    private double codePaneFraction = 0.5;
+    private static final int CODE_HEADER_H = 24;
+    static final Loc C_FOCUS = E("code_focus", "专注代码");
+    static final Loc C_SPLIT = E("code_split", "分屏");
+    static final Loc C_WRAP = E("code_wrap", "自动换行");
+    static final Loc C_NOWRAP = E("code_nowrap", "不换行");
+    static final Loc C_TOOLS = E("code_tools", "编辑…");
+    static final Loc C_FIND = E("code_find", "查找 (Ctrl+F)");
+    static final Loc C_LINE = E("code_line", "跳到行 (Ctrl+G)");
+    static final Loc C_MATCHES = E("code_matches", "找到 %s 处 · F3 下一处，Shift+F3 上一处");
+    static final Loc C_BAD_LINE = E("code_bad_line", "请输入有效行号");
+    static final Loc C_BLOCKS = E("code_blocks", "返回积木");
     private boolean previewMode = false; // 同屏源码编辑区是否展开（旧字段名保留，避免布局存档迁移）
     private float zoom = 1.0f;
     private int viewX = 0, viewY = 0;
@@ -578,6 +597,15 @@ public class BlockEditorScreen extends Screen {
     private boolean settingCodeFromModel = false;
     private int codeValidateDelay = -1;
     private int codeSuggestDelay = -1;
+    private List<SfmlValidate.Diagnostic> codeDiagnostics = List.of();
+    private String codeDiagnosticSource = "";
+    static final Loc C_REPLACE = E("code_replace", "替换 (Ctrl+H)");
+    static final Loc C_REPLACEMENT = E("code_replacement", "替换为（留空表示删除）");
+    static final Loc C_REPLACE_ONE = E("code_replace_one", "替换下一处");
+    static final Loc C_REPLACE_ALL = E("code_replace_all", "全部替换（%s 处）");
+    static final Loc C_REPLACED = E("code_replaced", "已替换 %s 处 · Ctrl+Z 撤销");
+    static final Loc C_NEXT = E("code_next", "下一步");
+    static final Loc C_ERRORS = E("code_errors", "代码错误（点击定位）");
     private String codeStatusText = S_SYNCED.getString();
     /** 当前渲染卡的右缘（逻辑坐标）：行内药丸不许超出；无卡上下文时不限制。 */
     private int pillMaxRight = Integer.MAX_VALUE;
@@ -957,13 +985,21 @@ public class BlockEditorScreen extends Screen {
     private int edW = 960, edH = 540;
 
     @Override
+    public void resize(Minecraft client, int newWidth, int newHeight) {
+        boolean restoreCodeFocus = codeEditor != null && codeEditor.isFocused();
+        super.resize(client, newWidth, newHeight);
+        draggingCodeDivider = false;
+        if (restoreCodeFocus && previewMode && codeEditor != null) setInitialFocus(codeEditor);
+    }
+
+    @Override
     protected void init() {
         // 虚拟分辨率：逻辑宽不足 640 时等比缩小绘制（edScale < 1）。下限取 640：
         // JEI 让位后面板只剩 74%，480 只剩 ~355px 宽，画布小到积木行点不中；
         // 640 让极端缩放下画布仍有 ~300px 可用宽度。
         // 换算公式在 EditorUiMath.virtualFrame（有单测）：下限 640 让极端缩放下
         // 画布仍有 ~300px 可用宽度
-        var frame = EditorUiMath.virtualFrame(this.width, this.height, 640);
+        var frame = EditorUiMath.virtualFrame(this.width, this.height, 640, 240);
         edScale = frame.scale();
         edW = frame.width();
         edH = frame.height();
@@ -1013,12 +1049,14 @@ public class BlockEditorScreen extends Screen {
         // source pane; it avoids losing the caret/undo history when users switch
         // repeatedly between blocks and code.
         int codeH = Math.max(64, panelH / 3 - 30);
-        codeEditor = new SfmlCodeEditor(this.font, panelX + PALETTE_W + 22,
+        if (codeEditor == null) codeEditor = new SfmlCodeEditor(this.font, panelX + PALETTE_W + 22,
                 panelY + panelH - codeH - 10, Math.max(120, panelW - PALETTE_W - 38), codeH,
                 this::onCodeTextChanged);
         settingCodeFromModel = true;
         codeEditor.setValueFromModel(carriedCode);
         settingCodeFromModel = false;
+        codeEditor.setRenderScale(edScale);
+        if (codeEditor.wrapped() != codeWrapPreference) codeEditor.toggleWrap();
         codeEditor.visible = previewMode;
         codeTextEdited = carriedOwnership;
         codeAwaitingValidation = importFailed;
@@ -1291,6 +1329,8 @@ public class BlockEditorScreen extends Screen {
         codeSuggestDelay = 4;
         dirty = true;
         draftSaveDelay = DRAFT_DELAY_TICKS;
+        codeDiagnostics = List.of();
+        codeDiagnosticSource = "";
         codeStatusText = S_CHECKING.getString();
         codeStatusColor = C_TEXT_SUB;
     }
@@ -1324,13 +1364,15 @@ public class BlockEditorScreen extends Screen {
             if (announce) showStatus(S_TOO_LONG_SAVE.getString(), C_ERR);
             return false;
         }
-        List<String> compilerErrors = SfmlValidate.check(source);
+        codeDiagnostics = SfmlValidate.diagnose(source);
+        codeDiagnosticSource = source;
+        List<String> compilerErrors = codeDiagnostics.stream().map(SfmlValidate.Diagnostic::message).toList();
         SfmlToBlocks.Result parsed = compilerErrors.isEmpty() ? SfmlToBlocks.parse(source) : null;
         if (!compilerErrors.isEmpty() || parsed == null || !parsed.ok() || parsed.program() == null) {
             List<String> errors = !compilerErrors.isEmpty() ? compilerErrors
                     : parsed == null ? List.of(S_CANNOT_READ.getString()) : parsed.errors();
             String first = errors.isEmpty() ? S_CODE_INCOMPLETE.getString() : errors.get(0);
-            codeStatusText = S_NOT_SYNCED.getString(this.font.plainSubstrByWidth(first, Math.max(100, canvasW - 150)));
+            codeStatusText = S_NOT_SYNCED.getString(first);
             codeStatusColor = C_ERR;
             if (announce) showStatus(S_CODE_ERROR_KEEP.getString(first), C_ERR);
             return false;
@@ -1492,6 +1534,16 @@ public class BlockEditorScreen extends Screen {
     private void loadLayouts() {
         Map<String, List<List<Object>>> all = readLayoutFile();
         if (all == null) return;
+        List<?> preferences = all.get(layoutKey() + ":code-view");
+        if (preferences != null && !preferences.isEmpty() && preferences.get(0) instanceof List<?> row
+                && row.size() >= 3) {
+            if (row.get(0) instanceof Number ratio && Double.isFinite(ratio.doubleValue()))
+                codePaneFraction = Math.max(0, Math.min(1, ratio.doubleValue()));
+            codeOnly = row.get(1) instanceof Number only && only.intValue() != 0;
+            boolean savedWrap = row.get(2) instanceof Number wrapValue && wrapValue.intValue() != 0;
+            codeWrapPreference = savedWrap;
+            if (codeEditor != null && codeEditor.wrapped() != savedWrap) codeEditor.toggleWrap();
+        }
         if (all.containsKey("helpSeen")) helpSeen = true;
         List<?> cards = all.get(layoutKey());
         if (cards == null) return;
@@ -1712,6 +1764,8 @@ public class BlockEditorScreen extends Screen {
                 }
             }
             if (!linkRows.isEmpty()) all.put(layoutKey() + ":links", linkRows);
+            all.put(layoutKey() + ":code-view", List.of(List.of(codePaneFraction, codeOnly ? 1 : 0,
+                    codeEditor != null && codeEditor.wrapped() ? 1 : 0)));
             Files.writeString(file, GSON.toJson(all));
         } catch (Exception ignored) {
         }
@@ -2147,6 +2201,16 @@ public class BlockEditorScreen extends Screen {
             if (popup == clickedPopup && !clickedPopup.keepOpen) popup = null;
             if (consumed) return true;
         }
+        if (previewMode && !codeOnlyEffective && button == 0 && mx >= canvasX && mx < canvasX + canvasW
+                && my >= canvasY + canvasH && my < previewTop()) {
+            draggingCodeDivider = true;
+            codeDividerTop = canvasY;
+            codeDividerBottom = panelY + panelH - 6;
+            codeDividerGrabOffset = my - (canvasY + canvasH + CodePaneLayout.GAP / 2.0);
+            if (codeEditor != null) { codeEditor.cancelPointer(); codeEditor.clearSuggestions(); }
+            setDragging(true);
+            return true;
+        }
         if (!inPanel(mx, my)) return true; // clicks outside the window do nothing
 
         if (codeEditor != null && codeEditor.isFocused()
@@ -2156,6 +2220,14 @@ public class BlockEditorScreen extends Screen {
             codeEditor.clearSuggestions();
         }
 
+        // Establish focus before mouseClicked: the container otherwise clears
+        // the widget's freshly started scrollbar drag while assigning focus.
+        if (codeEditor != null && codeEditor.visible && codeEditor.containsPointer(mx, my) && button == 0) {
+            setFocused(codeEditor);
+            boolean handled = codeEditor.mouseClicked(mx, my, button);
+            if (handled) setDragging(true);
+            return handled;
+        }
         if (super.mouseClicked(mx, my, button)) {
             if (codeEditor != null && codeEditor.isFocused()) codeSuggestDelay = 2;
             return true;
@@ -2403,6 +2475,12 @@ public class BlockEditorScreen extends Screen {
     @Override
     public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
         mx /= edScale; my /= edScale;
+        if (draggingCodeDivider) {
+            codePaneFraction = CodePaneLayout.dragFraction(codeDividerTop, codeDividerBottom, my, codeDividerGrabOffset);
+            return true;
+        }
+        if (codeEditor != null && codeEditor.pointerCaptured())
+            return codeEditor.mouseDragged(mx, my, button, dx / edScale, dy / edScale);
         if (pendingPalette != null && dragPaletteKind == null
                 && Math.abs(mx - pressX) + Math.abs(my - pressY) > 6) {
             dragPaletteKind = pendingPalette;
@@ -2549,6 +2627,16 @@ public class BlockEditorScreen extends Screen {
     @Override
     public boolean mouseReleased(double mx, double my, int button) {
         mx /= edScale; my /= edScale;
+        if (draggingCodeDivider && button == 0) {
+            draggingCodeDivider = false;
+            setDragging(false);
+            return true;
+        }
+        if (codeEditor != null && codeEditor.pointerCaptured() && button == 0) {
+            setDragging(false);
+            return codeEditor.mouseReleased(mx, my, button);
+        }
+
         double cx = ctX(mx), cy = ctY(my);
         // 纯点击（未越过阈值松手）：只选中该积木行——模型零改动、零撤销记录
         if (pendingBlockDrag != null) {
@@ -3215,6 +3303,7 @@ public class BlockEditorScreen extends Screen {
     }
 
     private boolean inCanvas(double cx, double cy) {
+        if (codeOnlyEffective) return false;
         double sx = canvasX + CANVAS_PAD + (cx - viewX) * zoom;
         double sy = canvasY + CANVAS_PAD + (cy - viewY) * zoom;
         return sx >= canvasX && sx < canvasX + canvasW && sy >= canvasY && sy < canvasY + canvasH;
@@ -3788,6 +3877,8 @@ public class BlockEditorScreen extends Screen {
             helpScroll = Math.max(0, helpScroll - (int) scrollY * 18);
             return true;
         }
+        if (codeEditor != null && codeEditor.visible && codeEditor.containsPointer(mx, my))
+            return codeEditor.mouseScrolled(mx, my, scrollY);
         // 左侧积木栏：悬停时滚轮滚动（内容超高才有滚动量）
         if (mx >= panelX + 6 && mx < panelX + 6 + PALETTE_W
                 && my >= panelY + toolbarH() + 6 && my < panelY + panelH - 6 && paletteContentH > 0) {
@@ -3820,7 +3911,7 @@ public class BlockEditorScreen extends Screen {
     }
 
     private int previewTop() {
-        return canvasY + canvasH + 4;
+        return codeOnlyEffective ? canvasY : canvasY + canvasH + CodePaneLayout.GAP;
     }
 
     @Override
@@ -3834,11 +3925,19 @@ public class BlockEditorScreen extends Screen {
                 return true;
             }
         }
-        if (nameBox != null && nameBox.isFocused()) {
+        if (nameBox != null && nameBox.visible && nameBox.isFocused()) {
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
         boolean ctrl = (modifiers & 2) != 0;
+        if (keyCode == 296 && !previewMode) { toggleCodeEditor(); codeOnly = true; return true; }
         if (previewMode && codeEditor != null && codeEditor.isFocused()) {
+            if (ctrl && keyCode == 72) { openCodeReplace(); return true; }
+            if (ctrl && keyCode == 70) { openCodeFind(); return true; }
+            if (ctrl && keyCode == 71) { openCodeLine(); return true; }
+            if (keyCode == 292) { findCode(codeEditor.searchText(), (modifiers & 1) != 0); return true; }
+            if (keyCode == 296) { codeOnly = !codeOnly; return true; }
+            if ((modifiers & 4) != 0 && keyCode == 90) { codeEditor.toggleWrap(); codeWrapPreference = codeEditor.wrapped(); return true; }
+            if (ctrl && keyCode == 32) { refreshCodeSuggestions(); return true; }
             if (ctrl && keyCode == 83) {
                 save();
                 return true;
@@ -4097,7 +4196,25 @@ public class BlockEditorScreen extends Screen {
         int baseCanvasW = panelX + panelW - 8 - canvasX;
         issuesPanelVisible = issuesOpen && baseCanvasW - (ISSUES_W + 10) >= 200;
         canvasW = baseCanvasW - (issuesPanelVisible ? ISSUES_W + 10 : 0);
-        canvasH = panelH - toolbarH() - 12 - (previewMode ? Math.max(112, panelH * 42 / 100) : 0);
+        int availableCodeArea = Math.max(1, panelH - toolbarH() - 12);
+        codeOnlyEffective = previewMode && (codeOnly || availableCodeArea < 200 || canvasW < 260);
+        if (codeOnlyEffective && nameBox.isFocused()) setInitialFocus(codeEditor);
+        nameBox.visible = !codeOnlyEffective;
+        if (codeOnlyEffective) {
+            canvasX = panelX + 6;
+            canvasY = panelY + 6;
+            canvasW = panelW - 12;
+            canvasH = 0;
+            issuesPanelVisible = false;
+            renderPreview(g, mx, my);
+            layoutCodeEditor();
+            super.render(g, mx, my, partialTick);
+            if (popup != null) popup.render(g, this.font, mx, my);
+            return;
+        }
+        canvasH = previewMode
+                ? CodePaneLayout.split(canvasY, panelY + panelH - 6, codePaneFraction).canvasHeight()
+                : availableCodeArea;
         if (!fitted) {
             fitContent();
             fitted = true;
@@ -4293,7 +4410,7 @@ public class BlockEditorScreen extends Screen {
         }
 
         if (previewMode) {
-            renderPreview(g);
+            renderPreview(g, mx, my);
             layoutCodeEditor();
         } else if (codeEditor != null) {
             codeEditor.visible = false;
@@ -5106,17 +5223,134 @@ public class BlockEditorScreen extends Screen {
         uiHits.add(hit(x, y, w, h, K_CLICK, null, action));
     }
 
-    private void renderPreview(GuiGraphics g) {
+    private void renderPreview(GuiGraphics g, int mx, int my) {
         int py = previewTop();
         int ph = panelY + panelH - 6 - py;
         rounded(g, canvasX, py, canvasW, ph, 8, G_CARD_TRANS);
         border(g, canvasX, py, canvasW, ph, G_BORDER_SOFT);
-        text(g, T_CODE_EDITOR.getString(), canvasX + 9, py + 7, C_TEXT);
-        String state = this.font.plainSubstrByWidth(codeStatusText, Math.max(40, canvasW - 265));
-        text(g, state, canvasX + 92, py + 7, codeStatusColor);
-        String help = S_CODE_HELP.getString();
-        int helpW = this.font.width(help);
-        if (canvasW > helpW + 285) text(g, help, canvasX + canvasW - helpW - 9, py + 7, C_TEXT_SUB);
+        if (!codeOnlyEffective) {
+            boolean hover = my >= py - CodePaneLayout.GAP && my < py && mx >= canvasX && mx < canvasX + canvasW;
+            g.fill(canvasX, py - CodePaneLayout.GAP, canvasX + canvasW, py, 0xFFCCD5E2);
+            g.fill(canvasX + canvasW / 2 - 20, py - 4, canvasX + canvasW / 2 + 20, py - 2,
+                    hover || draggingCodeDivider ? C_SELECT : G_BORDER);
+        }
+        int x = canvasX + 5;
+        String[] labels = {codeOnlyEffective ? (codeOnly ? C_SPLIT.getString() : C_BLOCKS.getString()) : C_FOCUS.getString(),
+                codeEditor != null && codeEditor.wrapped() ? C_NOWRAP.getString() : C_WRAP.getString(), C_TOOLS.getString()};
+        Runnable[] actions = {() -> {
+                    if (codeOnlyEffective && !codeOnly) { toggleCodeEditor(); }
+                    else { codeOnly = !codeOnlyEffective; if (codeEditor != null) setInitialFocus(codeEditor); }
+                },
+                () -> { codeEditor.toggleWrap(); codeWrapPreference = codeEditor.wrapped(); setInitialFocus(codeEditor); }, this::openCodeTools};
+        int maxButton = Math.max(30, (canvasW - 22) / 3);
+        for (int i = 0; i < labels.length; i++) {
+            int w = Math.min(maxButton, Math.max(46, this.font.width(labels[i]) + 14));
+            button(g, x, py + 4, w, 18, this.font.plainSubstrByWidth(labels[i], w - 8),
+                    0xCC5B6472, 0xCC2F6FED, actions[i], mx, my);
+            x += w + 4;
+        }
+        String state = (dirty ? S_PERF_UNSAVED.getString() + " · " : "") + codeStatusText;
+        boolean currentErrors = !codeDiagnostics.isEmpty() && codeEditor.value().equals(codeDiagnosticSource);
+        codeEditor.setStatusAction(currentErrors ? this::openCodeErrors : null);
+        codeEditor.setStatus(state, codeStatusColor, (currentErrors ? C_ERRORS.getString() + "\n" : "") + S_CODE_HELP.getString());
+    }
+
+    private void openCodeTools() {
+        setPopup(new Popup.ChoicePopup(canvasX + 6, previewTop() + 24, 220,
+                List.of("find", "replace", "errors", "line", "undo", "redo", "save", "blocks"),
+                List.of(C_FIND.getString(), C_REPLACE.getString(), C_ERRORS.getString(), C_LINE.getString(), T_UNDO.getString() + " (Ctrl+Z)", T_REDO.getString() + " (Ctrl+Y)", T_SAVE.getString() + " (Ctrl+S)", C_BLOCKS.getString()),
+                "", choice -> {
+                    popup = null;
+                    switch (choice) {
+                        case "find" -> openCodeFind();
+                        case "replace" -> openCodeReplace();
+                        case "errors" -> openCodeErrors();
+                        case "line" -> openCodeLine();
+                        case "undo" -> { codeEditor.undo(); setInitialFocus(codeEditor); }
+                        case "redo" -> { codeEditor.redo(); setInitialFocus(codeEditor); }
+                        case "save" -> save();
+                        case "blocks" -> { previewMode = false; codeOnly = false; codeOnlyEffective = false;
+                            codeEditor.visible = false; codeEditor.setFocused(false); }
+                    }
+                }));
+    }
+    private void openCodeErrors() {
+        if (!codeEditor.value().equals(codeDiagnosticSource)) applyCodeText(false);
+        if (codeDiagnostics.isEmpty()) {
+            setInitialFocus(codeEditor);
+            return;
+        }
+        List<String> ids = new ArrayList<>(), labels = new ArrayList<>();
+        List<SfmlValidate.Diagnostic> snapshot = List.copyOf(codeDiagnostics);
+        String source = codeDiagnosticSource;
+        for (int i = 0; i < snapshot.size(); i++) {
+            ids.add(Integer.toString(i));
+            labels.add(snapshot.get(i).message());
+        }
+        setPopup(new Popup.ChoicePopup(canvasX + 4, previewTop() + CODE_HEADER_H, 300,
+                ids, labels, "", id -> {
+                    popup = null;
+                    if (!codeEditor.value().equals(source)) return;
+                    var error = snapshot.get(Integer.parseInt(id));
+                    codeStatusText = error.message();
+                    codeStatusColor = C_ERR;
+                    if (error.position() != null) codeEditor.showError(error.position().line(), error.position().column());
+                    setInitialFocus(codeEditor);
+                }));
+    }
+    private void openCodeReplace() {
+        String selected = codeEditor.selectedText();
+        String initial = !selected.isEmpty() && !selected.contains("\n") ? selected : codeEditor.searchText();
+        setPopup(Popup.TextPopup.confirmed(this, canvasX + 8, previewTop() + CODE_HEADER_H, 270,
+                initial, C_FIND.getString(), query -> {
+                    if (query.isEmpty()) { popup = null; return; }
+                    setPopup(Popup.TextPopup.confirmed(this, canvasX + 8, previewTop() + CODE_HEADER_H, 270,
+                            "", C_REPLACEMENT.getString(), replacement -> {
+                                int count = io.github.xianynomial.sfmfactorystudio.client.blocks.model.CodeEditorLayout.occurrences(codeEditor.value(), query);
+                                String snapshot = codeEditor.value();
+                                setPopup(new Popup.ChoicePopup(canvasX + 8, previewTop() + CODE_HEADER_H, 250,
+                                        List.of("one", "all"), List.of(C_REPLACE_ONE.getString(), C_REPLACE_ALL.getString(count)),
+                                        "", choice -> {
+                                            popup = null;
+                                            if (!snapshot.equals(codeEditor.value())) return;
+                                            int replaced = codeEditor.replace(query, replacement, choice.equals("all"));
+                                            codeStatusText = replaced < 0 ? S_TOO_LONG_NO_TRUNC.getString() : C_REPLACED.getString(replaced);
+                                            codeStatusColor = replaced < 0 ? C_ERR : C_TEXT;
+                                            setInitialFocus(codeEditor);
+                                        }));
+                            }, null, C_NEXT.getString()).preserveWhitespace());
+                }, null, C_NEXT.getString()).preserveWhitespace());
+    }
+
+    private void openCodeFind() {
+        String selected = codeEditor.selectedText();
+        String initial = !selected.isEmpty() && !selected.contains("\n") ? selected : codeEditor.searchText();
+        setPopup(new Popup.TextPopup(this, canvasX + 8, previewTop() + 24, 260,
+                initial, C_FIND.getString(), query -> {
+                    popup = null;
+                    findCode(query, false);
+                    setInitialFocus(codeEditor);
+                }, null).preserveWhitespace());
+    }
+    private void findCode(String query, boolean backwards) {
+        int count = codeEditor.find(query, backwards);
+        codeStatusText = C_MATCHES.getString(count);
+        codeStatusColor = count == 0 ? C_ERR : C_TEXT;
+    }
+    private void openCodeLine() {
+        setPopup(new Popup.TextPopup(this, canvasX + 8, previewTop() + 24, 220,
+                "", C_LINE.getString(), value -> {
+                    try {
+                        int line = Integer.parseInt(value.trim());
+                        if (line < 1) throw new NumberFormatException();
+                        codeEditor.goToLine(line);
+                        popup = null;
+                        setInitialFocus(codeEditor);
+                    } catch (NumberFormatException ex) {
+                        codeStatusText = C_BAD_LINE.getString();
+                        codeStatusColor = C_ERR;
+                    }
+                }, null));
     }
 
     private void layoutCodeEditor() {
@@ -5124,9 +5358,11 @@ public class BlockEditorScreen extends Screen {
         int py = previewTop();
         int ph = panelY + panelH - 6 - py;
         codeEditor.setX(canvasX + 4);
-        codeEditor.setY(py + 20);
+        codeEditor.setY(py + CODE_HEADER_H);
         codeEditor.setWidth(Math.max(80, canvasW - 8));
-        codeEditor.setHeight(Math.max(40, ph - 24));
+        codeEditor.setHeight(Math.max(38, ph - CODE_HEADER_H - 4));
+        codeEditor.setRenderScale(edScale);
+        codeEditor.resizeViewport();
         codeEditor.visible = true;
     }
 

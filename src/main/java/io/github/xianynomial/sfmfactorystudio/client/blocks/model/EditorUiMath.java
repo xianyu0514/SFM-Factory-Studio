@@ -20,6 +20,13 @@ public final class EditorUiMath {
         return new Frame(scale, Math.round(guiW / scale), Math.round(guiH / scale));
     }
 
+    /** Leave room for source controls and at least one editable row in short windows. */
+    public static Frame virtualFrame(int guiW, int guiH, int minVirtualW, int minVirtualH) {
+        float scale = Math.min(1f, Math.max(0.25f,
+                Math.min(guiW / (float) minVirtualW, guiH / (float) minVirtualH)));
+        return new Frame(scale, Math.round(guiW / scale), Math.round(guiH / scale));
+    }
+
     /**
      * 拖拽缝隙切换阻尼（px）：光标须离开当前缝隙带该距离才允许换位——
      * 行边界附近的微小手抖不再让积木来回跳（拖拽"手感实在"）。

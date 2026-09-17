@@ -93,6 +93,7 @@ dependencies {
 
 // Bundle PinIn into the distributable jar (ForgeGradle has no jarJar).
 tasks.named('jar', Jar).configure {
+    archiveClassifier.set('unrelocated') // Intermediate only; distribute build/release instead.
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     // 1.20.1 Forge discovers mod mixin configs through the JAR manifest.
     manifest {
@@ -135,3 +136,47 @@ test {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
+
+// Produce the distributable after Forge remapping. Keep PinIn private so installing
+// Just Enough Characters cannot introduce duplicate Java module packages.
+// ISO-8859-1 preserves every byte; the replacement names have identical byte lengths.
+def releaseJarFile = layout.buildDirectory.file("release/${base.archivesName.get()}-${version}.jar")
+tasks.register('releaseJar') {
+    dependsOn 'reobfJar'
+    inputs.file(tasks.named('jar', Jar).flatMap { it.archiveFile })
+    outputs.file(releaseJarFile)
+    doLast {
+        def source = tasks.named('jar', Jar).get().archiveFile.get().asFile
+        def target = releaseJarFile.get().asFile
+        target.parentFile.mkdirs()
+        def charset = java.nio.charset.StandardCharsets.ISO_8859_1
+        new java.util.zip.ZipFile(source).withCloseable { input ->
+            new java.util.zip.ZipOutputStream(new FileOutputStream(target)).withCloseable { output ->
+                input.entries().each { entry ->
+                    if (entry.name != 'me/towdium/') {
+                        def name = entry.name.replace('me/towdium/pinin', 'sfmstudio/pinyin')
+                        byte[] bytes = input.getInputStream(entry).withCloseable { it.readAllBytes() }
+                        if (name.endsWith('.class')) {
+                            bytes = new String(bytes, charset)
+                                    .replace('me/towdium/pinin', 'sfmstudio/pinyin')
+                                    .replace('me.towdium.pinin', 'sfmstudio.pinyin').getBytes(charset)
+                        }
+                        def relocated = new java.util.zip.ZipEntry(name)
+                        relocated.time = 0L
+                        output.putNextEntry(relocated)
+                        output.write(bytes)
+                        output.closeEntry()
+                    }
+                }
+            }
+        }
+        new java.util.zip.ZipFile(target).withCloseable { jar ->
+            if (jar.getEntry('sfmstudio/pinyin/PinIn.class') == null ||
+                    jar.getEntry('sfmstudio/pinyin/data.txt') == null ||
+                    jar.entries().any { it.name.startsWith('me/towdium/pinin') }) {
+                throw new GradleException('Release JAR failed PinIn relocation checks')
+            }
+        }
+    }
+}
+tasks.named('build').configure { dependsOn 'releaseJar' }

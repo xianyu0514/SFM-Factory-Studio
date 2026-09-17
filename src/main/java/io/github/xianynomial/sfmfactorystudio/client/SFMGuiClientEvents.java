@@ -86,6 +86,9 @@ public final class SFMGuiClientEvents {
             }).bounds(x, pullY(ms), BTN_W, BTN_H).build();
             lastScreen = ms;
         }
+        // A resize reinitializes the same screen instance; keep drawing and hit bounds together.
+        visualBtn.setPosition(colX(ms), visualY(ms));
+        pullBtn.setPosition(colX(ms), pullY(ms));
         visualBtn.render(event.getGuiGraphics(), event.getMouseX(), event.getMouseY(), event.getPartialTick());
         pullBtn.render(event.getGuiGraphics(), event.getMouseX(), event.getMouseY(), event.getPartialTick());
         // 专属标识（用户反馈：要能和原生按钮区分）——左缘竖向强调条，与编辑器卡片的左色条同一视觉语言；
