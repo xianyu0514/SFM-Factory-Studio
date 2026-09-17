@@ -14,7 +14,7 @@
 
 - **Minecraft**: 1.21.1（NeoForge）和 1.20.1（Forge）
 - **前置**: [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)（必须安装）
-- **当前版本**: 0.8
+- **当前版本**: 0.9.0
 - **许可证**: MPL-2.0
 
 [下载](#安装) · [功能](#核心功能) · [构建](#构建)
@@ -55,6 +55,17 @@
 - **无损往返**：合法 SFML 的注释、空否则分支、格式在积木↔源码往返中保留；
   测试覆盖 SFM 官方 8 个示例程序、全部语法分支，以及随机生成的 1000 组积木组合
   全部通过 SFM 本体编译器
+
+### 代码编辑器操作
+
+- 拖动代码区顶边调整分屏比例；小窗口自动切换到代码视图，可随时返回积木。
+- **F7** 切换专注代码 / 分屏；**Alt+Z** 切换显示换行，不修改 SFML 或真实行号。
+- 两个滚动条都可拖动；不换行时，**Shift+滚轮** 横向滚动。
+- **Ctrl+F** 区分大小写查找原文；**F3 / Shift+F3** 循环定位下一处 / 上一处；**Ctrl+G** 跳到指定行。
+- **Ctrl+Space** 请求补全，使用 SFM 配置的接受建议键；**Tab / Shift+Tab** 缩进，**Ctrl+/** 注释，**Ctrl+Z / Ctrl+Y** 撤销重做，**Ctrl+S** 保存。
+- 双击选词，连续输入合并撤销；调整窗口时保留代码、光标、选区和历史。分屏比例、换行和专注偏好按管理器保存。
+
+Ctrl+H 打开字面查找替换，支持下一处、显示数量的全部替换和一次撤销；点击底栏的代码错误可选择并定位编译器报告的行。滚动条轨道常驻，无溢出时弱化显示。
 
 ### 中文诊断
 
@@ -102,12 +113,12 @@
 ### 1.21.1（NeoForge）
 
 1. 安装 [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. 把 `SFM-Factory-Studio-1.21.1-0.8.9.jar` 放进 `mods` 文件夹
+2. 把 `SFM-Factory-Studio-1.21.1-0.9.0.jar` 放进 `mods` 文件夹
 
 ### 1.20.1（Forge）
 
 1. 安装 [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. 把 `SFM-Factory-Studio-1.20.1-0.8.9.jar` 放进 `mods` 文件夹
+2. 把 `SFM-Factory-Studio-1.20.1-0.9.0.jar` 放进 `mods` 文件夹
 
 | 安装方式 | 编辑器 | NBT 标签筛选 | TPS 工具 |
 |---|---|---|---|
@@ -125,8 +136,8 @@
 需要 JDK 21：
 
 ```bash
-./gradlew build        # 产物在 build/libs/
-./gradlew test         # 130+ 项单元测试（模型/序列化/布局/诊断/NBT 匹配）
+./gradlew build        # main 分支：1.21.1 完整包在 build/libs/；1.20.1 分支：正式包在 build/release/
+./gradlew test         # 编辑器、国际化、模型、序列化等回归测试
 ```
 
 正式发行 JAR 内置 [PinIn](https://github.com/Towdium/PinIn)（MIT）拼音搜索库。

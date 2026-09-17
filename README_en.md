@@ -14,7 +14,7 @@ Build automation with blocks — edits side-by-side with SFML source, always sav
 
 - **Minecraft**: 1.21.1 (NeoForge) & 1.20.1 (Forge)
 - **Dependency**: [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager) (required)
-- **Version**: 0.8
+- **Version**: 0.9.0
 - **License**: MPL-2.0
 
 [Downloads](#installation) · [Features](#features) · [Installation](#installation) · [Building](#building)
@@ -49,6 +49,17 @@ The UI follows your Minecraft language setting: **English** or **简体中文**.
 - Syntax highlighting, line numbers, Tab indent, Ctrl+/ comment, smart suggestions (Ctrl+Space)
 - **Lossless round-trip**: comments, empty else branches, and formatting survive block↔source conversion
 - Validated against all 8 official SFM example programs + 1000 randomized block combinations
+
+### Code editor controls
+
+- Drag the divider above the source pane to resize the split view. Small panes automatically use the code view; **Back to blocks** returns to the canvas.
+- **Focus code** / **Split view** or **F7** switches the code workspace. **Wrap lines** / **Alt+Z** changes display wrapping without modifying SFML or line numbers.
+- Drag either scrollbar; use **Shift + wheel** to scroll horizontally with wrapping off. Resizing preserves the editor instance, selection and undo history when the source is unchanged.
+- **Ctrl+F** finds exact, case-sensitive text; **F3 / Shift+F3** finds the next / previous match and wraps around. **Ctrl+G** jumps to a line.
+- **Ctrl+Space** requests suggestions; the configured SFM acceptance key applies the selected suggestion. **Tab / Shift+Tab**, **Ctrl+/**, **Ctrl+Z / Ctrl+Y**, and **Ctrl+S** indent, comment, undo/redo, and save.
+- Double-click selects a word. Consecutive typing is grouped for undo. The footer shows the real line and column; view settings are saved per manager.
+
+Ctrl+H opens literal find and replace, with replace-next, a counted replace-all action, and one-step undo. Click compiler errors in the footer to select and locate an error with a source position. Scrollbar tracks remain visible and dim when content fits.
 
 ### Diagnostics
 
@@ -92,12 +103,12 @@ Mod list → select this mod → **Config** (in-game GUI, or edit `config/sfmfac
 ### 1.21.1 (NeoForge)
 
 1. Install [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. Drop `SFM-Factory-Studio-1.21.1-0.8.9.jar` into `mods/`
+2. Drop `SFM-Factory-Studio-1.21.1-0.9.0.jar` into `mods/`
 
 ### 1.20.1 (Forge)
 
 1. Install [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. Drop `SFM-Factory-Studio-1.20.1-0.8.9.jar` into `mods/`
+2. Drop `SFM-Factory-Studio-1.20.1-0.9.0.jar` into `mods/`
 
 | Setup | Editor | NBT tag filter | TPS tools |
 |---|---|---|---|
@@ -115,8 +126,8 @@ Mod list → select this mod → **Config** (in-game GUI, or edit `config/sfmfac
 Requires JDK 21:
 
 ```bash
-./gradlew build        # output in build/libs/
-./gradlew test         # 130+ unit tests (model / serialization / layout / diagnostics / NBT)
+./gradlew build        # main: bundled 1.21.1 JAR in build/libs/; 1.20.1 branch: release JAR in build/release/
+./gradlew test         # editor, localization and model regression tests
 ```
 
 Release JARs bundle [PinIn](https://github.com/Towdium/PinIn) (MIT) for pinyin search.

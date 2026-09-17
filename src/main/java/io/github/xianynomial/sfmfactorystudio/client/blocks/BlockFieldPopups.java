@@ -249,6 +249,8 @@ abstract class Popup {
     // ------------------------------------------------------------ text
     /** Single-line text entry with an optional browse button (opens the resource picker). */
     public static class TextPopup extends Popup {
+        private boolean trimInput = true;
+        public TextPopup preserveWhitespace() { trimInput = false; return this; }
         private final EditBox box;
         private final Consumer<String> onDone;
         private final Screen host;
@@ -395,7 +397,7 @@ abstract class Popup {
         }
         private void finish() {
             keepOpen = false;
-            onDone.accept(box.getValue().trim());
+            onDone.accept(trimInput ? box.getValue().trim() : box.getValue());
         }
     }
 

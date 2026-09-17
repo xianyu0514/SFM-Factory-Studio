@@ -14,14 +14,22 @@ public final class SfmlValidate {
     private SfmlValidate() {
     }
 
+    public record Diagnostic(String message, CodeEditorLayout.ErrorPosition position) {}
     public static List<String> check(String sfml) {
+        return diagnose(sfml).stream().map(Diagnostic::message).toList();
+    }
+    public static List<Diagnostic> diagnose(String sfml) {
         try {
             ProgramBuildResult result = new ProgramBuilder(sfml).useCache(false).build();
-            return result.metadata().errors().stream()
-                    .map(c -> Component.translatable(c.getKey(), c.getArgs()).getString())
-                    .toList();
+            return result.metadata().errors().stream().map(c -> {
+                String message = Component.translatable(c.getKey(), c.getArgs()).getString();
+                // Read compiler arguments before localization; translated UI text
+                // must not determine source positions.
+                var position = CodeEditorLayout.errorPosition(java.util.Arrays.deepToString(c.getArgs()));
+                return new Diagnostic(message, position);
+            }).toList();
         } catch (Throwable t) {
-            return List.of(String.valueOf(t.getMessage()));
+            return List.of(new Diagnostic(String.valueOf(t.getMessage()), null));
         }
     }
 }
