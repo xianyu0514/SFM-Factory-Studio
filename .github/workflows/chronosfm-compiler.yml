@@ -18,10 +18,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
       - name: Test compiler
         working-directory: chronosfm-compiler
         run: ../gradlew -p . test
