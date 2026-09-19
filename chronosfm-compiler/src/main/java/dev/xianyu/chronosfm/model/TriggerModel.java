@@ -3,7 +3,7 @@ package dev.xianyu.chronosfm.model;
 import java.util.List;
 import java.util.Objects;
 
-public sealed interface TriggerModel permits TriggerModel.Timer, TriggerModel.Opaque {
+public sealed interface TriggerModel permits TriggerModel.Timer, TriggerModel.Redstone, TriggerModel.Opaque {
     List<StatementModel> statements();
 
     enum Alignment {
@@ -23,6 +23,13 @@ public sealed interface TriggerModel permits TriggerModel.Timer, TriggerModel.Op
             Objects.requireNonNull(statements, "statements");
             statements = List.copyOf(statements);
             offset = Math.floorMod(offset, intervalTicks);
+        }
+    }
+
+    record Redstone(List<StatementModel> statements) implements TriggerModel {
+        public Redstone {
+            Objects.requireNonNull(statements, "statements");
+            statements = List.copyOf(statements);
         }
     }
 

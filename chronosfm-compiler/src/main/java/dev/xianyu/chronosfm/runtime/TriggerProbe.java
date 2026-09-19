@@ -17,18 +17,22 @@ public final class TriggerProbe {
         this.plan = Objects.requireNonNull(plan, "plan");
     }
 
-    public Result probe(long localTick, long globalTick) {
+    public Result probe(long localTick, long globalTick, int redstonePulses) {
         int[] scratch = new int[plan.triggers().size()];
         int count = 0;
         boolean legacyDue = false;
 
         for (CompiledTrigger trigger : plan.triggers()) {
-            if (!trigger.isDue(localTick, globalTick)) continue;
+            if (!trigger.isDue(localTick, globalTick, redstonePulses)) continue;
             scratch[count++] = trigger.triggerIndex();
             legacyDue |= trigger.mode() == CompiledTrigger.Mode.LEGACY;
         }
 
         return new Result(Arrays.copyOf(scratch, count), legacyDue);
+    }
+
+    public Result probe(long localTick, long globalTick) {
+        return probe(localTick, globalTick, 0);
     }
 
     public record Result(int[] dueTriggerIndexes, boolean requiresLegacyContext) {

@@ -18,17 +18,21 @@ public record CompiledProgramPlan(
         transferRegions = List.copyOf(transferRegions);
     }
 
-    public int[] dueTriggerIndexes(long localTick, long globalTick) {
+    public int[] dueTriggerIndexes(long localTick, long globalTick, int redstonePulses) {
         int[] scratch = new int[triggers.size()];
         int count = 0;
         for (CompiledTrigger trigger : triggers) {
-            if (trigger.isDue(localTick, globalTick)) {
+            if (trigger.isDue(localTick, globalTick, redstonePulses)) {
                 scratch[count++] = trigger.triggerIndex();
             }
         }
         int[] result = new int[count];
         System.arraycopy(scratch, 0, result, 0, count);
         return result;
+    }
+
+    public int[] dueTriggerIndexes(long localTick, long globalTick) {
+        return dueTriggerIndexes(localTick, globalTick, 0);
     }
 
     public List<TransferRegion> exactOrderRegionsForTrigger(int triggerIndex) {

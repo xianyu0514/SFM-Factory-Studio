@@ -13,8 +13,8 @@ public final class ExactOrderTransferPlan {
         this.program = Objects.requireNonNull(program, "program");
     }
 
-    public List<TransferRegion> regionsForTick(long localTick, long globalTick) {
-        int[] due = program.dueTriggerIndexes(localTick, globalTick);
+    public List<TransferRegion> regionsForTick(long localTick, long globalTick, int redstonePulses) {
+        int[] due = program.dueTriggerIndexes(localTick, globalTick, redstonePulses);
         if (due.length == 0) return List.of();
 
         boolean[] dueFlags = new boolean[program.triggers().size()];
@@ -24,5 +24,9 @@ public final class ExactOrderTransferPlan {
                 .filter(region -> dueFlags[region.triggerIndex()])
                 .sorted((a, b) -> Integer.compare(a.exactOrderOrdinal(), b.exactOrderOrdinal()))
                 .toList();
+    }
+
+    public List<TransferRegion> regionsForTick(long localTick, long globalTick) {
+        return regionsForTick(localTick, globalTick, 0);
     }
 }

@@ -11,3 +11,6 @@ plugins {
 }
 
 rootProject.name = "sfmfactorystudio"
+
+include ':chronosfm-compiler'
+project(':chronosfm-compiler').projectDir = file('chronosfm-compiler')

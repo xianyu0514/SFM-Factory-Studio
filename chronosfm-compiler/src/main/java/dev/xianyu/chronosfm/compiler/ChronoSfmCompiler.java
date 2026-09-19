@@ -35,6 +35,15 @@ public final class ChronoSfmCompiler {
                         timer.offset(),
                         null
                 ));
+            } else if (trigger instanceof TriggerModel.Redstone) {
+                triggers.add(new CompiledTrigger(
+                        triggerIndex,
+                        CompiledTrigger.Mode.FAST_REDSTONE,
+                        0,
+                        null,
+                        0,
+                        null
+                ));
             } else if (trigger instanceof TriggerModel.Opaque opaque) {
                 triggers.add(new CompiledTrigger(
                         triggerIndex,

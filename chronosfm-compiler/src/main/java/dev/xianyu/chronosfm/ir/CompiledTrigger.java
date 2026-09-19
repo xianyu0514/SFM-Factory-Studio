@@ -14,6 +14,7 @@ public record CompiledTrigger(
 ) {
     public enum Mode {
         FAST_TIMER,
+        FAST_REDSTONE,
         LEGACY
     }
 
@@ -27,9 +28,18 @@ public record CompiledTrigger(
         }
     }
 
+    public boolean isDue(long localTick, long globalTick, int redstonePulses) {
+        return switch (mode) {
+            case LEGACY -> true;
+            case FAST_REDSTONE -> redstonePulses > 0;
+            case FAST_TIMER -> {
+                long tick = alignment == TriggerModel.Alignment.LOCAL ? localTick : globalTick;
+                yield Math.floorMod(tick, intervalTicks) == offset;
+            }
+        };
+    }
+
     public boolean isDue(long localTick, long globalTick) {
-        if (mode == Mode.LEGACY) return true;
-        long tick = alignment == TriggerModel.Alignment.LOCAL ? localTick : globalTick;
-        return Math.floorMod(tick, intervalTicks) == offset;
+        return isDue(localTick, globalTick, 0);
     }
 }
