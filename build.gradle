@@ -12,6 +12,11 @@ base {
 
 tasks.named('jar', Jar).configure {
     archiveClassifier.set('slim')
+
+    // ChronoSFM is an internal compiler/runtime module, not a separate required mod.
+    // Embed its classes into the addon jar so release users do not need another jar.
+    from(project(':chronosfm-compiler').sourceSets.main.output)
+    dependsOn(project(':chronosfm-compiler').tasks.named('classes'))
 }
 
 tasks.named('jarJar').configure {
