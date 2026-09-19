@@ -1,0 +1,32 @@
+plugins {
+    id 'java-library'
+}
+
+group = 'dev.xianyu.chronosfm'
+version = '0.1.0-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+tasks.register('runCompilerBenchmark', JavaExec) {
+    group = 'verification'
+    description = 'Runs a small allocation-free compiler scaling smoke benchmark.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'dev.xianyu.chronosfm.bench.CompilerBenchmark'
+}
