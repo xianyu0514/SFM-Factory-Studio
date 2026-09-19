@@ -58,3 +58,9 @@ jobs:
           echo "4b589e0b310133998f26f0c12c3ee8d367360be1771e0e96c951322cea6c7ad0  libs/sfm-4.34.0.jar" | sha256sum -c -
       - name: Compile and test real SFM adapter
         run: ./gradlew -Dorg.gradle.java.home="$JAVA_HOME" test --tests 'io.github.xianynomial.sfmfactorystudio.chronosfm.SfmProgramAdapterTest'
+      - name: Verify compiler core is embedded in addon jar
+        run: |
+          ./gradlew -Dorg.gradle.java.home="$JAVA_HOME" jar
+          JAR="$(find build/libs -maxdepth 1 -name '*-slim.jar' | head -n 1)"
+          test -n "$JAR"
+          jar tf "$JAR" | grep -q 'dev/xianyu/chronosfm/compiler/ChronoSfmCompiler.class'
