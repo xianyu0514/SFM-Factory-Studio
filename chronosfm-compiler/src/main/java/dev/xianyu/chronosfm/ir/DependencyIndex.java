@@ -12,6 +12,13 @@ public final class DependencyIndex {
     }
 
     public static DependencyIndex build(List<TransferRegion> regions) {
+        return build(regions, List.of());
+    }
+
+    public static DependencyIndex build(
+            List<TransferRegion> regions,
+            List<ExactOperation> operations
+    ) {
         Map<String, BitSet> labelBits = new HashMap<>();
         Map<String, BitSet> resourceBits = new HashMap<>();
 
@@ -19,6 +26,15 @@ public final class DependencyIndex {
             add(labelBits, region.sourceLabel(), region.regionId());
             add(labelBits, region.destinationLabel(), region.regionId());
             add(resourceBits, region.resourceKey(), region.regionId());
+        }
+
+        // Exact IO operations do not yet have persistent region ids. Their
+        // exact-order ordinal is stable within a compiled plan and is therefore
+        // used as the dependency key until TransferGraph lowering assigns regions.
+        for (ExactOperation operation : operations) {
+            int id = operation.exactOrderOrdinal();
+            for (String label : operation.labels()) add(labelBits, label, id);
+            for (String resource : operation.resourceTypes()) add(resourceBits, resource, id);
         }
 
         return new DependencyIndex(freeze(labelBits), freeze(resourceBits));

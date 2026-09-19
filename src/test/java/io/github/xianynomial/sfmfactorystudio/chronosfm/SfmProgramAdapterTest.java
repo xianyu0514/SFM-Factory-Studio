@@ -5,7 +5,9 @@ import ca.teamdman.sfml.ast.Interval;
 import ca.teamdman.sfml.ast.Program;
 import ca.teamdman.sfml.ast.RedstoneTrigger;
 import ca.teamdman.sfml.ast.TimerTrigger;
+import ca.teamdman.sfml.program_builder.ProgramBuilder;
 import dev.xianyu.chronosfm.compiler.ChronoSfmCompiler;
+import dev.xianyu.chronosfm.ir.ExactOperation;
 import dev.xianyu.chronosfm.model.TriggerModel;
 import dev.xianyu.chronosfm.runtime.TriggerProbe;
 import org.junit.jupiter.api.Test;
@@ -53,5 +55,31 @@ class SfmProgramAdapterTest {
         var probe = new TriggerProbe(new ChronoSfmCompiler().compile(adapter.adapt(program)));
         assertTrue(probe.probe(1, 1, 0).maySkipFullContext());
         assertFalse(probe.probe(1, 1, 2).maySkipFullContext());
+    }
+
+    @Test
+    void compilesRealFlatInputOutputIntoExactOrderIr() {
+        var result = new ProgramBuilder("""
+                NAME "chrono-flat"
+                EVERY 20 TICKS DO
+                    INPUT FROM source
+                    OUTPUT TO destination
+                END
+                """).useCache(false).build();
+
+        assertNotNull(result.program(), () -> "SFM parser failed: " + result.metadata().errors());
+
+        var plan = new ChronoSfmCompiler().compile(adapter.adapt(result.program()));
+        var operations = plan.exactOperationsForTrigger(0);
+
+        assertEquals(2, operations.size());
+        assertInstanceOf(ExactOperation.InputOp.class, operations.get(0));
+        assertInstanceOf(ExactOperation.OutputOp.class, operations.get(1));
+        assertTrue(operations.get(0).exactOrderOrdinal() < operations.get(1).exactOrderOrdinal());
+
+        var input = (ExactOperation.InputOp) operations.get(0);
+        var output = (ExactOperation.OutputOp) operations.get(1);
+        assertEquals(List.of("source"), input.selector().labels());
+        assertEquals(List.of("destination"), output.selector().labels());
     }
 }

@@ -3,6 +3,7 @@ package dev.xianyu.chronosfm.compiler;
 import dev.xianyu.chronosfm.ir.CompiledProgramPlan;
 import dev.xianyu.chronosfm.ir.CompiledTrigger;
 import dev.xianyu.chronosfm.ir.DependencyIndex;
+import dev.xianyu.chronosfm.ir.ExactOperation;
 import dev.xianyu.chronosfm.ir.TransferRegion;
 import dev.xianyu.chronosfm.model.ProgramModel;
 import dev.xianyu.chronosfm.model.StatementModel;
@@ -18,6 +19,7 @@ public final class ChronoSfmCompiler {
 
         List<CompiledTrigger> triggers = new ArrayList<>(program.triggers().size());
         List<TransferRegion> regions = new ArrayList<>();
+        List<ExactOperation> operations = new ArrayList<>();
 
         int regionId = 0;
         int order = 0;
@@ -61,12 +63,14 @@ public final class ChronoSfmCompiler {
             List<StatementModel> statements = trigger.statements();
             for (int statementIndex = 0; statementIndex < statements.size(); statementIndex++) {
                 StatementModel statement = statements.get(statementIndex);
+                int statementOrder = order++;
+
                 if (statement instanceof StatementModel.Transfer transfer) {
                     regions.add(new TransferRegion(
                             regionId++,
                             triggerIndex,
                             statementIndex,
-                            order++,
+                            statementOrder,
                             transfer.sourceLabel(),
                             transfer.destinationLabel(),
                             transfer.resourceKey(),
@@ -74,7 +78,32 @@ public final class ChronoSfmCompiler {
                             transfer.maxQuantity(),
                             transfer.retainQuantity()
                     ));
-                } else if (statement instanceof StatementModel.Opaque) {
+                } else if (statement instanceof StatementModel.Input input) {
+                    operations.add(new ExactOperation.InputOp(
+                            triggerIndex,
+                            statementIndex,
+                            statementOrder,
+                            input.selector(),
+                            input.resources(),
+                            input.each()
+                    ));
+                } else if (statement instanceof StatementModel.Output output) {
+                    operations.add(new ExactOperation.OutputOp(
+                            triggerIndex,
+                            statementIndex,
+                            statementOrder,
+                            output.selector(),
+                            output.resources(),
+                            output.each(),
+                            output.emptySlotsOnly()
+                    ));
+                } else if (statement instanceof StatementModel.Opaque opaque) {
+                    operations.add(new ExactOperation.LegacyBarrier(
+                            triggerIndex,
+                            statementIndex,
+                            statementOrder,
+                            opaque.reason()
+                    ));
                     requiresLegacy = true;
                 } else {
                     throw new IllegalStateException("Unhandled statement type: " + statement.getClass());
@@ -83,10 +112,12 @@ public final class ChronoSfmCompiler {
         }
 
         List<TransferRegion> immutableRegions = List.copyOf(regions);
+        List<ExactOperation> immutableOperations = List.copyOf(operations);
         return new CompiledProgramPlan(
                 List.copyOf(triggers),
                 immutableRegions,
-                DependencyIndex.build(immutableRegions),
+                immutableOperations,
+                DependencyIndex.build(immutableRegions, immutableOperations),
                 requiresLegacy
         );
     }
