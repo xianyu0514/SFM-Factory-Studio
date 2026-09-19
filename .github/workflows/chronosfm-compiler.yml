@@ -22,10 +22,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
       - name: Test compiler
         working-directory: chronosfm-compiler
-        run: gradle test
+        run: ../gradlew -p . test
       - name: Compiler scaling smoke benchmark
         working-directory: chronosfm-compiler
-        run: gradle runCompilerBenchmark --args='100000'
+        run: ../gradlew -p . runCompilerBenchmark --args='100000'
