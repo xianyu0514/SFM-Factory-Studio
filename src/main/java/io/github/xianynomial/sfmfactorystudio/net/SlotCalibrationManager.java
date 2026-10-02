@@ -64,6 +64,13 @@ public final class SlotCalibrationManager {
 
     public static final int INFO_NO_EXPOSURE = 1;
 
+    /**
+     * 校准详细日志开关（配置 calibrationVerboseLogs 的运行时镜像）：
+     * 开启后每次打开/关闭容器界面的会话开始/结束都记录（含零学习的空会话）；
+     * 关闭时只记录真事件——学到锚点的会话结束行与未暴露诊断，开箱不再刷日志。
+     */
+    public static volatile boolean verboseLogs = false;
+
     private static final class Session {
         int sampleAcc = 0;          // 采样节流计数（每 SAMPLE_INTERVAL 刻采样一次）
         final BlockPos pos;
@@ -96,14 +103,26 @@ public final class SlotCalibrationManager {
         if (player == null || pos == null || containerId < 0 || player.getServer() == null) return;
         SESSIONS.put(player.getUUID(), new Session(pos, containerId,
                 menuClass == null ? "" : menuClass, player.getServer()));
-        SFMGui.LOGGER.info("[sfmjimu-calib] session start: player {} pos {} menu {} containerId {}",
-                player.getGameProfile().getName(), pos, menuClass, containerId);
+        if (verboseLogs) {
+            SFMGui.LOGGER.info("[sfmjimu-calib] session start: player {} pos {} menu {} containerId {}",
+                    player.getGameProfile().getName(), pos, menuClass, containerId);
+        } else {
+            SFMGui.LOGGER.debug("[sfmjimu-calib] session start: pos {} menu {} containerId {}",
+                    pos, menuClass, containerId);
+        }
     }
 
     public static void forget(UUID playerId, String reason) {
         Session s = SESSIONS.remove(playerId);
-        if (s != null) {
-            SFMGui.LOGGER.info("[sfmjimu-calib] session end({}): pos {} menu {}", reason, s.pos, s.menuClass);
+        if (s == null) return;
+        int learned = s.sentAnchors.size();
+        if (verboseLogs || learned > 0) {
+            // 会话结束行 = 本会话学习成果汇总；零学习且未开详细日志时降 debug（纯簿记）
+            SFMGui.LOGGER.info("[sfmjimu-calib] session end({}): pos {} menu {} learned {} slot anchors",
+                    reason, s.pos, s.menuClass, learned);
+        } else {
+            SFMGui.LOGGER.debug("[sfmjimu-calib] session end({}): pos {} menu {} learned 0",
+                    reason, s.pos, s.menuClass);
         }
     }
 

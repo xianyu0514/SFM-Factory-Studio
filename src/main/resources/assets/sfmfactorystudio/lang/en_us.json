@@ -747,6 +747,8 @@
   "sfmfactorystudio.configuration.enableIdleBackoff.comment": "Stretches timer intervals step by step while a manager keeps moving nothing; any successful move resets instantly. Default off = identical to vanilla SFM (including first-item latency after idle). Enable only on high-load servers; average throughput is unchanged and redstone triggers are unaffected.",
   "sfmfactorystudio.configuration.maxIdleBackoff.comment": "Only used when idle backoff is enabled. The first item of an idle factory may wait up to (multiplier-1) extra intervals.",
   "sfmfactorystudio.configuration.tickBudgetMs.comment": "Caps total per-tick time of all managers; over-budget runs are deferred this tick. Deferred runs move nothing = throughput loss! Keep 0 = off (default); enable only on dying servers where survival matters more than throughput.",
+  "sfmfactorystudio.configuration.calibrationVerboseLogs": "Verbose calibration logs",
+  "sfmfactorystudio.configuration.calibrationVerboseLogs.comment": "Log calibration session start/end for every container screen open and close, including sessions that learn nothing. Default off = only real events are logged (sessions that learned anchors, slots-not-exposed diagnosis). Turn on when debugging wrong slot numbering, then send latest.log.",
   "gui.sfmfactorystudio.ed.cond_editor": "Edit condition",
   "gui.sfmfactorystudio.ed.cmp_gt": "more than (>)",
   "gui.sfmfactorystudio.ed.cmp_ge": "at least (≥)",

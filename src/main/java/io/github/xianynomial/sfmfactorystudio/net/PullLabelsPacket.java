@@ -58,7 +58,7 @@ public record PullLabelsPacket(BlockPos pos) {
                 feedback(player, "gui.sfmfactorystudio.pull_labels.compile_failed", ChatFormatting.RED);
                 return;
             }
-            SFMGui.LOGGER.info("PullLabels: {} label names from disk: {}", names.size(), names);
+            SFMGui.LOGGER.debug("PullLabels: {} label names from disk: {}", names.size(), names);
             if (names.isEmpty()) {
                 feedback(player, "gui.sfmfactorystudio.pull_labels.empty", ChatFormatting.YELLOW);
                 return;

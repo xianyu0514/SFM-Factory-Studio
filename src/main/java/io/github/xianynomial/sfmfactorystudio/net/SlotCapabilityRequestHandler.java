@@ -122,7 +122,7 @@ public final class SlotCapabilityRequestHandler {
             if (out.isEmpty()) out.add(null);
             return out;
         } catch (Throwable t) {
-            SFMGui.LOGGER.warn("side qualifier resolve failed for {}: {}", sides, t.toString());
+            SFMGui.LOGGER.warn("side qualifier resolve failed for {}", sides, t);
             List<Direction> out = new ArrayList<>();
             out.add(null);
             return out;

@@ -59,11 +59,11 @@ public final class ClientGuiLayoutCache {
             });
     private static final DeferredLayoutCache CACHE = new DeferredLayoutCache(IO,
             () -> Files.exists(file()) ? SlotLayoutData.readAll(Files.readString(file())) : Map.of(),
-            failure -> SFMGui.LOGGER.warn("Failed to read slot-layouts.json, continuing with empty cache: {}", failure.toString()));
+            failure -> SFMGui.LOGGER.warn("Failed to read slot-layouts.json, continuing with empty cache", failure));
     private static final DeferredLayoutWriter WRITER = new DeferredLayoutWriter(
             IO, () -> System.nanoTime() / 1_000_000L,
             snapshot -> DeferredLayoutWriter.writeAtomically(file(), snapshot),
-            failure -> SFMGui.LOGGER.warn("Failed to write slot-layouts.json; retry scheduled: {}", failure.toString()));
+            failure -> SFMGui.LOGGER.warn("Failed to write slot-layouts.json; retry scheduled", failure));
     private static BlockPos lastClickedPos = null;
     private static long lastClickedAt = 0;
 
