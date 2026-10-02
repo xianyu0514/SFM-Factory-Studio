@@ -42,6 +42,7 @@ public class HardcodedChineseTest {
             for (Path p : (Iterable<Path>) paths::iterator) {
                 if (!p.toString().endsWith(".java")) continue;
                 if (p.toString().endsWith("ExamplePrograms.java")) continue; // 刻意的双语脚手架数据表（见类注释）
+                if (p.toString().endsWith("SfmlKeywordDocs.java")) continue; // 关键词悬停文档双语数据表（同 ExamplePrograms 模式，见类注释）
                 String original = Files.readString(p, StandardCharsets.UTF_8);
                 String s = blankOut(BLOCK_COMMENT.matcher(original));
                 s = blankOut(LOC_CTOR.matcher(s));

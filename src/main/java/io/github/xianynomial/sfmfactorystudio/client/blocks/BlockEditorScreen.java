@@ -504,6 +504,10 @@ public class BlockEditorScreen extends Screen {
     private double codePaneFraction = CodeViewPreferences.DEFAULT_FRACTION;
     private static final int CODE_HEADER_H = 24;
     static final Loc C_COLLAPSE = E("code_collapse", "收起 F6");
+    private static final Loc CE_CTX_SELECT_ALL = new Loc("gui.sfmfactorystudio.code_editor.ctx_select_all", "全选");
+    private static final Loc CE_CTX_COPY = new Loc("gui.sfmfactorystudio.code_editor.ctx_copy", "复制");
+    private static final Loc CE_CTX_CUT = new Loc("gui.sfmfactorystudio.code_editor.ctx_cut", "剪切");
+    private static final Loc CE_CTX_PASTE = new Loc("gui.sfmfactorystudio.code_editor.ctx_paste", "粘贴");
     static final Loc C_FOCUS = E("code_focus", "专注代码");
     static final Loc C_SPLIT = E("code_split", "分屏");
     static final Loc C_WRAP = E("code_wrap", "自动换行");
@@ -2126,6 +2130,13 @@ public class BlockEditorScreen extends Screen {
             if (handled) setDragging(true);
             return handled;
         }
+        if (codeEditor != null && codeEditor.visible && codeEditor.containsPointer(mx, my) && button == 2) {
+            // 代码编辑器右键 = 剪贴板菜单（画布的右键平移/菜单不得截走）
+            setFocused(codeEditor);
+            codeEditor.mouseClicked(mx, my, button);
+            openCodeContextMenu(mx, my);
+            return true;
+        }
         if (super.mouseClicked(mx, my, button)) {
             if (codeEditor != null && codeEditor.isFocused()) codeSuggestDelay = 2;
             return true;
@@ -2926,6 +2937,31 @@ public class BlockEditorScreen extends Screen {
                 case "delete_dup" -> deleteDuplicateBelow(menuTarget);
                 case "new_timer" -> createCardAt("timer", ccx, ccy);
                 case "new_pulse" -> createCardAt("pulse", ccx, ccy);
+            }
+        }));
+    }
+
+    /** 代码编辑器右键菜单：剪贴板操作（纯鼠标优先——没有它右键只会平移画布）。 */
+    private void openCodeContextMenu(double mx, double my) {
+        if (codeEditor == null) return;
+        List<String> values = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        values.add("select_all");
+        labels.add(CE_CTX_SELECT_ALL.getString());
+        if (codeEditor.hasSelection()) {
+            values.add("copy");
+            labels.add(CE_CTX_COPY.getString());
+            values.add("cut");
+            labels.add(CE_CTX_CUT.getString());
+        }
+        values.add("paste");
+        labels.add(CE_CTX_PASTE.getString());
+        setPopup(new Popup.ChoicePopup((int) mx - 30, (int) my - 10, 116, values, labels, "", action -> {
+            switch (action) {
+                case "select_all" -> codeEditor.selectAll();
+                case "copy" -> codeEditor.copySelection();
+                case "cut" -> codeEditor.cutSelection();
+                case "paste" -> codeEditor.pasteClipboard();
             }
         }));
     }
