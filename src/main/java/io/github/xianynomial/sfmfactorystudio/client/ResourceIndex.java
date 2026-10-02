@@ -3,6 +3,7 @@ package io.github.xianynomial.sfmfactorystudio.client;
 import ca.teamdman.sfm.common.registry.registration.SFMResourceTypes;
 import ca.teamdman.sfm.common.resourcetype.RegistryBackedResourceType;
 import ca.teamdman.sfm.common.resourcetype.ResourceType;
+import io.github.xianynomial.sfmfactorystudio.SFMGui;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BProgram;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -32,6 +33,13 @@ import java.util.Map;
  * sprite, or a text fallback) and to search/tooltip by name. {@link #lookup(String)}
  * resolves a stored SFML id back to its entry so callers can show the icon/name of a
  * previously selected resource.
+ *
+ * <p><b>分帧构建</b>：数万物品的目录若一次性构建，会在客户端线程造成数百毫秒级停顿
+ * （编辑器打开时的图标回显也会触发）。构建改为时间切片——进世界后由客户端 tick 预热，
+ * 每帧最多花 {@value #FRAME_BUDGET_MS}ms；若使用方在预热完成前就访问
+ * {@link #all()}/{@link #lookup(String)}，则同步补完剩余切片（与旧一次性构建同成本，
+ * 预热使其几乎不再发生）。游戏对象（ItemStack/流体纹理）只在客户端线程触碰，
+ * 这是刻意设计——它们不是线程安全对象。
  */
 public final class ResourceIndex {
     /** How a grid entry is drawn. */
@@ -80,18 +88,29 @@ public final class ResourceIndex {
         }
     }
 
+    private static final int FRAME_BUDGET_MS = 2;
+
     private static volatile List<Entry> ENTRIES = null;
     private static volatile Map<String, Entry> BY_ID = null;
     private static volatile Map<BProgram.ResourceKind, List<Entry>> BY_RESOURCE_KIND = null;
+
+    // ---- 分帧构建状态（仅客户端线程触碰）----
+    private enum Phase {ITEMS, FLUIDS, CHEMICALS, SFM_TYPES, INDEX, DONE}
+
+    private static Phase phase;
+    private static List<ItemStack> sourceItems = List.of();
+    private static List<Fluid> sourceFluids = List.of();
+    private static List<Object> sourceChemicals = List.of();
+    private static List<Entry> building;
+    private static int cursor;
+    private static long buildStartNanos;
 
     private ResourceIndex() {
     }
 
     /** All entries, built on first access (client thread; registries must be ready). */
     public static List<Entry> all() {
-        if (ENTRIES == null) {
-            build();
-        }
+        ensureBuilt();
         return ENTRIES;
     }
 
@@ -100,76 +119,163 @@ public final class ResourceIndex {
         if (sfmlId == null) {
             return null;
         }
-        if (BY_ID == null) {
-            build();
-        }
+        ensureBuilt();
         return BY_ID.get(sfmlId);
     }
 
     /** Entries already classified once during index construction. */
     public static List<Entry> forKind(BProgram.ResourceKind kind) {
-        if (BY_RESOURCE_KIND == null) build();
+        ensureBuilt();
         return BY_RESOURCE_KIND.getOrDefault(kind, List.of());
     }
 
-    private static synchronized void build() {
-        if (ENTRIES != null) {
+    /** 索引是否已就绪（预热完成）。 */
+    public static boolean ready() {
+        return ENTRIES != null;
+    }
+
+    /**
+     * 客户端 tick 驱动的预热：进世界后开始分帧构建，主菜单不动。
+     * 由 {@code SFMGuiClientEvents} 的客户端 tick 事件调用。
+     */
+    public static void clientTick() {
+        if (ENTRIES != null || phase != null) return;
+        try {
+            if (Minecraft.getInstance().level == null) return;
+        } catch (Throwable unavailable) {
             return;
         }
-        List<Entry> entries = new ArrayList<>();
+        begin();
+        runSlice(FRAME_BUDGET_MS);
+    }
 
-        // --- Items (icon) ---
-        // Prefer JEI's display-ready ingredient list when JEI is installed: it renders
-        // correctly (no blank icons) and covers subtypes/variants. Fall back to the
-        // registry otherwise. The sfmlId is always the item's registry id so SFML
-        // matching is unaffected by which source we used.
-        List<ItemStack> jeiStacks = JeiCompat.itemStacksOrNull();
-        if (jeiStacks != null && !jeiStacks.isEmpty()) {
-            for (ItemStack stack : jeiStacks) {
-                if (stack == null || stack.isEmpty()) continue;
-                ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
-                if (id == null) continue;
-                entries.add(Entry.item(id, stack.copy()));
-            }
-        } else {
-            for (Item item : BuiltInRegistries.ITEM) {
-                ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
-                ItemStack stack = new ItemStack(item);
-                if (stack.isEmpty()) continue;
-                entries.add(Entry.item(id, stack));
-            }
+    private static void ensureBuilt() {
+        if (ENTRIES != null) return;
+        if (phase == null) begin();
+        runSlice(Long.MAX_VALUE); // 同步兜底：预热未完成即被使用（与旧一次性构建同成本）
+    }
+
+    private static void begin() {
+        phase = Phase.ITEMS;
+        cursor = 0;
+        building = new ArrayList<>();
+        buildStartNanos = System.nanoTime();
+        List<ItemStack> jei = null;
+        try {
+            jei = JeiCompat.itemStacksOrNull(); // headless/无 JEI 时类初始化可能失败，回退注册表
+        } catch (Throwable unavailable) {
+            jei = null;
         }
-
-        // --- Fluids (tinted sprite) ---
+        if (jei != null && !jei.isEmpty()) {
+            sourceItems = jei;
+        } else {
+            List<ItemStack> stacks = new ArrayList<>();
+            for (Item item : BuiltInRegistries.ITEM) {
+                ItemStack stack = new ItemStack(item);
+                if (!stack.isEmpty()) stacks.add(stack);
+            }
+            sourceItems = stacks;
+        }
+        List<Fluid> fluids = new ArrayList<>();
         for (Fluid fluid : BuiltInRegistries.FLUID) {
             if (fluid == Fluids.EMPTY) continue;
             if (!fluid.isSource(fluid.defaultFluidState())) continue; // source fluids only
-            ResourceLocation fluidId = BuiltInRegistries.FLUID.getKey(fluid);
-            String sfmlId = "fluid:" + fluidId.getNamespace() + ":" + fluidId.getPath();
-            try {
-                IClientFluidTypeExtensions ext = IClientFluidTypeExtensions.of(fluid);
-                ResourceLocation stillTex = ext.getStillTexture();
-                String displayName = fluid.getFluidType().getDescription().getString();
-                if (stillTex != null) {
-                    entries.add(Entry.sprite(sfmlId, displayName, stillTex, ext.getTintColor()));
-                } else {
-                    entries.add(Entry.text(sfmlId, displayName));
-                }
-            } catch (Throwable ignored) {
-                entries.add(Entry.text(sfmlId, fluidId.toString()));
-            }
+            fluids.add(fluid);
         }
-
-        // --- Chemicals (Mekanism, runtime guarded, tinted sprite) ---
+        sourceFluids = fluids;
+        List<Object> chemicals = new ArrayList<>();
         try {
             if (isClassPresent("mekanism.api.chemical.Chemical")) {
-                buildChemicals(entries);
+                collectChemicals(chemicals);
             }
         } catch (Throwable ignored) {
             // Mekanism not present — skip
         }
+        sourceChemicals = chemicals;
+    }
 
-        // --- Other SFM registry-backed types (text fallback) ---
+    private static void runSlice(long budgetMs) {
+        long deadline = System.nanoTime() + budgetMs * 1_000_000L;
+        while (phase != Phase.DONE && (budgetMs == Long.MAX_VALUE || System.nanoTime() < deadline)) {
+            step();
+        }
+        if (phase == Phase.DONE) publish();
+    }
+
+    private static void step() {
+        switch (phase) {
+            case ITEMS -> {
+                if (cursor >= sourceItems.size()) {
+                    nextPhase();
+                    return;
+                }
+                ItemStack stack = sourceItems.get(cursor++);
+                if (stack == null || stack.isEmpty()) return;
+                ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+                if (id != null) building.add(Entry.item(id, stack));
+            }
+            case FLUIDS -> {
+                if (cursor >= sourceFluids.size()) {
+                    nextPhase();
+                    return;
+                }
+                Fluid fluid = sourceFluids.get(cursor++);
+                ResourceLocation fluidId = BuiltInRegistries.FLUID.getKey(fluid);
+                String sfmlId = "fluid:" + fluidId.getNamespace() + ":" + fluidId.getPath();
+                try {
+                    IClientFluidTypeExtensions ext = IClientFluidTypeExtensions.of(fluid);
+                    ResourceLocation stillTex = ext.getStillTexture();
+                    String displayName = fluid.getFluidType().getDescription().getString();
+                    if (stillTex != null) {
+                        building.add(Entry.sprite(sfmlId, displayName, stillTex, ext.getTintColor()));
+                    } else {
+                        building.add(Entry.text(sfmlId, displayName));
+                    }
+                } catch (Throwable ignored) {
+                    building.add(Entry.text(sfmlId, fluidId.toString()));
+                }
+            }
+            case CHEMICALS -> {
+                if (cursor >= sourceChemicals.size()) {
+                    nextPhase();
+                    return;
+                }
+                building.add(chemicalEntry(sourceChemicals.get(cursor++)));
+            }
+            case SFM_TYPES -> {
+                buildSfmTypes();
+                nextPhase();
+            }
+            case INDEX -> {
+                Map<String, Entry> byId = new HashMap<>(building.size() * 2);
+                Map<BProgram.ResourceKind, List<Entry>> byKind = new EnumMap<>(BProgram.ResourceKind.class);
+                for (Entry e : building) {
+                    byId.putIfAbsent(e.sfmlId(), e);
+                    byKind.computeIfAbsent(e.resourceKind(), ignored -> new ArrayList<>()).add(e);
+                }
+                BY_ID = byId;
+                BY_RESOURCE_KIND = byKind;
+                phase = Phase.DONE;
+            }
+            default -> phase = Phase.DONE;
+        }
+    }
+
+    private static void nextPhase() {
+        cursor = 0;
+        phase = Phase.values()[phase.ordinal() + 1];
+    }
+
+    private static void publish() {
+        // Publish the sentinel last so readers never observe a half-built index.
+        ENTRIES = building;
+        building = null;
+        SFMGui.LOGGER.debug("resource index ready: {} entries in {} ms",
+                ENTRIES.size(), (System.nanoTime() - buildStartNanos) / 1_000_000L);
+    }
+
+    /** Other SFM registry-backed types (text fallback) — cheap enough for one step. */
+    private static void buildSfmTypes() {
         try {
             var registry = SFMResourceTypes.registry();
             for (var entry : registry.entries()) {
@@ -181,42 +287,33 @@ public final class ResourceIndex {
                 if (rt instanceof RegistryBackedResourceType<?, ?, ?> backed) {
                     for (ResourceLocation resId : backed.getRegistryKeys()) {
                         String sfmlId = path + ":" + resId.getNamespace() + ":" + resId.getPath();
-                        entries.add(Entry.text(sfmlId, sfmlId));
+                        building.add(Entry.text(sfmlId, sfmlId));
                     }
                 }
             }
         } catch (Throwable ignored) {
             // SFM registry not yet available — items/fluids only
         }
-
-        Map<String, Entry> byId = new HashMap<>(entries.size() * 2);
-        Map<BProgram.ResourceKind, List<Entry>> byKind = new EnumMap<>(BProgram.ResourceKind.class);
-        for (Entry e : entries) {
-            byId.putIfAbsent(e.sfmlId(), e);
-            byKind.computeIfAbsent(e.resourceKind(), ignored -> new ArrayList<>()).add(e);
-        }
-        BY_ID = byId;
-        BY_RESOURCE_KIND = byKind;
-        // Publish the sentinel last so readers never observe a half-built index.
-        ENTRIES = entries;
     }
 
     /** Isolated so all Mekanism class references stay behind one guard. */
-    private static void buildChemicals(List<Entry> entries) {
-        var registry = mekanism.api.MekanismAPI.CHEMICAL_REGISTRY;
-        for (mekanism.api.chemical.Chemical chemical : registry) {
-            if (chemical.isEmptyType()) continue;
-            ResourceLocation regName = chemical.getRegistryName();
-            String sfmlId = "chemical:" + regName.getNamespace() + ":" + regName.getPath();
-            String displayName = chemical.getTextComponent().getString();
-            entries.add(Entry.sprite(sfmlId, displayName, chemical.getIcon(), chemical.getTint()));
+    private static void collectChemicals(List<Object> out) {
+        for (mekanism.api.chemical.Chemical chemical : mekanism.api.MekanismAPI.CHEMICAL_REGISTRY) {
+            if (!chemical.isEmptyType()) out.add(chemical);
         }
+    }
+
+    private static Entry chemicalEntry(Object raw) {
+        var chemical = (mekanism.api.chemical.Chemical) raw;
+        ResourceLocation regName = chemical.getRegistryName();
+        String sfmlId = "chemical:" + regName.getNamespace() + ":" + regName.getPath();
+        String displayName = chemical.getTextComponent().getString();
+        return Entry.sprite(sfmlId, displayName, chemical.getIcon(), chemical.getTint());
     }
 
     private static boolean isClassPresent(String className) {
         try {
-            Class.forName(className, false, ResourceIndex.class.getClassLoader());
-            return true;
+            return Class.forName(className, false, ResourceIndex.class.getClassLoader()) != null;
         } catch (ClassNotFoundException e) {
             return false;
         }

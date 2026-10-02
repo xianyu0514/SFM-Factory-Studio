@@ -11,6 +11,7 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.event.TagsUpdatedEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -37,6 +38,13 @@ public final class SFMGuiClientEvents {
     @SubscribeEvent
     public static void onTagsUpdated(TagsUpdatedEvent event) {
         ResourceTagIndex.invalidate();
+    }
+
+    @SubscribeEvent
+    public static void onClientTick(ClientTickEvent.Post event) {
+        // 后台协调帧：资源索引预热（分帧构建）+ 编辑器存储的延迟落盘
+        ResourceIndex.clientTick();
+        io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorFileStore.tickAll();
     }
 
     // Match SFM's left button column: x = guiLeft - 120, w = 120, h = 16. The two

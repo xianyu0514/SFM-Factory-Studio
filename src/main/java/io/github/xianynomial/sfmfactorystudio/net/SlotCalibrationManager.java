@@ -5,6 +5,7 @@ import ca.teamdman.sfm.common.capability.SFMBlockCapabilityResult;
 import ca.teamdman.sfm.common.registry.registration.SFMResourceTypes;
 import ca.teamdman.sfm.common.resourcetype.ItemResourceType;
 import io.github.xianynomial.sfmfactorystudio.SFMGui;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.AdaptiveSampler;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SlotCalibrationMatcher;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -61,6 +62,8 @@ public final class SlotCalibrationManager {
      * （4Hz）；各锚定阈值按"采样次数"计不变，仅时间×5——学习仍秒级完成。
      */
     private static final int SAMPLE_INTERVAL_TICKS = 5;
+    /** 安静期采样间隔上限：5→10→20→40，学习完成后 7 向能力发现从 4Hz 降到 0.5Hz。 */
+    private static final int MAX_SAMPLE_INTERVAL_TICKS = 40;
 
     public static final int INFO_NO_EXPOSURE = 1;
 
@@ -84,6 +87,7 @@ public final class SlotCalibrationManager {
         long[] prevMenu;
         long[][] prevCap;
         final SlotCalibrationMatcher matcher = new SlotCalibrationMatcher();
+        final AdaptiveSampler sampler = new AdaptiveSampler(SAMPLE_INTERVAL_TICKS, MAX_SAMPLE_INTERVAL_TICKS);
         final List<int[]> sentAnchors = new ArrayList<>();   // {dir, x, y, capIndex}
         List<Integer> menuCs = new ArrayList<>();
         List<Integer> menuX = new ArrayList<>();
@@ -145,7 +149,7 @@ public final class SlotCalibrationManager {
                 forget(id, "screen closed");
                 continue;
             }
-            if (++s.sampleAcc % SAMPLE_INTERVAL_TICKS != 0) continue; // 采样节流
+            if (++s.sampleAcc % s.sampler.intervalTicks() != 0) continue; // 采样节流（安静期自适应降频）
             sample(player, s);
         }
     }
@@ -159,6 +163,7 @@ public final class SlotCalibrationManager {
         if (s.menuCs.size() != n) {
             // 菜单槽数量变化：重置配对状态与基线
             s.matcher.reset();
+            s.sampler.onActivity();
             s.sampled = false;
             s.menuCs = new ArrayList<>();
             s.menuX = new ArrayList<>();
@@ -179,9 +184,9 @@ public final class SlotCalibrationManager {
 
         long[][] capNow = captureContents(player.serverLevel(), s.pos);
 
+        boolean menuRealChange = false;
+        boolean capChangedAny = false;
         if (s.sampled && s.prevMenu != null && s.prevMenu.length == n && s.prevCap != null) {
-            boolean menuRealChange = false;
-            boolean capChangedAny = false;
             for (int i = 0; i < n; i++) {
                 if (menuNow[i] == Long.MIN_VALUE) continue;
                 if (s.prevMenu[i] != menuNow[i]
@@ -231,6 +236,9 @@ public final class SlotCalibrationManager {
             SFMGui.LOGGER.info("[sfmjimu-calib] passive pairing anchored: menu {} anchored {} pairs this pass (menu slot <-> cap slot)",
                     s.menuClass, anchorsThisSample);
         }
+        // 安静期自适应：真活动（新锚点/任一侧内容变化）立即回全速，纯安静逐级降频
+        if (anchorsThisSample > 0 || menuRealChange || capChangedAny) s.sampler.onActivity();
+        else if (s.sampled) s.sampler.onQuiet();
         s.prevMenu = menuNow;
         s.prevCap = capNow;
         s.sampled = true;

@@ -26,6 +26,7 @@ import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlSyntax;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlValidate;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.CodePaneLayout;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.CodeViewPreferences;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorFileStore;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.TimerRules;
 import io.github.xianynomial.sfmfactorystudio.net.SFMGuiNetwork;
 import io.github.xianynomial.sfmfactorystudio.net.SfmCaps;
@@ -1438,13 +1439,13 @@ public class BlockEditorScreen extends Screen {
         }
     }
 
-    /** 解析一份 layouts.json；读不到或格式不对返回 null，绝不抛出。 */
+    /** 解析一份 layouts.json（走缓存读取）；读不到或格式不对返回 null，绝不抛出。 */
     @SuppressWarnings("unchecked")
     private @Nullable Map<String, List<List<Object>>> readLayoutFile() {
         Path file = layoutFile();
-        if (file == null || !Files.exists(file)) return null;
+        if (file == null) return null;
         try {
-            var raw = GSON.fromJson(Files.readString(file),
+            var raw = GSON.fromJson(EditorFileStore.readString(file),
                     new TypeToken<Map<String, List<List<Object>>>>() {
                     }.getType());
             return raw instanceof Map<?, ?> map && !map.isEmpty()
@@ -1650,15 +1651,6 @@ public class BlockEditorScreen extends Screen {
         Path file = layoutFile();
         if (file == null) return;
         try {
-            Map<String, List<List<Object>>> all = new LinkedHashMap<>();
-            Map<String, List<List<Object>>> prev = readLayoutFile();
-            if (prev != null) {
-                for (Map.Entry<String, List<List<Object>>> e : prev.entrySet()) {
-                    // 其他管理器的条目原样保留；旧格式 [x, y] 也照抄，不偷偷升级
-                    if (e.getKey().equals(layoutKey())) continue;
-                    all.put(e.getKey(), e.getValue());
-                }
-            }
             List<List<Object>> mine = new ArrayList<>();
             for (BProgram.Trigger t : program.triggers) {
                 int[] p = layout.cardPosOf(t.id);
@@ -1668,12 +1660,15 @@ public class BlockEditorScreen extends Screen {
                         ? List.of(CardLayouts.triggerKey(t), x, y, 1)
                         : List.of(CardLayouts.triggerKey(t), x, y));
             }
-            all.put(layoutKey(), mine);
+            // 后台合并写盘：只提交本管理器的键，其他管理器条目由 EditorFileStore 原样保留
+            EditorFileStore.update(file, layoutKey(), GSON.toJsonTree(mine));
             List<List<Object>> zoneRows = new ArrayList<>();
             for (Zone z : zones) {
                 zoneRows.add(List.of(z.name(), z.color(), z.x(), z.y(), z.w(), z.h()));
             }
-            if (!zoneRows.isEmpty()) all.put(layoutKey() + ":zones", zoneRows);
+            if (!zoneRows.isEmpty()) {
+                EditorFileStore.update(file, layoutKey() + ":zones", GSON.toJsonTree(zoneRows));
+            }
             List<List<Object>> linkRows = new ArrayList<>();
             for (BlockLink l : links) {
                 SavedEndpoint ea = encodeEndpoint(l.a());
@@ -1682,10 +1677,13 @@ public class BlockEditorScreen extends Screen {
                     linkRows.add(List.of(ea.key(), ea.path(), eb.key(), eb.path()));
                 }
             }
-            if (!linkRows.isEmpty()) all.put(layoutKey() + ":links", linkRows);
-            all.put(layoutKey() + ":code-view", new CodeViewPreferences(codePaneFraction, codeOnly,
-                    codeEditor != null ? codeEditor.wrapped() : codeWrapPreference, previewMode).write());
-            Files.writeString(file, GSON.toJson(all));
+            if (!linkRows.isEmpty()) {
+                EditorFileStore.update(file, layoutKey() + ":links", GSON.toJsonTree(linkRows));
+            }
+            EditorFileStore.update(file, layoutKey() + ":code-view", GSON.toJsonTree(
+                    new CodeViewPreferences(codePaneFraction, codeOnly,
+                            codeEditor != null ? codeEditor.wrapped() : codeWrapPreference,
+                            previewMode).write()));
         } catch (Exception ignored) {
         }
     }
@@ -3558,9 +3556,9 @@ public class BlockEditorScreen extends Screen {
 
     private Map<String, DraftEntry> readDraftFile() {
         Path file = draftFile();
-        if (file == null || !Files.exists(file)) return new LinkedHashMap<>();
+        if (file == null) return new LinkedHashMap<>();
         try {
-            Map<String, DraftEntry> raw = GSON.fromJson(Files.readString(file),
+            Map<String, DraftEntry> raw = GSON.fromJson(EditorFileStore.readString(file),
                     new TypeToken<Map<String, DraftEntry>>() {
                     }.getType());
             if (raw == null) return new LinkedHashMap<>();
@@ -3577,41 +3575,21 @@ public class BlockEditorScreen extends Screen {
         }
     }
 
-    /** Write via a sibling temporary file so a crash cannot leave half-written JSON. */
-    private boolean writeDraftFile(Map<String, DraftEntry> all) {
-        Path file = draftFile();
-        if (file == null) return false;
-        Path temp = file.resolveSibling(file.getFileName() + ".tmp");
-        try {
-            Files.writeString(temp, GSON.toJson(all));
-            try {
-                Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (IOException noAtomicMove) {
-                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-            }
-            return true;
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
     private void saveDraft() {
         if (!dirty) return;
         // Invalid half-typed code is exactly what crash recovery must preserve;
         // never replace it with the last valid block-generated source.
         String sfml = currentSource();
         if (sfml.equals(lastDraftText)) return;
-        Map<String, DraftEntry> all = readDraftFile();
-        all.put(draftKey(), new DraftEntry(savedProgramText, sfml, System.currentTimeMillis()));
-        if (writeDraftFile(all)) {
-            lastDraftText = sfml;
-            saveLayouts();
-        }
+        // 后台合并写盘：只提交本管理器的草稿键
+        EditorFileStore.update(draftFile(), draftKey(),
+                GSON.toJsonTree(new DraftEntry(savedProgramText, sfml, System.currentTimeMillis())));
+        lastDraftText = sfml;
+        saveLayouts();
     }
 
     private void clearDraft() {
-        Map<String, DraftEntry> all = readDraftFile();
-        if (all.remove(draftKey()) != null) writeDraftFile(all);
+        EditorFileStore.update(draftFile(), draftKey(), com.google.gson.JsonNull.INSTANCE);
         lastDraftText = "";
     }
 
@@ -3938,6 +3916,9 @@ public class BlockEditorScreen extends Screen {
         // a confirmation dialog. Persist the recoverable local copy instead.
         if (dirty) saveDraft();
         saveLayouts();
+        // 后台写盘的关闭路径同步收尾：退出绝不丢数据
+        EditorFileStore.flushSync(layoutFile());
+        EditorFileStore.flushSync(draftFile());
         super.removed();
     }
 
