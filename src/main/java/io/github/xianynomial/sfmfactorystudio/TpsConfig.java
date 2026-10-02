@@ -1,5 +1,6 @@
 package io.github.xianynomial.sfmfactorystudio;
 
+import io.github.xianynomial.sfmfactorystudio.net.SlotCalibrationManager;
 import io.github.xianynomial.sfmfactorystudio.net.TpsBackoff;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -38,6 +39,15 @@ public final class TpsConfig {
             .translation("sfmfactorystudio.configuration.tickBudgetMs")
             .defineInRange("tickBudgetMs", 0.0, 0.0, 1000.0);
 
+    public static final ModConfigSpec.BooleanValue CALIBRATION_VERBOSE_LOGS = BUILDER
+            .comment("""
+                    校准详细日志：开启后每次打开/关闭任何容器界面都会记录校准会话的\
+                    开始/结束（包括没学到任何东西的空会话）。\
+                    默认 false = 只记录真事件（学到锚点的会话、槽位未暴露诊断）。\
+                    排查「槽位编号学不对」类问题时打开，复现后把 latest.log 发给作者即可关闭。""")
+            .translation("sfmfactorystudio.configuration.calibrationVerboseLogs")
+            .define("calibrationVerboseLogs", false);
+
     public static final ModConfigSpec SPEC = BUILDER.build();
 
     private TpsConfig() {
@@ -55,9 +65,10 @@ public final class TpsConfig {
                     ENABLE_IDLE_BACKOFF.get(),
                     MAX_IDLE_BACKOFF.get(),
                     TICK_BUDGET_MS.get());
+            SlotCalibrationManager.verboseLogs = CALIBRATION_VERBOSE_LOGS.get();
         } catch (Throwable t) {
             // 配置未就绪按默认值跑（默认=全关，与原版一致）
-            SFMGui.LOGGER.warn("Failed to load TPS config, running with defaults (all off): {}", t.toString());
+            SFMGui.LOGGER.warn("Failed to load TPS config, running with defaults (all off)", t);
         }
     }
 }

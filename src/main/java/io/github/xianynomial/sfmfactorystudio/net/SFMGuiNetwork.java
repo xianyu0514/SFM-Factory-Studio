@@ -64,7 +64,7 @@ public final class SFMGuiNetwork {
         } catch (Throwable t) {
             // 防御：类加载异常（如 jar 被运行中替换）不能炸掉登出事件链，
             // 否则后续所有模组的登出监听都被跳过
-            SFMGui.LOGGER.warn("[sfmjimu] SfmCaps reset skipped: {}", t.toString());
+            SFMGui.LOGGER.warn("[sfmjimu] SfmCaps reset skipped", t);
         }
         // 发送失败锁存一并复位：否则在原版 SFM 服失败过一次后，同一会话内
         // 再换到装有本附属的服务器，标签/槽位校准等所有请求会永久短路
