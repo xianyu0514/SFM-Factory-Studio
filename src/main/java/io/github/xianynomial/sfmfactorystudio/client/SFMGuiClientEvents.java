@@ -39,6 +39,14 @@ public final class SFMGuiClientEvents {
         ResourceTagIndex.invalidate();
     }
 
+    @SubscribeEvent
+    public static void onClientTick(net.minecraftforge.event.TickEvent.ClientTickEvent event) {
+        if (event.phase != net.minecraftforge.event.TickEvent.Phase.END) return;
+        // 后台协调帧：资源索引预热（分帧构建）+ 编辑器存储的延迟落盘
+        ResourceIndex.clientTick();
+        io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorFileStore.tickAll();
+    }
+
     // Match SFM's left button column: x = guiLeft - 120, w = 120, h = 16. The two
     // addon buttons sit stacked in the 34px gap between SFM's "Paste from clipboard"
     // (bottom at guiTop+32) and "Edit" (top at guiTop+66) buttons.
