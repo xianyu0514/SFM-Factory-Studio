@@ -5,20 +5,16 @@
 ## 中文
 
 - **性能**：开箱卡顿根治——布局缓存与编辑器存档全部后台读写，资源目录进世界后台预热，首次打开编辑器不再停顿。
-- **校准**：学习稳定后服务端采样自动降速（4 次/秒 → 0.5 次/秒），有变化立即恢复全速；学习速度不变，机器静止几乎零开销。
 - **代码编辑器**：新增关键词悬停文档（中英说明+示例）、右键菜单（全选/复制/剪切/粘贴）、三击选行、光标词高亮。
 - **默认代码视图**：首次打开为「积木 60% / 代码 40%」分屏，F6 展开/收起不丢代码，偏好按管理器记忆。
 - **日志**：开箱簿记默认静默，新增「校准详细日志」排障开关，异常带堆栈，启动行显示版本号。
-- **兼容**：槽位布局/偏好/草稿/模板全部兼容旧档，替换 JAR 即用。
 
 ## English
 
 - **Performance:** chest-opening stutter fixed — layout cache and editor saves run fully in the background, and the resource catalog prebuilds after joining a world, so the editor opens instantly.
-- **Calibration:** server sampling auto-slows when idle (4/s → 0.5/s) and instantly recovers on change; same learning speed, near-zero idle cost.
 - **Code editor:** hover docs for SFML keywords with bilingual examples, right-click menu (select all / copy / cut / paste), triple-click line select, and word-occurrence highlight.
 - **Default code view:** first use opens a 60% blocks / 40% code split; F6 toggles code without losing edits; preferences remembered per manager.
 - **Logs:** calibration bookkeeping is silent by default, a new verbose toggle helps debugging, errors now log stack traces, and the startup line shows the version.
-- **Compatibility:** layouts, preferences, drafts and templates work with old saves — just swap the JAR.
 
 ## Downloads / 下载
 
