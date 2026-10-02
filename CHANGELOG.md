@@ -4,25 +4,21 @@
 
 ## 中文
 
-- **打开容器卡顿根治**：槽位布局缓存的读取、合并与写盘全部移出游戏线程——首次读取后台加载、相同布局不再重复保存、写盘自动合并并在失败后重试；编辑器布局与草稿同样改为后台合并写盘，拖拽结束等操作不再伴随同步磁盘读写（关闭编辑器时同步收尾，退出不丢数据）。
-- **校准更快也更省**：槽位配对状态机重写，已排除的组合永久退出计算；学习稳定后服务端采样自动降速（每秒 4 次降至最低 0.5 次），界面一有变化立即恢复全速——学习语义与速度不变，机器静止时服务端几乎零开销。
-- **资源目录预热**：物品/流体/化学品目录改为进世界后后台分帧构建（每帧 ≤2ms），首次打开编辑器或资源选择器不再一次性枚举全部注册表物品造成可感知停顿（大型整合包收益最明显）。
-- **默认代码视图**：首次打开默认「积木 60% / 代码 40%」分屏，窗口空间不足时优先保留积木；**F6** 或工具栏按钮随时展开/收起代码，不丢失未保存内容；比例、专注、换行与展开状态按管理器记忆，显示代码不再自动抢输入焦点。
-- **代码悬停文档**：鼠标停在 `input`、`retain`、`round robin`、`>=` 等写法上，浮出说明与可运行示例，随游戏语言切换中英文——48 个关键词覆盖控制流、集合语义、比较符、方向、时间单位与红石（数据源自官方 VSCode 扩展并翻译）。
-- **编辑器操作增强**：代码区新增右键菜单（全选/复制/剪切/粘贴）；三击选中整行；光标所在词的全部出现位置淡蓝高亮，读程序找引用一目了然。
-- **日志更干净、排障更容易**：开关容器界面的校准簿记日志默认静默，只在学到槽位编号时记录一条结果；新增「校准详细日志」配置（默认关闭，排查编号问题时打开）；异常日志补全堆栈；启动行显示模组版本。
-- **兼容性**：槽位布局、代码视图偏好、草稿与模板全部兼容旧档，替换 JAR 即可继续使用，无需迁移。
+- **性能**：开箱卡顿根治——布局缓存与编辑器存档全部后台读写，资源目录进世界后台预热，首次打开编辑器不再停顿。
+- **校准**：学习稳定后服务端采样自动降速（4 次/秒 → 0.5 次/秒），有变化立即恢复全速；学习速度不变，机器静止几乎零开销。
+- **代码编辑器**：新增关键词悬停文档（中英说明+示例）、右键菜单（全选/复制/剪切/粘贴）、三击选行、光标词高亮。
+- **默认代码视图**：首次打开为「积木 60% / 代码 40%」分屏，F6 展开/收起不丢代码，偏好按管理器记忆。
+- **日志**：开箱簿记默认静默，新增「校准详细日志」排障开关，异常带堆栈，启动行显示版本号。
+- **兼容**：槽位布局/偏好/草稿/模板全部兼容旧档，替换 JAR 即用。
 
 ## English
 
-- **Chest-opening stutter fixed:** slot-layout cache reads, merging, and disk writes all moved off the game thread — first load happens in the background, identical captures no longer re-save, and writes are coalesced with automatic retry. Editor layouts and drafts save in the background too; dragging and resizing no longer touch the disk (closing flushes synchronously so nothing is lost).
-- **Smarter calibration:** the slot pairing state machine was rewritten so eliminated combinations permanently leave the computation. After learning settles, server sampling automatically slows from 4/s to 0.5/s and instantly returns to full speed on any change — same learning semantics and speed, near-zero server cost while machines sit idle.
-- **Resource catalog prewarm:** the item/fluid/chemical catalog now builds in the background after joining a world (≤2 ms per frame), so first opening the editor or a picker no longer enumerates every registered item at once — the biggest win in large modpacks.
-- **Default code view:** first use opens a 60% blocks / 40% code split; small windows keep the canvas. **F6** or the toolbar button expands/collapses code without losing unsaved edits. Ratio, focus, wrapping, and visibility are remembered per manager, and showing code no longer steals keyboard focus.
-- **Hover documentation:** rest the mouse on `input`, `retain`, `round robin`, `>=` and friends for inline descriptions with runnable examples, localized to your game language — 48 keywords covering control flow, set semantics, comparisons, directions, time units, and redstone (ported and translated from the official VSCode extension).
-- **Editor quality of life:** right-click menu in the code pane (select all / copy / cut / paste); triple-click selects a whole line; every occurrence of the word under the caret is softly highlighted.
-- **Quieter logs, easier debugging:** per-container calibration bookkeeping is silent by default — one line is logged only when slot numbering is actually learned. A new "verbose calibration logs" config (off by default) restores full tracing; exception logs now include stack traces; the startup line shows the mod version.
-- **Compatibility:** slot layouts, code-view preferences, drafts, and templates are fully compatible with previous saves — replace the JAR and keep playing, no migration needed.
+- **Performance:** chest-opening stutter fixed — layout cache and editor saves run fully in the background, and the resource catalog prebuilds after joining a world, so the editor opens instantly.
+- **Calibration:** server sampling auto-slows when idle (4/s → 0.5/s) and instantly recovers on change; same learning speed, near-zero idle cost.
+- **Code editor:** hover docs for SFML keywords with bilingual examples, right-click menu (select all / copy / cut / paste), triple-click line select, and word-occurrence highlight.
+- **Default code view:** first use opens a 60% blocks / 40% code split; F6 toggles code without losing edits; preferences remembered per manager.
+- **Logs:** calibration bookkeeping is silent by default, a new verbose toggle helps debugging, errors now log stack traces, and the startup line shows the version.
+- **Compatibility:** layouts, preferences, drafts and templates work with old saves — just swap the JAR.
 
 ## Downloads / 下载
 
@@ -34,7 +30,6 @@
 Requires Super Factory Manager; validated against 4.34.0. Replace the previous addon JAR when upgrading.
 
 ---
-
 
 ## 0.9.0 · 2026-09-17
 
