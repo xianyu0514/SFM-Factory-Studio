@@ -52,7 +52,8 @@ The UI follows your Minecraft language setting: **English** or **简体中文**.
 
 ### Code editor controls
 
-- Drag the divider above the source pane to resize the split view. Small panes automatically use the code view; **Back to blocks** returns to the canvas.
+- First use opens a **60% blocks / 40% code** split when space permits. Small windows keep the block canvas; explicitly opening code uses the full code view. Drag the divider to adjust the split.
+- **F6** or **Code / Hide** shows or collapses source without discarding edits. The toolbar and code header expose the toggle. Visibility, split ratio, wrapping and focus mode are remembered per manager; showing code does not automatically focus its text input.
 - **Focus code** / **Split view** or **F7** switches the code workspace. **Wrap lines** / **Alt+Z** changes display wrapping without modifying SFML or line numbers.
 - Drag either scrollbar; use **Shift + wheel** to scroll horizontally with wrapping off. Resizing preserves the editor instance, selection and undo history when the source is unchanged.
 - **Ctrl+F** finds exact, case-sensitive text; **F3 / Shift+F3** finds the next / previous match and wraps around. **Ctrl+G** jumps to a line.
@@ -85,7 +86,7 @@ Ctrl+H opens literal find and replace, with replace-next, a counted replace-all 
 
 ### Performance
 
-- Pure client-side — **zero tick handlers registered**, no server overhead
+- The editor UI runs on the client. Slot-layout updates are coalesced and written in the background; installing the addon on the server also enables slot-calibration sampling.
 - Incremental layout engine: only re-lays out cards whose content hash changed
 - Hit-test object pooling, NBT picker registry cached once per session
 

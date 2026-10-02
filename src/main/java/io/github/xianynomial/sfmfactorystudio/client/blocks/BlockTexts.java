@@ -10,7 +10,7 @@ import io.github.xianynomial.sfmfactorystudio.client.Loc;
 public final class BlockTexts {
     public static final Loc T_TITLE = new Loc("gui.sfmfactorystudio.blocks.title", "SFM 智造工坊 · 可视化编程");
     public static final Loc T_SAVE = new Loc("gui.sfmfactorystudio.blocks.save", "保存");
-    public static final Loc T_PREVIEW = new Loc("gui.sfmfactorystudio.blocks.preview", "代码编辑");
+    public static final Loc T_PREVIEW = new Loc("gui.sfmfactorystudio.blocks.preview", "代码 F6");
     public static final Loc T_CLOSE = new Loc("gui.sfmfactorystudio.blocks.close", "关闭");
     public static final Loc T_UNDO = new Loc("gui.sfmfactorystudio.blocks.undo", "撤销");
     public static final Loc T_FIT = new Loc("gui.sfmfactorystudio.blocks.fit", "适配");

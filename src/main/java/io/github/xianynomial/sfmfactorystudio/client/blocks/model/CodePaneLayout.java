@@ -4,12 +4,13 @@ package io.github.xianynomial.sfmfactorystudio.client.blocks.model;
 public final class CodePaneLayout {
     public static final int GAP = 6;
     private CodePaneLayout() {}
+    public static boolean canSplit(int width, int height) { return width >= 280 && height >= 260; }
     public record Split(int canvasHeight, int codeTop, int codeHeight, int dividerY) {}
     public static Split split(int top, int bottom, double fraction) {
         int usable = Math.max(0, bottom - top - GAP);
         int minCanvas = Math.min(64, usable / 2);
         int minCode = Math.min(80, usable - minCanvas);
-        if (!Double.isFinite(fraction)) fraction = 0.5;
+        if (!Double.isFinite(fraction)) fraction = CodeViewPreferences.DEFAULT_FRACTION;
         int code = Math.max(minCode, Math.min(usable - minCanvas, (int) Math.round(usable * fraction)));
         int canvas = usable - code;
         return new Split(canvas, top + canvas + GAP, code, top + canvas + GAP / 2);

@@ -5,6 +5,7 @@ import ca.teamdman.sfm.common.capability.SFMBlockCapabilityResult;
 import ca.teamdman.sfm.common.registry.registration.SFMResourceTypes;
 import ca.teamdman.sfm.common.resourcetype.ItemResourceType;
 import io.github.xianynomial.sfmfactorystudio.SFMGui;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SlotCalibrationMatcher;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -24,9 +25,9 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 操作学习会话（服务端）。核心机制 = <b>逐刻被动关联</b>，完全只读：
+ * 操作学习会话（服务端）。核心机制 = <b>被动采样关联</b>，完全只读：
  *
- * <p>界面开着时每 tick 采样一次"菜单槽内容"与"七朝向能力槽内容"。
+ * <p>界面开着时每 5 tick 采样一次"菜单槽内容"与"七朝向能力槽内容"。
  * 某界面格与某能力槽（某个朝向的某个索引）的内容在采样中持续一致、
  * 且观测到过至少一次同步变化（玩家放/取物品、机器加工都会产生）、
  * 且内容非空——即证实两者是同一底层存储，锚定"该视觉格（坐标）=
@@ -53,9 +54,6 @@ public final class SlotCalibrationManager {
     public static final int STATE_UNREACHABLE = -1;
 
     private static final int MAX_SESSION_TICKS = 20 * 180;      // 会话上限 3 分钟
-    private static final int UNIQUE_STREAK = 3;                 // 独特内容连续 3 次采样（150ms）
-    private static final int ANCHOR_STREAK = 5;                 // 连续 5 次采样内容一致
-    private static final int ANCHOR_JOINT_CHANGES = 1;          // 且观测到 ≥1 次同步变化
     private static final int NO_EXPOSURE_SAMPLES = 6;           // 连续 6 次采样判"未暴露"
     /**
      * 采样节流（刻/次）：原每刻采样需对 7 个朝向各做一次 SFM 能力发现（含
@@ -65,14 +63,6 @@ public final class SlotCalibrationManager {
     private static final int SAMPLE_INTERVAL_TICKS = 5;
 
     public static final int INFO_NO_EXPOSURE = 1;
-
-    /** 单对（菜单格, 朝向, 能力槽）的关联状态。disqualified = 内容曾分叉。 */
-    private static final class PairState {
-        int streak = 0;
-        int jointChanges = 0;
-        boolean disqualified = false;
-        boolean anchored = false;
-    }
 
     private static final class Session {
         int sampleAcc = 0;          // 采样节流计数（每 SAMPLE_INTERVAL 刻采样一次）
@@ -86,8 +76,7 @@ public final class SlotCalibrationManager {
         boolean sampled = false;
         long[] prevMenu;
         long[][] prevCap;
-        // pairs[菜单槽索引] → {朝向 d → {能力槽 k → 状态}}
-        final Map<Integer, Map<Integer, Map<Integer, PairState>>> pairStates = new HashMap<>();
+        final SlotCalibrationMatcher matcher = new SlotCalibrationMatcher();
         final List<int[]> sentAnchors = new ArrayList<>();   // {dir, x, y, capIndex}
         List<Integer> menuCs = new ArrayList<>();
         List<Integer> menuX = new ArrayList<>();
@@ -150,7 +139,7 @@ public final class SlotCalibrationManager {
         int n = menu.slots.size();
         if (s.menuCs.size() != n) {
             // 菜单槽数量变化：重置配对状态与基线
-            s.pairStates.clear();
+            s.matcher.reset();
             s.sampled = false;
             s.menuCs = new ArrayList<>();
             s.menuX = new ArrayList<>();
@@ -205,64 +194,16 @@ public final class SlotCalibrationManager {
                 s.noExposureStreak = 0;
             }
 
-            // 逐对关联：内容持续一致 → streak；同步变化 → jointChanges；分叉 → 取消资格
-            for (int j = 0; j < n; j++) {
-                if (menuNow[j] == Long.MIN_VALUE) continue;
-                for (int d = 0; d < 7; d++) {
-                    if (d >= capNow.length) continue;
-                    for (int k = 0; k < capNow[d].length; k++) {
-                        PairState ps = pairState(s, j, d, k);
-                        if (ps.disqualified || ps.anchored) continue;
-                        boolean capKnown = k < s.prevCap[d].length;
-                        long capPrev = capKnown ? s.prevCap[d][k] : Long.MIN_VALUE;
-                        long capCur = capNow[d][k];
-                        long menuPrev = s.prevMenu[j];
-                        long menuCur = menuNow[j];
-                        if (capPrev != menuPrev || capCur != menuCur) {
-                            ps.disqualified = true;   // 内容分叉 = 不是同一存储
-                            continue;
-                        }
-                        ps.streak++;
-                        boolean jointChange = menuPrev != menuCur
-                                && capPrev != capCur
-                                && menuCur != 0
-                                && capCur != 0;
-                        if (jointChange) ps.jointChanges++;
-
-                        // 独特内容即时锚定：GUI 里此内容独一无二，且本朝向能力面中
-                        // 持有它的槽位也唯一——两者必然是同一存储，无需任何变化
-                        boolean uniqueInDir = true;
-                        for (int kk = 0; kk < capNow[d].length; kk++) {
-                            if (kk != k && capNow[d][kk] == menuCur) {
-                                uniqueInDir = false;
-                                break;
-                            }
-                        }
-                        boolean uniqueInMenu = true;
-                        for (int jj = 0; jj < menuNow.length; jj++) {
-                            if (jj != j && menuNow[jj] == menuCur) {
-                                uniqueInMenu = false;
-                                break;
-                            }
-                        }
-                        boolean uniqueContent = menuCur != 0 && uniqueInDir && uniqueInMenu;
-
-                        // 锚定路径一（即时）：内容独特且稳定
-                        // 锚定路径二（兜底）：内容雷同时靠同步变化消歧
-                        boolean instantAnchor = uniqueContent && ps.streak >= UNIQUE_STREAK;
-                        boolean jointAnchor = ps.streak >= ANCHOR_STREAK
-                                && ps.jointChanges >= ANCHOR_JOINT_CHANGES
-                                && menuCur != 0 && capCur != 0;
-                        if (instantAnchor || jointAnchor) {
-                            ps.anchored = true;
-                            if (rememberAnchor(s, d, s.menuX.get(j), s.menuY.get(j), k)) {
-                                PacketDistributor.sendToPlayer(player,
-                                        new SlotAnchorPayload(s.pos, s.menuClass, d,
-                                                s.menuCs.get(j), s.menuX.get(j), s.menuY.get(j), k));
-                                anchorsThisSample++;
-                            }
-                        }
-                    }
+            for (SlotCalibrationMatcher.Anchor anchor : s.matcher.compare(
+                    s.prevMenu, menuNow, s.prevCap, capNow)) {
+                int j = anchor.menuSlot();
+                int d = anchor.direction();
+                int k = anchor.capabilitySlot();
+                if (rememberAnchor(s, d, s.menuX.get(j), s.menuY.get(j), k)) {
+                    PacketDistributor.sendToPlayer(player,
+                            new SlotAnchorPayload(s.pos, s.menuClass, d,
+                                    s.menuCs.get(j), s.menuX.get(j), s.menuY.get(j), k));
+                    anchorsThisSample++;
                 }
             }
         }
@@ -274,13 +215,6 @@ public final class SlotCalibrationManager {
         s.prevMenu = menuNow;
         s.prevCap = capNow;
         s.sampled = true;
-    }
-
-    private static PairState pairState(Session s, int j, int d, int k) {
-        return s.pairStates
-                .computeIfAbsent(j, x -> new HashMap<>())
-                .computeIfAbsent(d, x -> new HashMap<>())
-                .computeIfAbsent(k, x -> new PairState());
     }
 
     private static ItemStack safeGetItem(Slot slot) {

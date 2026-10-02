@@ -46,6 +46,10 @@ public final class SlotLayoutData {
     /** 一个容器的布局快照。menuClass = 来源菜单类简名（锚点按它共享）。 */
     public record Layout(String title, String menuClass, List<SlotCapture> slots,
                          List<SlotAnchor> anchors, boolean noExposure) {
+        public Layout {
+            slots = List.copyOf(slots);
+            anchors = List.copyOf(anchors);
+        }
         public Layout(String title, String menuClass, List<SlotCapture> slots) {
             this(title, menuClass, slots, List.of(), false);
         }
@@ -87,6 +91,9 @@ public final class SlotLayoutData {
      * 并把 capIndex 写到对应的捕获格上（containerSlot 优先，坐标兜底）。
      */
     public static Layout withAnchor(Layout layout, SlotAnchor anchor) {
+        if (layout.anchors().contains(anchor) && layout.slots().stream()
+                .filter(s -> matchesAnchor(s, anchor))
+                .allMatch(s -> java.util.Objects.equals(s.capIndex(), anchor.capIndex()))) return layout;
         List<SlotAnchor> anchors = new ArrayList<>();
         for (SlotAnchor b : layout.anchors()) {
             if (b.menuClass().equals(anchor.menuClass()) && b.dir() == anchor.dir()
@@ -114,6 +121,23 @@ public final class SlotLayoutData {
     /** 标记"槽位未暴露"诊断（学习发现界面在变化而能力面无变化）。 */
     public static Layout withNoExposure(Layout layout, boolean value) {
         return new Layout(layout.title(), layout.menuClass(), layout.slots(), layout.anchors(), value);
+    }
+
+    /** Re-capturing a GUI must not erase already learned capability indices. */
+    public static Layout capturedLayout(String title, String menuClass, List<SlotCapture> fresh, Layout existing) {
+        Map<Long, Integer> learned = new java.util.HashMap<>();
+        if (existing != null && existing.menuClass().equals(menuClass)) {
+            for (SlotCapture slot : existing.slots()) if (slot.capIndex() != null)
+                learned.put((long) slot.x() << 32 | (slot.y() & 0xffffffffL), slot.capIndex());
+        }
+        List<SlotCapture> slots = new ArrayList<>(fresh.size());
+        for (SlotCapture slot : fresh) {
+            Integer cap = slot.capIndex() != null ? slot.capIndex()
+                    : learned.get((long) slot.x() << 32 | (slot.y() & 0xffffffffL));
+            slots.add(new SlotCapture(slot.x(), slot.y(), slot.containerSlot(), slot.item(), slot.count(), cap));
+        }
+        return new Layout(title, menuClass, slots, existing == null ? List.of() : existing.anchors(),
+                existing != null && existing.noExposure());
     }
 
     /** 参照方向（refDir 名）→ 七朝向索引（"null"=0，其余 = Direction.ordinal()+1）。 */
@@ -308,6 +332,7 @@ public final class SlotLayoutData {
      */
     public static boolean preferCapture(List<SlotCapture> fresh, List<SlotCapture> existing) {
         if (existing == null) return true;
+        if (fresh.equals(existing)) return false;
         if (existing.size() > fresh.size() * 2) return false;
         if (fresh.size() != existing.size()) return fresh.size() > existing.size();
         return countSignatures(fresh) >= countSignatures(existing);
