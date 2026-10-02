@@ -4,6 +4,7 @@ import io.github.xianynomial.sfmfactorystudio.client.blocks.model.CodeEditorLayo
 import ca.teamdman.sfm.client.ProgramTokenContextActions;
 import ca.teamdman.sfm.client.registry.SFMKeyMappings;
 import io.github.xianynomial.sfmfactorystudio.client.SfmlHighlight;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlKeywordDocs;
 import ca.teamdman.sfml.intellisense.IntellisenseAction;
 import ca.teamdman.sfml.intellisense.IntellisenseContext;
 import ca.teamdman.sfml.manipulation.ManipulationResult;
@@ -50,7 +51,15 @@ final class SfmlCodeEditor extends AbstractWidget {
     private int scrollDrag; // 1: vertical, 2: horizontal
     private double dragOffset;
     private long lastClick;
-    private int lastClickPosition = -1;
+    private double lastClickX, lastClickY;
+    private int clickChain; // 1=单击 2=双击选词 3+=三击选行
+    // 悬停文档：鼠标在关键词上停留片刻浮出说明与示例（mouse-first 的代码自解释）
+    private String hoverWord;
+    private int hoverOffset = -1;
+    private long hoverSince;
+    private boolean hoverShown;
+    private static final long HOVER_DELAY_MS = 350;
+    private static final int HOVER_MAX_WIDTH = 250;
     private String search = "";
     private String status = "", shortcutHelp = "";
     private int statusColor = 0xFFBBCBE0;
@@ -406,6 +415,32 @@ final class SfmlCodeEditor extends AbstractWidget {
         restore(redo.pop());
     }
 
+    void copySelection() {
+        if (cursor == anchor) return;
+        Minecraft.getInstance().keyboardHandler.setClipboard(selectedText());
+    }
+
+    void cutSelection() {
+        if (cursor == anchor) return;
+        Minecraft.getInstance().keyboardHandler.setClipboard(selectedText());
+        replaceSelection("");
+    }
+
+    void pasteClipboard() {
+        replaceSelection(Minecraft.getInstance().keyboardHandler.getClipboard());
+    }
+
+    void selectAll() {
+        anchor = 0;
+        cursor = value.length();
+        ensureCursorVisible();
+        clearSuggestions();
+    }
+
+    boolean hasSelection() {
+        return cursor != anchor;
+    }
+
     private void restore(State state) {
         lastTypedCursor = -1;
         value = state.value;
@@ -459,20 +494,15 @@ final class SfmlCodeEditor extends AbstractWidget {
             return true;
         }
         if (ctrl && keyCode == 65) {
-            anchor = 0;
-            cursor = value.length();
-            ensureCursorVisible();
+            selectAll();
             return true;
         }
         if (ctrl && keyCode == 67) {
-            Minecraft.getInstance().keyboardHandler.setClipboard(value.substring(Math.min(cursor, anchor), Math.max(cursor, anchor)));
+            copySelection();
             return true;
         }
         if (ctrl && keyCode == 88) {
-            if (cursor != anchor) {
-                Minecraft.getInstance().keyboardHandler.setClipboard(value.substring(Math.min(cursor, anchor), Math.max(cursor, anchor)));
-                replaceSelection("");
-            }
+            cutSelection();
             return true;
         }
         if (ctrl && keyCode == 86) {
@@ -557,8 +587,14 @@ final class SfmlCodeEditor extends AbstractWidget {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (!visible || button != 0 || !inside(mouseX, mouseY)) return false;
+        if (!visible || (button != 0 && button != 2) || !inside(mouseX, mouseY)) return false;
         setFocused(true);
+        if (button == 2) {
+            // 右键只负责聚焦；剪贴板菜单由 BlockEditorScreen 在同一坐标打开
+            dragging = false;
+            scrollDrag = 0;
+            return true;
+        }
         if (!suggestions.isEmpty() && suggestionContext != null) {
             int row = suggestionRowAt(mouseX, mouseY);
             if (row >= 0) {
@@ -588,15 +624,25 @@ final class SfmlCodeEditor extends AbstractWidget {
         dragging = true;
         seek(mouseX, mouseY, Screen.hasShiftDown());
         long now = Util.getMillis();
-        if (!Screen.hasShiftDown() && now - lastClick < 300 && cursor == lastClickPosition) {
+        if (!Screen.hasShiftDown() && now - lastClick < 350
+                && Math.abs(mouseX - lastClickX) < 5 && Math.abs(mouseY - lastClickY) < 5) {
+            clickChain = Math.min(clickChain + 1, 3);
+        } else {
+            clickChain = 1;
+        }
+        if (clickChain == 2) {
             int start = cursor, end = cursor;
             while (start > 0 && wordCharacter(value.charAt(start - 1))) start--;
             while (end < value.length() && wordCharacter(value.charAt(end))) end++;
             anchor = start;
             cursor = end;
+        } else if (clickChain >= 3) {
+            anchor = lineStart(lineOf(cursor));
+            cursor = lineEnd(lineOf(cursor));
         }
         lastClick = now;
-        lastClickPosition = cursor;
+        lastClickX = mouseX;
+        lastClickY = mouseY;
         return true;
     }
 
@@ -638,6 +684,13 @@ final class SfmlCodeEditor extends AbstractWidget {
     }
 
     private void seek(double mx, double my, boolean selecting) {
+        moveTo(offsetAt(mx, my), selecting);
+        clearSuggestions();
+        preferredColumn = -1;
+    }
+
+    /** Text offset under a point in the text area (shared by click, drag and hover). */
+    private int offsetAt(double mx, double my) {
         int row = Mth.clamp((int) Math.floor((my - getY() - PAD + scrollY) / LINE_H), 0, rows.size() - 1);
         var r = rows.get(row);
         String text = value.substring(r.start(), r.end());
@@ -648,9 +701,7 @@ final class SfmlCodeEditor extends AbstractWidget {
             int glyph = font.width(text.substring(col, col + 1));
             if (px - before >= glyph / 2) col++;
         }
-        moveTo(r.start() + col, selecting);
-        clearSuggestions();
-        preferredColumn = -1;
+        return r.start() + col;
     }
 
     @Override
@@ -699,6 +750,7 @@ final class SfmlCodeEditor extends AbstractWidget {
             highlighted = SfmlHighlight.lines(value);
             highlightStale = false;
         }
+        updateHover(mouseX, mouseY);
         g.fill(getX(), getY(), getX() + width, getY() + height, 0xFF111827);
         g.fill(getX(), getY(), getX() + GUTTER_W, getY() + height - FOOTER, 0xFF182234);
         border(g, getX(), getY(), width, height, isFocused() ? 0xFF2F6FED : 0xFFB8C5D6);
@@ -707,6 +759,12 @@ final class SfmlCodeEditor extends AbstractWidget {
         int last = Math.min(rows.size(), first + visibleLines() + 2);
         int selectionStart = Math.min(cursor, anchor), selectionEnd = Math.max(cursor, anchor);
         int textX = getX() + GUTTER_W + PAD - scrollX;
+        // 光标词全匹配高亮（无选区且有焦点时）：读程序时一眼看到同词的所有出现处
+        String focusWord = isFocused() && selectionStart == selectionEnd
+                ? SfmlKeywordDocs.wordAt(value, cursor) : null;
+        if (focusWord != null && focusWord.length() > 40) focusWord = null;
+        List<int[]> focusHits = focusWord == null
+                ? List.of() : SfmlKeywordDocs.occurrences(value, focusWord);
         clip(g, getX() + 1, getY() + PAD, getX() + GUTTER_W, getY() + PAD + viewHeight());
         for (int i = first; i < last; i++) {
             var row = rows.get(i);
@@ -732,6 +790,14 @@ final class SfmlCodeEditor extends AbstractWidget {
                     if (selectionEnd > end) x2 += 3;
                     g.fill(x1, y - 1, Math.max(x1 + 1, x2), y + 9, 0x883B82F6);
                 }
+            }
+            for (int[] hit : focusHits) {
+                if (hit[1] <= start) continue;
+                if (hit[0] >= end) break;
+                int from = Math.max(hit[0], start), to = Math.min(hit[1], end);
+                int x1 = textX + font.width(value.substring(start, from));
+                int x2 = textX + font.width(value.substring(start, to));
+                g.fill(x1, y, x2, y + 9, 0x303B82F6);
             }
             g.drawString(font, rowComponent(row), textX, y, 0xFFE7EDF7, false);
         }
@@ -760,6 +826,66 @@ final class SfmlCodeEditor extends AbstractWidget {
             g.renderTooltip(font, font.split(Component.literal(status + "\n" + position + "\n" + shortcutHelp),
                     Math.max(80, Math.min(280, width - 12))), mouseX, mouseY);
         renderSuggestions(g, mouseX, mouseY);
+        renderHover(g, mouseX, mouseY);
+    }
+
+    /** 悬停目标变化即重置计时；在文本区静止 ~0.35s 后显示文档。 */
+    private void updateHover(double mouseX, double mouseY) {
+        String next = null;
+        int offset = -1;
+        if (!dragging && scrollDrag == 0 && suggestions.isEmpty()
+                && mouseX >= getX() + GUTTER_W + PAD && mouseX < getX() + GUTTER_W + PAD + contentWidth()
+                && mouseY >= getY() + PAD && mouseY < getY() + PAD + viewHeight()) {
+            int at = offsetAt(mouseX, mouseY);
+            String word = SfmlKeywordDocs.wordAt(value, at);
+            if (word != null && SfmlKeywordDocs.lookup(word) != null) {
+                next = word;
+                offset = at;
+            }
+        }
+        long now = Util.getMillis();
+        if (next == null || !next.equals(hoverWord) || offset != hoverOffset) {
+            hoverWord = next;
+            hoverOffset = offset;
+            hoverSince = now;
+            hoverShown = false;
+        } else if (!hoverShown && now - hoverSince >= HOVER_DELAY_MS) {
+            hoverShown = true;
+        }
+    }
+
+    /** 关键词文档浮层：标题 + 当前语言说明 + 示例；贴边自动上翻，钳制在编辑器内。 */
+    private void renderHover(GuiGraphics g, double mouseX, double mouseY) {
+        if (!hoverShown || hoverWord == null) return;
+        var entry = SfmlKeywordDocs.lookup(hoverWord);
+        if (entry == null) return;
+        boolean en = SfmlKeywordDocs.preferEnglish();
+        var text = Component.empty()
+                .append(Component.literal(hoverWord)
+                        .withStyle(style -> style.withColor(0xFF9CBEF5).withBold(true)))
+                .append("\n")
+                .append(Component.literal(entry.description(en))
+                        .withStyle(style -> style.withColor(0xFFE7EDF7)));
+        for (String example : entry.examples()) {
+            text.append("\n").append(Component.literal("- " + example)
+                    .withStyle(style -> style.withColor(0xFF8C9AAF)));
+        }
+        int wrapWidth = Math.min(HOVER_MAX_WIDTH, Math.max(90, width - 12));
+        var lines = font.split(text, wrapWidth);
+        int contentW = 0;
+        for (var line : lines) contentW = Math.max(contentW, font.width(line));
+        int boxW = Math.min(width - 4, contentW + 8);
+        int boxH = lines.size() * 10 + 6;
+        int x = Mth.clamp((int) mouseX + 6, getX() + 2, getX() + width - boxW - 2);
+        int y = (int) mouseY + 14;
+        if (y + boxH > getY() + height - 2) y = Math.max(getY() + 2, (int) mouseY - boxH - 6);
+        g.fill(x, y, x + boxW, y + boxH, 0xF51B2432);
+        border(g, x, y, boxW, boxH, 0xFF52627A);
+        int ty = y + 3;
+        for (var line : lines) {
+            g.drawString(font, line, x + 4, ty, 0xFFFFFFFF, false);
+            ty += 10;
+        }
     }
 
     private record SuggestionBox(int x, int y, int width, int count, int first) {}
