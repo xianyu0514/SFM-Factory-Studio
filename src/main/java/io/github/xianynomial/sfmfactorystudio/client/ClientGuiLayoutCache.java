@@ -2,6 +2,9 @@ package io.github.xianynomial.sfmfactorystudio.client;
 
 import io.github.xianynomial.sfmfactorystudio.SFMGui;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SlotLayoutData;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.DeferredLayoutWriter;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.DeferredLayoutCache;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SlotCaptureCollector;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -19,16 +22,13 @@ import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.items.IItemHandler;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 槽位布局捕获（按方块坐标键，纯客户端、100% 可靠）：
+ * 槽位布局捕获（按方块坐标键，纯客户端）：
  *
  * <p>玩家右键打开任何容器界面时——
  * ① {@link PlayerInteractEvent.RightClickBlock}（客户端也触发）记录刚点的方块坐标；
@@ -51,16 +51,21 @@ public final class ClientGuiLayoutCache {
     private ClientGuiLayoutCache() {
     }
 
-    private static final Map<String, SlotLayoutData.Layout> BY_POS = new LinkedHashMap<>();
-    /**
-     * 脏标记：捕获窗口内每帧、锚点包突发（27 槽×7 向=一秒 189 包）都会改
-     * BY_POS——此前每次改动都全文件写盘且全在渲染线程。改为只置脏，
-     * 客户端 tick 末统一刷写（每 tick 至多 1 次写盘）。
-     */
-    private static boolean dirty = false;
+    private static final java.util.concurrent.Executor IO =
+            java.util.concurrent.Executors.newSingleThreadExecutor(task -> {
+                Thread thread = new Thread(task, "sfmstudio-layout-io");
+                thread.setDaemon(true);
+                return thread;
+            });
+    private static final DeferredLayoutCache CACHE = new DeferredLayoutCache(IO,
+            () -> Files.exists(file()) ? SlotLayoutData.readAll(Files.readString(file())) : Map.of(),
+            failure -> SFMGui.LOGGER.warn("Failed to read slot-layouts.json, continuing with empty cache: {}", failure.toString()));
+    private static final DeferredLayoutWriter WRITER = new DeferredLayoutWriter(
+            IO, () -> System.nanoTime() / 1_000_000L,
+            snapshot -> DeferredLayoutWriter.writeAtomically(file(), snapshot),
+            failure -> SFMGui.LOGGER.warn("Failed to write slot-layouts.json; retry scheduled: {}", failure.toString()));
     private static BlockPos lastClickedPos = null;
     private static long lastClickedAt = 0;
-    private static boolean loaded = false;
 
     private static Path file() {
         return FMLPaths.CONFIGDIR.get()
@@ -97,6 +102,7 @@ public final class ClientGuiLayoutCache {
         boolean fresh = pos != null && System.currentTimeMillis() - lastClickedAt < 3000;
         lastClickedPos = null;
         if (!fresh) return;
+        PENDING.clear();
         PENDING.put(screen, new Pending(pos, RECAPTURE_FRAMES));
         // 开启操作学习会话：玩家在该界面里的每次真实点击，服务端都会用能力面
         // 差分证实"视觉格 ↔ 真实槽位"，锚点回存到捕获缓存（对一切模组生效）
@@ -132,28 +138,16 @@ public final class ClientGuiLayoutCache {
     private static void capture(BlockPos pos, AbstractContainerScreen<?> screen) {
         var menu = screen.getMenu();
         if (menu == null || menu.slots.isEmpty()) return;
-        ensureLoaded();
 
         // 客户端能力面：菜单槽容器与它是同一实例 → 容器内索引 = SFM 寻址的能力槽索引
         IItemHandler capability = clientCapability(pos);
 
         Inventory playerInv = Minecraft.getInstance().player != null
                 ? Minecraft.getInstance().player.getInventory() : null;
-        List<SlotLayoutData.SlotCapture> all = new ArrayList<>();
+        SlotCaptureCollector collector = new SlotCaptureCollector();
         for (Slot slot : menu.slots) {
             if (playerInv != null && slot.container == playerInv) continue;
             if (!slot.isActive()) continue;
-            // 邻近去重（10px 内）：模组 GUI 的隐藏/配置槽位会与真槽位几乎同位，
-            // 叠画在选择器里就是"两个编号叠在一起"的显示事故
-            boolean tooClose = false;
-            for (SlotLayoutData.SlotCapture c : all) {
-                int dx = c.x() - slot.x, dy = c.y() - slot.y;
-                if ((long) dx * dx + (long) dy * dy < 100) {
-                    tooClose = true;
-                    break;
-                }
-            }
-            if (tooClose) continue;
             Integer capIndex = null;
             if (capability != null && slot.container == capability) {
                 capIndex = slot.getContainerSlot();
@@ -169,8 +163,9 @@ public final class ClientGuiLayoutCache {
                 }
                 count = stack.getCount();
             }
-            all.add(new SlotLayoutData.SlotCapture(slot.x, slot.y, slot.getContainerSlot(), item, count, capIndex));
+            collector.add(new SlotLayoutData.SlotCapture(slot.x, slot.y, slot.getContainerSlot(), item, count, capIndex));
         }
+        List<SlotLayoutData.SlotCapture> all = collector.slots();
         if (all.isEmpty()) return;
 
         // 多个槽挤在 (0,0) = 坐标不可信（异常菜单），放弃本次捕获
@@ -182,49 +177,30 @@ public final class ClientGuiLayoutCache {
         all.sort((a, b) -> a.y() != b.y() ? Integer.compare(a.y(), b.y())
                 : Integer.compare(a.x(), b.x()));
 
-        // 更完整/更新鲜的捕获才覆盖（格子更多，或打平时内容签名更多）
-        var existing = BY_POS.get(key(pos));
-        if (!SlotLayoutData.preferCapture(all, existing == null ? null : existing.slots())) return;
-
         String title = screen.getTitle() != null ? screen.getTitle().getString() : "";
-        String menuClass = screen.getMenu() != null ? screen.getMenu().getClass().getSimpleName() : "";
-        BY_POS.put(key(pos), new SlotLayoutData.Layout(title, menuClass, all,
-                SlotLayoutData.mergeAnchors(existing == null ? null : existing.anchors(), null),
-                existing != null && existing.noExposure()));
-        dirty = true;   // 写盘合并到 tick 末（见 onClientTick）
+        String menuClass = menu.getClass().getSimpleName();
+        CACHE.capture(key(pos), title, menuClass, all);
     }
 
-    /** 应用一个操作学习锚点：按菜单类名应用到所有同类布局（锚点与坐标解耦）。 */
+    /** Apply learned anchors only to the indexed layouts of this menu class. */
     public static void applyAnchor(BlockPos pos, String menuClass, int dir,
                                    int containerSlot, int x, int y, int capIndex) {
-        ensureLoaded();
-        String mc = menuClass == null ? "" : menuClass;
-        SFMGui.LOGGER.info("[sfmjimu-calib] anchor stored: menu {} dir {} containerSlot {} ({},{}) -> capSlot {}",
-                mc, dir, containerSlot, x, y, capIndex);
-        boolean applied = false;
-        for (Map.Entry<String, SlotLayoutData.Layout> e : BY_POS.entrySet()) {
-            if (!e.getValue().menuClass().equals(mc)) continue;
-            BY_POS.put(e.getKey(), SlotLayoutData.withAnchor(e.getValue(),
-                    new SlotLayoutData.SlotAnchor(mc, dir, containerSlot, x, y, capIndex)));
-            applied = true;
-        }
-        if (applied) dirty = true;   // 锚点包常成串到达，写盘合并到 tick 末
+        CACHE.applyAnchor(new SlotLayoutData.SlotAnchor(menuClass == null ? "" : menuClass,
+                dir, containerSlot, x, y, capIndex));
     }
 
-
-    /** 标记"槽位未暴露"诊断（学习发现界面槽位在变化而能力面无变化）。 */
     public static void setNoExposure(BlockPos pos) {
-        ensureLoaded();
-        SlotLayoutData.Layout layout = BY_POS.get(key(pos));
-        if (layout == null || layout.noExposure()) return;
-        BY_POS.put(key(pos), SlotLayoutData.withNoExposure(layout, true));
-        dirty = true;
+        CACHE.setNoExposure(key(pos));
+    }
+
+    /** The slot picker waits in the current screen until the initial cache is ready. */
+    public static boolean isLoaded() {
+        return CACHE.poll();
     }
 
     /** 按方块坐标查询捕获的布局；玩家没打开过该容器返回 null。 */
     public static SlotLayoutData.Layout get(BlockPos pos) {
-        ensureLoaded();
-        return BY_POS.get(key(pos));
+        return CACHE.get(key(pos));
     }
 
     /** 客户端能力面实例（供实例匹配）；查询失败返回 null，绝不抛出。 */
@@ -240,35 +216,13 @@ public final class ClientGuiLayoutCache {
         }
     }
 
-    private static synchronized void ensureLoaded() {
-        if (loaded) return;
-        loaded = true;
-        try {
-            if (Files.exists(file())) {
-                Map<String, SlotLayoutData.Layout> read =
-                        SlotLayoutData.readAll(Files.readString(file()));
-                BY_POS.putAll(read);
-            }
-        } catch (IOException | RuntimeException t) {
-            SFMGui.LOGGER.warn("Failed to read slot-layouts.json, continuing with empty cache: {}", t.toString());
-        }
-    }
-
-    /** 客户端 tick 末：脏则落盘（每 tick 至多一次全文件写）。 */
+    /** Client ticks only coordinate debounced background work; they never serialize JSON. */
     @SubscribeEvent
     public static void onClientTick(net.minecraftforge.event.TickEvent.ClientTickEvent event) {
-        if (event.phase == net.minecraftforge.event.TickEvent.Phase.END && dirty) {
-            dirty = false;
-            save();
-        }
-    }
-
-    private static synchronized void save() {
-        try {
-            Files.createDirectories(file().getParent());
-            Files.writeString(file(), SlotLayoutData.writeAll(BY_POS));
-        } catch (IOException t) {
-            SFMGui.LOGGER.warn("Failed to write slot-layouts.json: {}", t.toString());
-        }
+        if (event.phase != net.minecraftforge.event.TickEvent.Phase.END) return;
+        if (!PENDING.isEmpty()) PENDING.keySet().removeIf(screen -> screen != Minecraft.getInstance().screen);
+        if (!CACHE.poll()) return;
+        if (CACHE.takeChanged()) WRITER.changed();
+        WRITER.tick(CACHE::snapshot);
     }
 }

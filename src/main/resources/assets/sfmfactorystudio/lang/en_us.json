@@ -66,7 +66,7 @@
   "gui.sfmfactorystudio.blocks.popup.no_labels": "No labels yet — create one below",
   "gui.sfmfactorystudio.blocks.popup.ok": "OK",
   "gui.sfmfactorystudio.blocks.popup.unbound": "Unbound",
-  "gui.sfmfactorystudio.blocks.preview": "Edit code",
+  "gui.sfmfactorystudio.blocks.preview": "Code F6",
   "gui.sfmfactorystudio.blocks.pulse": "Redstone Pulse",
   "gui.sfmfactorystudio.blocks.qty_all": "All",
   "gui.sfmfactorystudio.blocks.qty_each_kind": "Each kind",
@@ -184,7 +184,7 @@
   "gui.sfmfactorystudio.ed.click_to_zoom": "  Click to zoom in",
   "gui.sfmfactorystudio.ed.code_editor": "SFML Source Editor",
   "gui.sfmfactorystudio.ed.code_error_keep": "✖ %s; code and blocks kept as they were",
-  "gui.sfmfactorystudio.ed.code_help": "Ctrl+F find · Ctrl+G line · F7 focus · Alt+Z wrap · Ctrl+Space suggest",
+  "gui.sfmfactorystudio.ed.code_help": "F6 show/hide · F7 focus · Ctrl+F find · Ctrl+G line · Alt+Z wrap · Ctrl+Space suggest",
   "gui.sfmfactorystudio.ed.code_incomplete": "Code is not complete yet",
   "gui.sfmfactorystudio.ed.code_ok": "Code is valid — synced to blocks",
   "gui.sfmfactorystudio.ed.code_ok_blocks": "✔ Code is valid — blocks updated",
@@ -309,6 +309,7 @@
   "gui.sfmfactorystudio.ed.keep_one_label": "✖ At least one block label must stay here",
   "gui.sfmfactorystudio.ed.link_created": "Linked (visual note only, does not affect the program); click the ✕ mid-link to delete",
   "gui.sfmfactorystudio.ed.link_deleted": "Link deleted",
+  "gui.sfmfactorystudio.ed.loading_slots": "Loading saved slot layouts…",
   "gui.sfmfactorystudio.ed.m_add_cond_res": "Add another condition resource",
   "gui.sfmfactorystudio.ed.m_add_except_res": "Add a resource to exclude",
   "gui.sfmfactorystudio.ed.m_add_group": "Move another group of resources",
@@ -783,5 +784,6 @@
   "gui.sfmfactorystudio.ed.code_replace_all": "Replace all (%s matches)",
   "gui.sfmfactorystudio.ed.code_replaced": "Replaced %s matches · Ctrl+Z to undo",
   "gui.sfmfactorystudio.ed.code_next": "Next",
-  "gui.sfmfactorystudio.ed.code_errors": "Code errors (click to locate)"
+  "gui.sfmfactorystudio.ed.code_errors": "Code errors (click to locate)",
+  "gui.sfmfactorystudio.ed.code_collapse": "Hide F6"
 }

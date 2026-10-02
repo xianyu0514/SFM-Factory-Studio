@@ -26,6 +26,7 @@ import io.github.xianynomial.sfmfactorystudio.client.SlotPickerScreen;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlSyntax;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlValidate;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.CodePaneLayout;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.CodeViewPreferences;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.TimerRules;
 import io.github.xianynomial.sfmfactorystudio.net.SFMGuiNetwork;
 import io.github.xianynomial.sfmfactorystudio.net.SfmCaps;
@@ -214,8 +215,9 @@ public class BlockEditorScreen extends Screen {
     static final Loc T_ZONES = E("zones", "分区");
     static final Loc S_ZONE_DRAW_HINT = E("zone_draw_hint", "在画布空白处拖出一个矩形即可创建分区（再点「分区」取消）");
     static final Loc S_SEARCH_HINT = E("search_hint", "  / 搜索卡片");
+    static final Loc S_LOADING_SLOTS = E("loading_slots", "正在加载已保存的槽位布局…");
     static final Loc T_CODE_EDITOR = E("code_editor", "SFML 代码编辑");
-    static final Loc S_CODE_HELP = E("code_help", "Ctrl+F 查找 · Ctrl+G 跳行 · F7 专注 · Alt+Z 换行 · Ctrl+空格补全");
+    static final Loc S_CODE_HELP = E("code_help", "F6 展开/收起 · F7 专注 · Ctrl+F 查找 · Ctrl+G 跳行 · Alt+Z 换行 · Ctrl+空格补全");
     static final Loc S_NO_MATCH_ITEM = E("no_match_item", "没有找到匹配的物品——检查条件是否太严");
     static final Loc S_PREVIEW_COUNT = E("preview_count", "匹配预览共 %s 件物品");
     static final Loc S_TRIGGER_CREATED = E("trigger_created", "已在此处新建触发器，从左侧拖入积木");
@@ -503,11 +505,15 @@ public class BlockEditorScreen extends Screen {
     private boolean codeWrapPreference;
     private boolean codeOnly;
     private boolean codeOnlyEffective;
+    private boolean codeExpandedEffective;
+    private boolean codeSplitFits;
+    private boolean codeViewPreferencesLoaded;
     private boolean draggingCodeDivider;
     private double codeDividerGrabOffset;
     private int codeDividerTop, codeDividerBottom;
-    private double codePaneFraction = 0.5;
+    private double codePaneFraction = CodeViewPreferences.DEFAULT_FRACTION;
     private static final int CODE_HEADER_H = 24;
+    static final Loc C_COLLAPSE = E("code_collapse", "收起 F6");
     static final Loc C_FOCUS = E("code_focus", "专注代码");
     static final Loc C_SPLIT = E("code_split", "分屏");
     static final Loc C_WRAP = E("code_wrap", "自动换行");
@@ -518,7 +524,7 @@ public class BlockEditorScreen extends Screen {
     static final Loc C_MATCHES = E("code_matches", "找到 %s 处 · F3 下一处，Shift+F3 上一处");
     static final Loc C_BAD_LINE = E("code_bad_line", "请输入有效行号");
     static final Loc C_BLOCKS = E("code_blocks", "返回积木");
-    private boolean previewMode = false; // 同屏源码编辑区是否展开（旧字段名保留，避免布局存档迁移）
+    private boolean previewMode = true; // 同屏源码编辑区是否展开（旧字段名保留，避免布局存档迁移）
     private float zoom = 1.0f;
     private int viewX = 0, viewY = 0;
     private boolean fitted = false;
@@ -949,6 +955,7 @@ public class BlockEditorScreen extends Screen {
         layout.setProgram(this.program);
         layout.setExpandedIds(expandedIds);
         loadLayouts();
+        if (importFailed) { previewMode = true; codeOnly = true; }
         // 仅第一次打开编辑器自动弹帮助；弹出的瞬间就持久化 helpSeen——
         // 之后无论重开程序/空白画布/退出游戏再回来，都不会再自动出现，
         // 只能通过工具栏「?」手动打开（用户拍板 2026-09-09）。
@@ -1095,6 +1102,12 @@ public class BlockEditorScreen extends Screen {
 
     @Override
     public void tick() {
+        if (pendingSlotPicker != null && ClientGuiLayoutCache.isLoaded()) {
+            Runnable openPicker = pendingSlotPicker;
+            pendingSlotPicker = null;
+            openPicker.run();
+            return;
+        }
         if (codeEditor != null) codeEditor.tick();
         if (statusTicks > 0) statusTicks--;
         if (locateTicks > 0) locateTicks--;
@@ -1446,6 +1459,7 @@ public class BlockEditorScreen extends Screen {
         }
         if (importFailed) {
             previewMode = true;
+            codeOnly = true;
             if (codeEditor != null) codeEditor.visible = true;
             showStatus(S_FIX_SYNTAX_FIRST.getString(), 0xFFD13438);
             return false;
@@ -1533,18 +1547,16 @@ public class BlockEditorScreen extends Screen {
 
     private void loadLayouts() {
         Map<String, List<List<Object>>> all = readLayoutFile();
-        if (all == null) return;
-        List<?> preferences = all.get(layoutKey() + ":code-view");
-        if (preferences != null && !preferences.isEmpty() && preferences.get(0) instanceof List<?> row
-                && row.size() >= 3) {
-            if (row.get(0) instanceof Number ratio && Double.isFinite(ratio.doubleValue()))
-                codePaneFraction = Math.max(0, Math.min(1, ratio.doubleValue()));
-            codeOnly = row.get(1) instanceof Number only && only.intValue() != 0;
-            boolean savedWrap = row.get(2) instanceof Number wrapValue && wrapValue.intValue() != 0;
-            codeWrapPreference = savedWrap;
-            if (codeEditor != null && codeEditor.wrapped() != savedWrap) codeEditor.toggleWrap();
+        if (!codeViewPreferencesLoaded) {
+            var preferences = CodeViewPreferences.read(all == null ? null : all.get(layoutKey() + ":code-view"));
+            codePaneFraction = preferences.fraction();
+            codeOnly = preferences.focused();
+            previewMode = preferences.expanded();
+            codeWrapPreference = preferences.wrapped();
+            codeViewPreferencesLoaded = true;
+            if (codeEditor != null && codeEditor.wrapped() != codeWrapPreference) codeEditor.toggleWrap();
         }
-        if (all.containsKey("helpSeen")) helpSeen = true;
+        if (all == null) return;
         List<?> cards = all.get(layoutKey());
         if (cards == null) return;
         List<SavedCard> entries = new ArrayList<>();
@@ -1764,8 +1776,8 @@ public class BlockEditorScreen extends Screen {
                 }
             }
             if (!linkRows.isEmpty()) all.put(layoutKey() + ":links", linkRows);
-            all.put(layoutKey() + ":code-view", List.of(List.of(codePaneFraction, codeOnly ? 1 : 0,
-                    codeEditor != null && codeEditor.wrapped() ? 1 : 0)));
+            all.put(layoutKey() + ":code-view", new CodeViewPreferences(codePaneFraction, codeOnly,
+                    codeEditor != null ? codeEditor.wrapped() : codeWrapPreference, previewMode).write());
             Files.writeString(file, GSON.toJson(all));
         } catch (Exception ignored) {
         }
@@ -2201,7 +2213,7 @@ public class BlockEditorScreen extends Screen {
             if (popup == clickedPopup && !clickedPopup.keepOpen) popup = null;
             if (consumed) return true;
         }
-        if (previewMode && !codeOnlyEffective && button == 0 && mx >= canvasX && mx < canvasX + canvasW
+        if (codeExpandedEffective && !codeOnlyEffective && button == 0 && mx >= canvasX && mx < canvasX + canvasW
                 && my >= canvasY + canvasH && my < previewTop()) {
             draggingCodeDivider = true;
             codeDividerTop = canvasY;
@@ -2630,6 +2642,7 @@ public class BlockEditorScreen extends Screen {
         if (draggingCodeDivider && button == 0) {
             draggingCodeDivider = false;
             setDragging(false);
+            saveLayouts();
             return true;
         }
         if (codeEditor != null && codeEditor.pointerCaptured() && button == 0) {
@@ -2899,7 +2912,15 @@ public class BlockEditorScreen extends Screen {
      * 槽位可视化（beta）：按容器坐标查捕获布局并打开选择器。
      * 无捕获时打开引导模式（提示先右键打开一次该容器界面）。
      */
+    private Runnable pendingSlotPicker;
+
     private void openSlotBetaPicker(net.minecraft.core.BlockPos pos, BProgram.LabelAccess access) {
+        if (!ClientGuiLayoutCache.isLoaded()) {
+            pendingSlotPicker = () -> openSlotBetaPicker(pos, access);
+            showStatus(S_LOADING_SLOTS.getString(), C_SELECT);
+            return;
+        }
+        pendingSlotPicker = null;
         if (pos == null) {
             showStatus(NEED_LABEL_LOCATE.getString(), 0xFFD13438);
             return;
@@ -3736,6 +3757,7 @@ public class BlockEditorScreen extends Screen {
         SfmlToBlocks.Result result = SfmlToBlocks.parse(draft.sfml());
         if (!result.ok() || result.program() == null) {
             previewMode = true;
+            codeOnly = true;
             importFailed = program.triggers.isEmpty();
             codeTextEdited = true;
             codeAwaitingValidation = true;
@@ -3891,7 +3913,7 @@ public class BlockEditorScreen extends Screen {
                 return true;
             }
         }
-        if (previewMode && codeEditor != null && my > previewTop()) {
+        if (codeExpandedEffective && codeEditor != null && my > previewTop()) {
             return codeEditor.mouseScrolled(mx, my, scrollY);
         }
         if (issuesOpen && issuesPanelVisible && mx >= canvasX + canvasW + 10 && mx < canvasX + canvasW + 10 + ISSUES_W
@@ -3925,17 +3947,17 @@ public class BlockEditorScreen extends Screen {
                 return true;
             }
         }
+        if (popup == null && keyCode == 295) { toggleCodeEditor(); return true; }
+        if (popup == null && keyCode == 296) { toggleCodeFocus(); return true; }
         if (nameBox != null && nameBox.visible && nameBox.isFocused()) {
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
         boolean ctrl = (modifiers & 2) != 0;
-        if (keyCode == 296 && !previewMode) { toggleCodeEditor(); codeOnly = true; return true; }
         if (previewMode && codeEditor != null && codeEditor.isFocused()) {
             if (ctrl && keyCode == 72) { openCodeReplace(); return true; }
             if (ctrl && keyCode == 70) { openCodeFind(); return true; }
             if (ctrl && keyCode == 71) { openCodeLine(); return true; }
             if (keyCode == 292) { findCode(codeEditor.searchText(), (modifiers & 1) != 0); return true; }
-            if (keyCode == 296) { codeOnly = !codeOnly; return true; }
             if ((modifiers & 4) != 0 && keyCode == 90) { codeEditor.toggleWrap(); codeWrapPreference = codeEditor.wrapped(); return true; }
             if (ctrl && keyCode == 32) { refreshCodeSuggestions(); return true; }
             if (ctrl && keyCode == 83) {
@@ -4025,6 +4047,7 @@ public class BlockEditorScreen extends Screen {
 
     @Override
     public void removed() {
+        pendingSlotPicker = null;
         // A forced screen replacement, disconnect or game shutdown cannot show
         // a confirmation dialog. Persist the recoverable local copy instead.
         if (dirty) saveDraft();
@@ -4197,8 +4220,13 @@ public class BlockEditorScreen extends Screen {
         issuesPanelVisible = issuesOpen && baseCanvasW - (ISSUES_W + 10) >= 200;
         canvasW = baseCanvasW - (issuesPanelVisible ? ISSUES_W + 10 : 0);
         int availableCodeArea = Math.max(1, panelH - toolbarH() - 12);
-        codeOnlyEffective = previewMode && (codeOnly || availableCodeArea < 200 || canvasW < 260);
-        if (codeOnlyEffective && nameBox.isFocused()) setInitialFocus(codeEditor);
+        codeSplitFits = CodePaneLayout.canSplit(canvasW, availableCodeArea);
+        codeExpandedEffective = new CodeViewPreferences(codePaneFraction, codeOnly, codeWrapPreference, previewMode)
+                .showCode(codeSplitFits);
+        codeOnlyEffective = codeExpandedEffective && codeOnly;
+        codeEditor.visible = codeExpandedEffective;
+        if (!codeExpandedEffective && codeEditor.isFocused()) setFocused(null);
+        if (codeOnlyEffective && nameBox.isFocused()) setFocused(null);
         nameBox.visible = !codeOnlyEffective;
         if (codeOnlyEffective) {
             canvasX = panelX + 6;
@@ -4212,7 +4240,7 @@ public class BlockEditorScreen extends Screen {
             if (popup != null) popup.render(g, this.font, mx, my);
             return;
         }
-        canvasH = previewMode
+        canvasH = codeExpandedEffective
                 ? CodePaneLayout.split(canvasY, panelY + panelH - 6, codePaneFraction).canvasHeight()
                 : availableCodeArea;
         if (!fitted) {
@@ -4409,7 +4437,7 @@ public class BlockEditorScreen extends Screen {
             ghost(g, paletteLabel(dragPaletteKind), paletteAccent(dragPaletteKind), mx, my);
         }
 
-        if (previewMode) {
+        if (codeExpandedEffective) {
             renderPreview(g, mx, my);
             layoutCodeEditor();
         } else if (codeEditor != null) {
@@ -5034,9 +5062,10 @@ public class BlockEditorScreen extends Screen {
         record Tb(String label, int minW, int color, int hover, Runnable action) {}
         java.util.List<Tb> specs = new java.util.ArrayList<>();
         specs.add(new Tb("⬤ " + T_SAVE.getString(), 40, C_SAVE, C_SAVE_H, this::save));
-        specs.add(new Tb(T_PREVIEW.getString(), 36,
-                previewMode ? 0xCC2F6FED : 0xCC5B6472,
-                previewMode ? 0xCC2459C4 : 0xCC49525E, this::toggleCodeEditor));
+        int codeButtonWidth = Math.max(this.font.width(T_PREVIEW.getString()), this.font.width(C_COLLAPSE.getString())) + 14;
+        specs.add(new Tb(codeExpandedEffective ? C_COLLAPSE.getString() : T_PREVIEW.getString(), codeButtonWidth,
+                codeExpandedEffective ? 0xCC2F6FED : 0xCC5B6472,
+                codeExpandedEffective ? 0xCC2459C4 : 0xCC49525E, this::toggleCodeEditor));
         specs.add(new Tb(T_UNDO.getString(), 36, 0xCC5B6472, 0xCC49525E, this::undo));
         specs.add(new Tb(T_REDO.getString(), 36, 0xCC5B6472, 0xCC49525E, this::redo));
         specs.add(new Tb(T_FIT.getString(), 34, 0xCC5B6472, 0xCC49525E, () -> {
@@ -5235,14 +5264,12 @@ public class BlockEditorScreen extends Screen {
                     hover || draggingCodeDivider ? C_SELECT : G_BORDER);
         }
         int x = canvasX + 5;
-        String[] labels = {codeOnlyEffective ? (codeOnly ? C_SPLIT.getString() : C_BLOCKS.getString()) : C_FOCUS.getString(),
-                codeEditor != null && codeEditor.wrapped() ? C_NOWRAP.getString() : C_WRAP.getString(), C_TOOLS.getString()};
-        Runnable[] actions = {() -> {
-                    if (codeOnlyEffective && !codeOnly) { toggleCodeEditor(); }
-                    else { codeOnly = !codeOnlyEffective; if (codeEditor != null) setInitialFocus(codeEditor); }
-                },
-                () -> { codeEditor.toggleWrap(); codeWrapPreference = codeEditor.wrapped(); setInitialFocus(codeEditor); }, this::openCodeTools};
-        int maxButton = Math.max(30, (canvasW - 22) / 3);
+        String[] labels = {codeOnlyEffective ? (codeSplitFits ? C_SPLIT.getString() : C_BLOCKS.getString()) : C_FOCUS.getString(),
+                codeEditor != null && codeEditor.wrapped() ? C_NOWRAP.getString() : C_WRAP.getString(), C_TOOLS.getString(), C_COLLAPSE.getString()};
+        Runnable[] actions = {this::toggleCodeFocus,
+                () -> { codeEditor.toggleWrap(); codeWrapPreference = codeEditor.wrapped(); setInitialFocus(codeEditor); },
+                this::openCodeTools, this::toggleCodeEditor};
+        int maxButton = Math.max(30, (canvasW - 26) / 4);
         for (int i = 0; i < labels.length; i++) {
             int w = Math.min(maxButton, Math.max(46, this.font.width(labels[i]) + 14));
             button(g, x, py + 4, w, 18, this.font.plainSubstrByWidth(labels[i], w - 8),
@@ -5269,8 +5296,7 @@ public class BlockEditorScreen extends Screen {
                         case "undo" -> { codeEditor.undo(); setInitialFocus(codeEditor); }
                         case "redo" -> { codeEditor.redo(); setInitialFocus(codeEditor); }
                         case "save" -> save();
-                        case "blocks" -> { previewMode = false; codeOnly = false; codeOnlyEffective = false;
-                            codeEditor.visible = false; codeEditor.setFocused(false); }
+                        case "blocks" -> collapseCodeEditor();
                     }
                 }));
     }
@@ -5354,7 +5380,7 @@ public class BlockEditorScreen extends Screen {
     }
 
     private void layoutCodeEditor() {
-        if (codeEditor == null || !previewMode) return;
+        if (codeEditor == null || !codeExpandedEffective) return;
         int py = previewTop();
         int ph = panelY + panelH - 6 - py;
         codeEditor.setX(canvasX + 4);
@@ -5367,24 +5393,54 @@ public class BlockEditorScreen extends Screen {
     }
 
     private void toggleCodeEditor() {
-        previewMode = !previewMode;
-        if (codeEditor != null) {
-            codeEditor.visible = previewMode;
-            if (previewMode) {
-                layoutCodeEditor();
-                if (!codeTextEdited) {
-                    settingCodeFromModel = true;
-                    codeEditor.setValueFromModel(generated());
-                    settingCodeFromModel = false;
-                    lastModelSfml = generated();
-                }
-                setInitialFocus(codeEditor);
-                codeSuggestDelay = 2;
-            } else {
-                codeEditor.setFocused(false);
-                setInitialFocus(nameBox);
-            }
+        if (codeExpandedEffective) collapseCodeEditor();
+        else {
+            previewMode = true;
+            codeOnly = !codeSplitFits;
+            showCodeEditor();
         }
+    }
+
+    private void collapseCodeEditor() {
+        previewMode = false;
+        codeOnly = false;
+        codeOnlyEffective = false;
+        codeExpandedEffective = false;
+        draggingCodeDivider = false;
+        setDragging(false);
+        if (codeEditor != null) {
+            codeEditor.cancelPointer();
+            codeEditor.clearSuggestions();
+            codeEditor.visible = false;
+            codeEditor.setFocused(false);
+        }
+        setFocused(null);
+        saveLayouts();
+    }
+
+    private void toggleCodeFocus() {
+        if (codeOnlyEffective && !codeSplitFits) { collapseCodeEditor(); return; }
+        codeOnly = !codeOnlyEffective;
+        previewMode = true;
+        showCodeEditor();
+    }
+
+    private void showCodeEditor() {
+        codeExpandedEffective = true;
+        codeOnlyEffective = codeOnly;
+        if (codeEditor != null) {
+            codeEditor.visible = true;
+            if (!codeTextEdited) {
+                settingCodeFromModel = true;
+                codeEditor.setValueFromModel(generated());
+                settingCodeFromModel = false;
+                lastModelSfml = generated();
+            }
+            // Showing source is a view action. Typing starts only after an explicit code click.
+            codeEditor.cancelPointer();
+            codeEditor.clearSuggestions();
+        }
+        saveLayouts();
     }
 
     // ============================================================== card render
@@ -7164,7 +7220,7 @@ public class BlockEditorScreen extends Screen {
         if (summary.length() > 26) summary = summary.substring(0, 26) + "…";
         fx = drawField(g, fx, y, summary, 70,
                 () -> {
-                    if (!previewMode) toggleCodeEditor();
+                    if (!codeExpandedEffective) toggleCodeEditor();
                     showStatus(S_RAW_EDIT_HINT.getString(), 0xFFB45309);
                 }, mx, my, false);
         drawDelete(g, x + w - 16, y + 3, () -> {
@@ -7300,7 +7356,7 @@ public class BlockEditorScreen extends Screen {
         } else if (cond instanceof BProgram.Bool.RawBool r) {
             return drawField(g, x, y, "⌨ " + (r.text.length() > 18 ? r.text.substring(0, 18) + "…" : r.text),
                     50, () -> {
-                        if (!previewMode) toggleCodeEditor();
+                        if (!codeExpandedEffective) toggleCodeEditor();
                         showStatus(S_RAW_COND_HINT.getString(), 0xFFB45309);
                     }, mx, my, true);
         } else if (cond instanceof BProgram.Bool.Const c) {
@@ -8529,7 +8585,7 @@ public class BlockEditorScreen extends Screen {
                 // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)
                 rx = drawP(g, fnt, rx, S_RAW_READ_ONLY.getString(), 100,
                         () -> {
-                            if (!previewMode) toggleCodeEditor();
+                            if (!codeExpandedEffective) toggleCodeEditor();
                             showStatus(S_EDIT_IN_CODE.getString(), 0xFFB45309);
                         }, mx, my);
                 // (硬换行 ry += rowH 全部去掉，由 drawP 自动 flow；详见 applyBounds 注释)

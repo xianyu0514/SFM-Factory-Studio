@@ -66,7 +66,7 @@
   "gui.sfmfactorystudio.blocks.popup.no_labels": "暂无标签，可在下方新建",
   "gui.sfmfactorystudio.blocks.popup.ok": "确定",
   "gui.sfmfactorystudio.blocks.popup.unbound": "未绑定",
-  "gui.sfmfactorystudio.blocks.preview": "代码编辑",
+  "gui.sfmfactorystudio.blocks.preview": "代码 F6",
   "gui.sfmfactorystudio.blocks.pulse": "收到红石脉冲时",
   "gui.sfmfactorystudio.blocks.qty_all": "全部",
   "gui.sfmfactorystudio.blocks.qty_each_kind": "每种",
@@ -184,7 +184,7 @@
   "gui.sfmfactorystudio.ed.click_to_zoom": "  点击放大",
   "gui.sfmfactorystudio.ed.code_editor": "SFML 代码编辑",
   "gui.sfmfactorystudio.ed.code_error_keep": "✖ %s；已保留代码和原有积木",
-  "gui.sfmfactorystudio.ed.code_help": "Ctrl+F 查找 · Ctrl+G 跳行 · F7 专注 · Alt+Z 换行 · Ctrl+空格补全",
+  "gui.sfmfactorystudio.ed.code_help": "F6 展开/收起 · F7 专注 · Ctrl+F 查找 · Ctrl+G 跳行 · Alt+Z 换行 · Ctrl+空格补全",
   "gui.sfmfactorystudio.ed.code_incomplete": "代码尚未完整",
   "gui.sfmfactorystudio.ed.code_ok": "代码正确，已同步为积木",
   "gui.sfmfactorystudio.ed.code_ok_blocks": "✔ 代码正确，积木已更新",
@@ -309,6 +309,7 @@
   "gui.sfmfactorystudio.ed.keep_one_label": "✖ 这里必须保留至少一个方块标签",
   "gui.sfmfactorystudio.ed.link_created": "已连接（仅备注，不影响程序运行）；点连线中点 ✕ 删除",
   "gui.sfmfactorystudio.ed.link_deleted": "已删除连线",
+  "gui.sfmfactorystudio.ed.loading_slots": "正在加载已保存的槽位布局…",
   "gui.sfmfactorystudio.ed.m_add_cond_res": "再加一种判断资源",
   "gui.sfmfactorystudio.ed.m_add_except_res": "添加要排除的资源",
   "gui.sfmfactorystudio.ed.m_add_group": "另外搬运一组资源",
@@ -783,5 +784,6 @@
   "gui.sfmfactorystudio.ed.code_replace_all": "全部替换（%s 处）",
   "gui.sfmfactorystudio.ed.code_replaced": "已替换 %s 处 · Ctrl+Z 撤销",
   "gui.sfmfactorystudio.ed.code_next": "下一步",
-  "gui.sfmfactorystudio.ed.code_errors": "代码错误（点击定位）"
+  "gui.sfmfactorystudio.ed.code_errors": "代码错误（点击定位）",
+  "gui.sfmfactorystudio.ed.code_collapse": "收起 F6"
 }
