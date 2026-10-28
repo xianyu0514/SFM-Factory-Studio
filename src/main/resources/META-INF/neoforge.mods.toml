@@ -17,11 +17,13 @@ displayTest="IGNORE_ALL_VERSION"
 config="sfmfactorystudio.mixins.json"
 
 # This addon requires Super Factory Manager to be installed.
-# Version floor aligned with the 1.20.1 line ([4.30,)); we compile against 4.34.
+# Pinned to the exact SFM release line this addon compiles and tests against (4.34.0).
+# 4.30~4.33 were never tested here; allowing them only defers the failure to a
+# NoSuchMethodError at runtime instead of a clear "requires sfm 4.34" at load time.
 [[dependencies.${mod_id}]]
 modId="sfm"
 type="required"
-versionRange="[4.30,)"
+versionRange="[4.34,)"
 ordering="AFTER"
 side="BOTH"
 

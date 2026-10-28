@@ -70,6 +70,10 @@ public final class TpsBackoff {
 
     /** 程序运行后：累计本刻耗时。 */
     public static void record(long nanos) {
+        // 预算关闭（默认）时 tryAcquire 在 budget<=0 处提前返回、永不走那段时间窗口
+        // 复位逻辑，所以这里累计的 accNanos 只会一路上涨到 long 溢出。虽然此刻它
+        // 不参与任何判断，但留下一个无意义的巨数会让后来打开预算的首次判断错觉超支。
+        if (tickBudgetMs <= 0) return;
         accNanos += nanos;
     }
 

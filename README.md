@@ -14,7 +14,7 @@
 
 - **Minecraft**: 1.21.1（NeoForge）和 1.20.1（Forge）
 - **前置**: [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)（必须安装）
-- **当前版本**: 0.9.0
+- **当前版本**: 1.0
 - **许可证**: MPL-2.0
 
 [下载](#安装) · [功能](#核心功能) · [构建](#构建)
@@ -116,12 +116,12 @@ Ctrl+H 打开字面查找替换，支持下一处、显示数量的全部替换�
 ### 1.21.1（NeoForge）
 
 1. 安装 [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. 把 `SFM-Factory-Studio-1.21.1-0.9.0.jar` 放进 `mods` 文件夹
+2. 把 `SFM-Factory-Studio-1.21.1-1.0.jar` 放进 `mods` 文件夹
 
 ### 1.20.1（Forge）
 
 1. 安装 [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. 把 `SFM-Factory-Studio-1.20.1-0.9.0.jar` 放进 `mods` 文件夹
+2. 把 `SFM-Factory-Studio-1.20.1-1.0.jar` 放进 `mods` 文件夹
 
 | 安装方式 | 编辑器 | NBT 标签筛选 | TPS 工具 |
 |---|---|---|---|

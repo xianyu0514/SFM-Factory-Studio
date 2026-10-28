@@ -30,6 +30,13 @@ public record UpdateLabelsPayload(List<LabelInfo> labels) implements CustomPacke
             },
             buf -> {
                 int n = buf.readVarInt();
+                // 防御：n 来自对端。正常标签数远小于此；畸形/恶意包若声明超大 n，
+                // new ArrayList<>(n) 会直接 OOM 把客户端崩掉。上限取剩余可读字节数
+                // ——每项至少 2 字节（1 字节长度前缀 + 1 字节 VarInt 计数），超过它
+                // 必然不可能成立。抛异常让整包被丢弃，不会造成后续包解析错位。
+                if (n < 0 || n > buf.readableBytes()) {
+                    throw new IllegalArgumentException("UpdateLabels: implausible label count " + n);
+                }
                 List<LabelInfo> labels = new ArrayList<>(n);
                 for (int i = 0; i < n; i++) {
                     labels.add(new LabelInfo(buf.readUtf(256), buf.readVarInt()));

@@ -62,7 +62,8 @@ public final class SlotCapabilityRequestHandler {
             }
             ItemResourceType itemType = SFMResourceTypes.ITEM.get();
 
-            SFMGui.LOGGER.info("[sfmjimu-calib] calibration request: pos {} sides {}", pos, msg.sides());
+            // 客户端每次打开选择器都会发一次请求；原先用 INFO 会持续刷日志，降为 debug。
+            SFMGui.LOGGER.debug("[sfmjimu-calib] calibration request: pos {} sides {}", pos, msg.sides());
 
             // 七个朝向各自暴露的槽位数（[0]=无侧面，1..6=down,up,north,south,west,east）
             // ——模组机器（如 Mekanism）各朝向槽位不同，用于客户端的侧面限定引导
@@ -85,15 +86,16 @@ public final class SlotCapabilityRequestHandler {
                 if (result != null && result.isPresent()) {
                     var handler = (net.neoforged.neoforge.items.IItemHandler) result.unwrap();
                     int total = readTotal(itemType, handler);
-                    SFMGui.LOGGER.info("[sfmjimu-calib] calibration result: pos {} state=OK refDir {} total {}", pos, dirName(dir), total);
-                    send(player, pos, STATE_OK, dirName(dir), total,
-                            dirTotals, readItems(itemType, handler), readCounts(itemType, handler));
+                    SFMGui.LOGGER.debug("[sfmjimu-calib] calibration result: pos {} state=OK refDir {} total {}", pos, dirName(dir), total);
+                    SlotContents contents = readContents(itemType, handler);
+                    send(player, pos, STATE_OK, dirName(dir), total, dirTotals,
+                            contents.items(), contents.counts());
                     return;
                 }
             }
 
             // ② 限定方向全空：兜底到暴露槽位最多的朝向（所见即所得优先给全貌）
-            Direction other = bestPresentDirection(level, itemType, pos, directions);
+            Direction other = bestPresentDirection(dirTotals, directions);
             if (other == null) {
                 send(player, pos, STATE_NO_CAPABILITY, "", 0, dirTotals, List.of(), List.of());
                 return;
@@ -105,8 +107,9 @@ public final class SlotCapabilityRequestHandler {
                 return;
             }
             var handler = (net.neoforged.neoforge.items.IItemHandler) result.unwrap();
+            SlotContents contents = readContents(itemType, handler);
             send(player, pos, STATE_SIDE_FALLBACK, dirName(other), readTotal(itemType, handler),
-                    dirTotals, readItems(itemType, handler), readCounts(itemType, handler));
+                    dirTotals, contents.items(), contents.counts());
         });
     }
 
@@ -130,14 +133,19 @@ public final class SlotCapabilityRequestHandler {
         }
     }
 
-    /** 限定方向之外，暴露槽位最多的朝向（多个同取先出现者；用于兜底编号）。 */
-    private static Direction bestPresentDirection(Level level, ItemResourceType itemType,
-                                                  BlockPos pos, List<Direction> exclude) {
+    /** 限定方向之外，暴露槽位最多的朝向（多个同取先出现者；用于兜底编号）。
+     *
+     *  <p>直接复用 {@code dirTotals}，不再二次探测：{@code probeTotal} 每次都要走
+     *  {@link SFMBlockCapabilityDiscovery#discoverCapabilityFromLevel}（含线缆网络解析），
+     *  而 {@code handle()} 开头已把 7 个朝向全算过一遍。索引约定：
+     *  {@code [0]} = 无侧面，{@code [1..6]} = {@code Direction.values()} 顺序。
+     */
+    private static Direction bestPresentDirection(int[] dirTotals, List<Direction> exclude) {
         Direction best = null;
         int bestSlots = -1;
         for (Direction dir : Direction.values()) {
             if (exclude.contains(dir)) continue;
-            int total = probeTotal(itemType, level, pos, dir);
+            int total = dirTotals[dir.ordinal() + 1];
             if (total > bestSlots) {
                 bestSlots = total;
                 best = dir;
@@ -146,35 +154,34 @@ public final class SlotCapabilityRequestHandler {
         return best;
     }
 
-    /** 每槽内容签名；单个槽读取失败按空槽处理，不炸整次校准。 */
-    private static List<String> readItems(ItemResourceType itemType, net.neoforged.neoforge.items.IItemHandler handler) {
+    /** 一次遍历同时产出"物品签名 + 数量"。
+     *
+     *  <p>原来 {@code readItems} / {@code readCounts} 各遍历一遍全部槽位，
+     *  {@code getStackInSlot} 被调用 2n 次；对 AE2 这类每槽查询有实际成本的
+     *  handler 是纯浪费。取值规则与旧版逐条一致（空槽签名 ""、数量 0）。
+     */
+    private record SlotContents(List<String> items, List<Integer> counts) {
+    }
+
+    /** 单槽读取失败按空槽处理，不炸整次校准。 */
+    private static SlotContents readContents(ItemResourceType itemType,
+                                             net.neoforged.neoforge.items.IItemHandler handler) {
         int n = readTotal(itemType, handler);
         List<String> items = new ArrayList<>(Math.max(0, n));
+        List<Integer> counts = new ArrayList<>(Math.max(0, n));
         for (int i = 0; i < n; i++) {
             try {
                 ItemStack stack = (ItemStack) itemType.getStackInSlot(handler, i);
                 items.add(stack == null || stack.isEmpty()
                         ? "" : itemType.getRegistryKeyForStack(stack).toString());
+                counts.add(stack == null ? 0 : stack.getCount());
             } catch (Throwable t) {
                 SFMGui.LOGGER.debug("capability slot {} read failed", i, t);
                 items.add("");
-            }
-        }
-        return items;
-    }
-
-    private static List<Integer> readCounts(ItemResourceType itemType, net.neoforged.neoforge.items.IItemHandler handler) {
-        int n = readTotal(itemType, handler);
-        List<Integer> counts = new ArrayList<>(Math.max(0, n));
-        for (int i = 0; i < n; i++) {
-            try {
-                ItemStack stack = (ItemStack) itemType.getStackInSlot(handler, i);
-                counts.add(stack == null ? 0 : stack.getCount());
-            } catch (Throwable t) {
                 counts.add(0);
             }
         }
-        return counts;
+        return new SlotContents(items, counts);
     }
 
     private static int readTotal(ItemResourceType itemType, net.neoforged.neoforge.items.IItemHandler handler) {

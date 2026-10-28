@@ -23,7 +23,10 @@ public abstract class IntervalMixin {
         Interval self = (Interval) (Object) this;
         int multiplier = TpsBackoff.multiplierFor(context.getManager());
         if (multiplier <= 1) return;
-        long ticks = Math.min(72_000L, (long) self.ticks() * multiplier);
+        // 下限保护：若自乘结果为 0，下方 `% ticks` 会抛 ArithmeticException 崩服。
+        // 原版 shouldTick 同样直接取模（字节码实证），说明语法层本该保证 ticks > 0；
+        // 这里只是不让本 mixin 引入的乘法成为新的除零入口。
+        long ticks = Math.max(1L, Math.min(72_000L, (long) self.ticks() * multiplier));
         cir.setReturnValue(switch (self.alignment()) {
             case LOCAL -> context.getManager().getTick() % ticks == self.offset();
             case GLOBAL -> Objects.requireNonNull(context.getManager().getLevel()).getGameTime() % ticks

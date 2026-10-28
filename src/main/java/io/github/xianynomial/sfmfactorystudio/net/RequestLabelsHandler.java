@@ -23,9 +23,26 @@ public final class RequestLabelsHandler {
     private RequestLabelsHandler() {
     }
 
+    /**
+     * 允许的最大距离（平方，单位=格）。{@code msg.pos()} 完全来自客户端：
+     * 不设限的话，任意坐标都能让服务端去读已加载区块里任意管理器磁盘上的标签
+     * （越权读取），而且是无成本的高频触发。
+     *
+     * <p>为什么是 64：正常路径下玩家必须先右键打开管理器界面（原版交互距离只有
+     * 4~6 格），余量约十倍，正常使用碰不到。与
+     * {@link SlotCalibrationManager} / {@link SlotCapabilityRequestHandler}
+     * 的 {@code MAX_DISTANCE_SQR} 保持同一标准（三处语义相同，改一处要三处同改）。
+     */
+    private static final double MAX_DISTANCE_SQR = 64 * 64;
+
     public static void handle(RequestLabelsPayload msg, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             if (!(ctx.player() instanceof ServerPlayer player)) return;
+            if (player.distanceToSqr(
+                    msg.pos().getX() + 0.5, msg.pos().getY() + 0.5, msg.pos().getZ() + 0.5) > MAX_DISTANCE_SQR) {
+                // 静默丢弃：越权请求不该得到任何可区分的回包
+                return;
+            }
             BlockEntity be = player.level().getBlockEntity(msg.pos());
             if (!(be instanceof ManagerBlockEntity manager)) return;
             ItemStack disk = manager.getDisk();

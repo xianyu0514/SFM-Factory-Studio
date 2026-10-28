@@ -1,5 +1,53 @@
 # 更新日志 / Changelog
 
+## 1.0 · 2026-10-28 · 首个正式版
+
+## 中文
+
+- **修复（性能，最严重）**：块编辑器的渲染循环每帧都会写一条 `[jei-probe]` INFO 日志。60 FPS 下约 60 行/秒，渲染线程被同步磁盘 IO 拖慢，`latest.log` 迅速刷爆。现已移除；布局诊断改由 `[jei-layout]` 承担（只在 JEI 状态变化或首次打开时打一行）。
+- **修复（多人服务器安全）**：标签请求与"拉取标签"两个网络处理现在校验玩家与目标管理器的距离（64 格）。此前客户端可指定任意坐标读取远处管理器磁盘上的标签，`拉取标签` 还会把结果写进请求者自己的标签枪，绕过原版 4~6 格交互距离。同时给拉取加了每玩家 250ms 重入限流——该操作会在服务端主线程编译程序，原先可被循环发包放大成 CPU 负担。
+- **修复（功能静默失效）**：槽位校准的自适应采样间隔在"界面静止约 1 分钟"后会因整数溢出变成负数，导致采样实际停止且无任何日志。现在改用 long 移位并钳制到上限。
+- **修复（内存与存档串扰）**：校准会话表是静态的，服务器停止时未清理，且每个会话多持有一个从未使用的服务端引用。单机反复进出世界会让整棵服务端对象无法回收，旧会话的采样基线也可能残留到下一次进入。现在新增会话表清理并在服务器停止时释放。
+- **修复（健壮性）**：标签回包的解码增加条目数上限（不得超过剩余可读字节数）。此前畸形包可让客户端分配超大数组而 OOM。
+- **修复（交互）**：代码编辑区的右键此前无反应——判断用的是中键（`button == 2`），而注释一直写的是右键。现在右键与中键都能打开剪贴板菜单。
+- **改进（性能）**：槽位能力查询不再对同一批朝向重复做两次能力发现（每次都要解析线缆网络），单槽内容的读取也从两遍合并为一遍；该请求的日志降为 debug。
+- **改进**：资源显示名缓存加上限（4096），长期游玩不再无界增长。
+- **内部**：`sfm` 依赖下限由 `[4.30,)` 收紧到 `[4.34,)`，与 SFM 本体当前版本严格对齐。4.30~4.33 从未针对本附属测试过，放宽只会让用户装上后在运行期撞 `NoSuchMethodError`。
+- **测试**：三版打包全部通过（302 / 288 / 289 用例，0 失败），三版一致性、语言 key、资源完整性检查同步通过。
+
+## English
+
+- **Fixed (performance, most severe):** the block editor's render loop wrote an INFO line (`[jei-probe]`) on every frame — roughly 60 lines/second, dragging the render thread into synchronous disk IO and flooding `latest.log`. Removed; layout diagnostics are now covered by `[jei-layout]` (one line, only when the JEI state changes or on first open).
+- **Fixed (multiplayer safety):** the label-request and label-pull handlers now validate the distance between the player and the target manager (64 blocks). Previously a client could name any coordinate to read label data from a distant manager's disk, and "pull labels" would write the result into the requester's own label gun, bypassing the vanilla 4–6 block interaction range. Pulling is also rate-limited to one call per 250 ms per player: it compiles the program on the server thread, so looping packets could amplify it into CPU load.
+- **Fixed (silent feature failure):** the slot-calibration adaptive sampler's interval integer-overflowed into a negative value after roughly one minute of an idle screen, which silently stopped sampling with no log line. Now computed with a long shift and clamped to the cap.
+- **Fixed (memory and save cross-talk):** the calibration session table is static and was never cleared when the server stopped, and every session also held an unused server reference. Repeatedly leaving and entering a single-player world kept the whole server object alive, and a stale session's sampling baseline could leak into the next world. The table is now cleared on server stop.
+- **Fixed (robustness):** label reply decoding now caps the entry count (it may not exceed the remaining readable bytes). A malformed packet could previously make the client allocate an oversized array and OOM.
+- **Fixed (interaction):** right-clicking inside the code editor did nothing — the check used the middle button (`button == 2`) while the comment said "right click". Both buttons now open the clipboard menu.
+- **Improved (performance):** the slot-capability query no longer performs capability discovery twice over the same faces (each pass resolves cable networks), and per-slot contents are read in one pass instead of two; that request's log dropped to debug.
+- **Improved:** the resource display-name cache is capped (4096), so it no longer grows without bound over long play sessions.
+- **Internal:** the `sfm` dependency floor is tightened from `[4.30,)` to `[4.34,)` to match the current SFM release. 4.30–4.33 were never tested with this addon; allowing them only defers the failure to a `NoSuchMethodError` at runtime.
+- **Tests:** all three builds pass (302 / 288 / 289 cases, 0 failures), together with the three-way parity, language-key and resource-integrity checks.
+
+## 0.10.0 · 2026-10-23
+
+## 中文
+
+- **修复（稳定性）**：代码编辑器的行号栏与正文两处裁剪区改为 `try/finally` 释放。此前若绘制中途抛异常，裁剪矩形会泄漏到整个屏幕——玩家看到游戏画面被裁成编辑器的一小块，只能重启客户端。TPS 设置界面的说明文字区域存在同样问题，一并修复。
+- **修复（多人服务器安全）**：槽位校准会话现在校验发起者与目标方块的距离（64 格，与槽位能力查询一致）。此前客户端可指定任意坐标，让服务端持续扫描远处容器的内容变化。
+- **修复（性能）**：空程序的源码生成结果不再每刻重算（原先用空字符串当缓存哨兵，空程序每次调用都会重新序列化）。
+- **改进**：TPS 设置界面的说明文字改为自动换行，窄窗口不再横向溢出。
+- **内部**：删除 4 个零引用的私有方法；停用联动功能中每帧空转的视图动画调用；联动诊断日志降为 debug。
+- **测试**：新增裁剪区释放护栏与服务端入参校验护栏；三版一致性、语言 key、资源完整性检查脚本随仓库提供。
+
+## English
+
+- **Fixed (stability):** both scissor regions in the code editor (gutter and body) now release in `try/finally`. Previously an exception mid-draw left the clip rect applied to the whole screen — the game appeared cropped to a corner of the editor and required a client restart. The TPS settings screen had the same flaw and is fixed too.
+- **Fixed (multiplayer safety):** slot-calibration sessions now validate the distance between the player and the target block (64 blocks, matching the slot-capability query). Previously a client could name any coordinate and make the server keep scanning a distant container for content changes.
+- **Fixed (performance):** the generated source for an empty program is no longer recomputed every tick (an empty string served as the cache sentinel, so empty programs re-serialised on every call).
+- **Improved:** the TPS settings description text now wraps, so it no longer overflows horizontally in narrow windows.
+- **Internal:** removed four unreferenced private methods; disabled the per-frame no-op view-animation call left behind by the paused link feature; link diagnostics downgraded to debug.
+- **Tests:** added guards for scissor release and server payload validation; parity, language-key and resource checks ship with the repo.
+
 ## 0.9.1 · 2026-10-02
 
 ## 中文

@@ -74,12 +74,24 @@ public final class SlotCalibrationManager {
      */
     public static volatile boolean verboseLogs = false;
 
+    /**
+     * 会话允许的最大距离（平方，单位=格）。{@code begin} 的 pos 完全来自客户端，
+     * 不设限的话任意坐标都能让服务端每 tick 对它跑七向能力面扫描（{@code captureContents}），
+     * 既是越权读取（能推断远处容器内容何时变化）也是服务端负载。
+     *
+     * <p>为什么是 64：客户端在 {@code ClientGuiLayoutCache.onScreenInit} 里发起会话，
+     * 前提是"3 秒内点击过该方块"，而原版交互距离只有 4~6 格——余量约十倍，正常使用碰不到。
+     * 数字与 {@code SlotCapabilityRequestHandler.MAX_DISTANCE_SQR} 保持一致，两处语义相同。
+     */
+    private static final double MAX_DISTANCE_SQR = 64 * 64;
+
     private static final class Session {
         int sampleAcc = 0;          // 采样节流计数（每 SAMPLE_INTERVAL 刻采样一次）
         final BlockPos pos;
         final int containerId;
         final String menuClass;
-        final MinecraftServer server;
+        // 不持有 MinecraftServer：tick() 用的是入参 server，这个字段建好后从未被读过。
+        // 留着它会让静态 SESSIONS 在服务器停止后锁住整棵 server 对象（见 clearSessions）。
         int ticksLeft = MAX_SESSION_TICKS;
         int noExposureStreak = 0;
         boolean noExposureSent = false;
@@ -93,11 +105,10 @@ public final class SlotCalibrationManager {
         List<Integer> menuX = new ArrayList<>();
         List<Integer> menuY = new ArrayList<>();
 
-        Session(BlockPos pos, int containerId, String menuClass, MinecraftServer server) {
+        Session(BlockPos pos, int containerId, String menuClass) {
             this.pos = pos;
             this.containerId = containerId;
             this.menuClass = menuClass == null ? "" : menuClass;
-            this.server = server;
         }
     }
 
@@ -105,8 +116,17 @@ public final class SlotCalibrationManager {
 
     public static void begin(ServerPlayer player, BlockPos pos, int containerId, String menuClass) {
         if (player == null || pos == null || containerId < 0 || player.getServer() == null) return;
+        // 只校验距离，不校验目标方块是不是 vanilla Container —— captureContents 走的是
+        // SFM 的 SFMBlockCapabilityDiscovery，模组机器（Mekanism/AE2 等）的容器并不实现
+        // vanilla Container，加类型判断会把本模组最主要的适用场景全部误拒。
+        if (player.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5) > MAX_DISTANCE_SQR) {
+            // 拒绝也要留痕：真机上"校准不生效"最难查的一环就是被这里静默拦掉
+            SFMGui.LOGGER.debug("[sfmjimu-calib] session rejected (too far): player {} pos {}",
+                    player.getGameProfile().getName(), pos);
+            return;
+        }
         SESSIONS.put(player.getUUID(), new Session(pos, containerId,
-                menuClass == null ? "" : menuClass, player.getServer()));
+                menuClass == null ? "" : menuClass));
         if (verboseLogs) {
             SFMGui.LOGGER.info("[sfmjimu-calib] session start: player {} pos {} menu {} containerId {}",
                     player.getGameProfile().getName(), pos, menuClass, containerId);
@@ -128,6 +148,15 @@ public final class SlotCalibrationManager {
             SFMGui.LOGGER.debug("[sfmjimu-calib] session end({}): pos {} menu {} learned 0",
                     reason, s.pos, s.menuClass);
         }
+    }
+
+    /**
+     * 服务器停止时清空全部会话。SESSIONS 是静态表：不清的话，单机退出存档后
+     * 仍残留玩家 UUID / 位置 / 上一局的采样基线，重新进入世界可能串到旧会话；
+     * 静态引用同时会让整棵 MinecraftServer（含已加载区块）无法被回收。
+     */
+    public static void clearSessions() {
+        SESSIONS.clear();
     }
 
     /** 服务端每 tick 调用（ServerTickEvent.END）。 */

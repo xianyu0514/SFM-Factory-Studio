@@ -22,4 +22,15 @@ public final class SlotCalibrationTickHandler {
             SlotCalibrationManager.tick(server);
         }
     }
+
+    /**
+     * 服务器停止：清空校准会话表。SESSIONS 是静态表，不清会让整棵
+     * {@link MinecraftServer}（含全部已加载区块）无法被回收 —— 单机反复进出
+     * 世界时内存持续上涨，且旧会话的采样基线会残留到下一次进入。
+     */
+    @SubscribeEvent
+    public static void onServerStopped(
+            net.neoforged.neoforge.event.server.ServerStoppedEvent event) {
+        SlotCalibrationManager.clearSessions();
+    }
 }
