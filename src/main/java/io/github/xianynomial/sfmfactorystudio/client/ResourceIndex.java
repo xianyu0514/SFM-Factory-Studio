@@ -222,17 +222,23 @@ public final class ResourceIndex {
                 Fluid fluid = sourceFluids.get(cursor++);
                 ResourceLocation fluidId = BuiltInRegistries.FLUID.getKey(fluid);
                 String sfmlId = "fluid:" + fluidId.getNamespace() + ":" + fluidId.getPath();
+                String displayName;
+                try {
+                    displayName = fluid.getFluidType().getDescription().getString();
+                } catch (Throwable ignored) {
+                    displayName = fluidId.toString();
+                }
                 try {
                     IClientFluidTypeExtensions ext = IClientFluidTypeExtensions.of(fluid);
                     ResourceLocation stillTex = ext.getStillTexture();
-                    String displayName = fluid.getFluidType().getDescription().getString();
                     if (stillTex != null) {
                         building.add(Entry.sprite(sfmlId, displayName, stillTex, ext.getTintColor()));
                     } else {
                         building.add(Entry.text(sfmlId, displayName));
                     }
                 } catch (Throwable ignored) {
-                    building.add(Entry.text(sfmlId, fluidId.toString()));
+                    // 回退时保留本地化名：raw registry id 对玩家没有意义
+                    building.add(Entry.text(sfmlId, displayName));
                 }
             }
             case CHEMICALS -> {
