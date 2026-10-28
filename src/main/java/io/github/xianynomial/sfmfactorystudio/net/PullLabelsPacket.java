@@ -25,6 +25,36 @@ import java.util.function.Supplier;
  * the editor treats the button as best-effort.
  */
 public record PullLabelsPacket(BlockPos pos) {
+    /**
+     * 允许的最大距离（平方，单位=格）。{@code pos} 完全来自客户端，而本 handler
+     * 除了读磁盘还会把标签<b>写进玩家自己的标签枪</b>——不设限就等于允许从任意
+     * 距离"复制"别人的标签配置，绕过原版 4~6 格交互距离。
+     * 64 格与 1.21.1 / 26.1.2 的同名常量同一标准。
+     */
+    private static final double MAX_DISTANCE_SQR = 64 * 64;
+
+    /**
+     * 每玩家最小重入间隔（毫秒）。本 handler 在主线程对磁盘程序做一次
+     * {@code ProgramBuilder(...).useCache(false)} 编译（强制不吃缓存），是明确的
+     * CPU 开销；循环发包即可让主线程持续编译。按钮是人工点击，250ms 对正常使用
+     * 零影响，但能挡住这类滥用。
+     */
+    private static final long MIN_INTERVAL_MS = 250;
+    /** 限流表容量上限：超了整体清空，只丢限流状态、不影响任何功能。 */
+    private static final int MAX_TRACKED_PLAYERS = 512;
+    private static final java.util.Map<java.util.UUID, Long> LAST_CALL_MS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** @return true 表示本次调用应被丢弃（距上次太近）。 */
+    private static boolean throttled(java.util.UUID id) {
+        long now = System.currentTimeMillis();
+        Long previous = LAST_CALL_MS.get(id);
+        if (previous != null && now - previous < MIN_INTERVAL_MS) return true;
+        if (LAST_CALL_MS.size() > MAX_TRACKED_PLAYERS) LAST_CALL_MS.clear();
+        LAST_CALL_MS.put(id, now);
+        return false;
+    }
+
     public static void encode(PullLabelsPacket msg, FriendlyByteBuf buf) {
         buf.writeBlockPos(msg.pos());
     }
@@ -39,6 +69,12 @@ public record PullLabelsPacket(BlockPos pos) {
             if (player == null) {
                 return;
             }
+            if (player.distanceToSqr(
+                    msg.pos().getX() + 0.5, msg.pos().getY() + 0.5, msg.pos().getZ() + 0.5) > MAX_DISTANCE_SQR) {
+                // 静默丢弃：越权请求不该得到任何可区分的回包
+                return;
+            }
+            if (throttled(player.getUUID())) return;
             BlockEntity be = player.level().getBlockEntity(msg.pos());
             if (!(be instanceof ManagerBlockEntity manager)) {
                 feedback(player, "gui.sfmfactorystudio.pull_labels.no_manager", ChatFormatting.RED);

@@ -16,7 +16,13 @@ public final class AdaptiveSampler {
 
     /** 当前采样间隔（刻）：基准、2×、4×…封顶 max。 */
     public int intervalTicks() {
-        return Math.min(maxTicks, baseTicks << Math.min(quiet, 30));
+        // 必须用 long 移位：baseTicks >= 2 时 1<<29 / 1<<30 会溢出成负数，
+        // 而 Math.min(maxTicks, 负数) 仍返回负数。调用方（SlotCalibrationManager）
+        // 随后做 `% 负数`：sampleAcc 从 1 递增永不等于 0 ⇒ 采样静默停摆。
+        // 触发条件只有"界面静止约 58 秒"（29 次安静采样 × 40 tick），正是
+        // "开着 AE2 界面发呆一会儿，槽位编号忽然学不到"的成因。2026-10-28 修。
+        long shifted = (long) baseTicks << Math.min(quiet, 30);
+        return (int) Math.min(maxTicks, shifted);
     }
 
     public void onQuiet() {

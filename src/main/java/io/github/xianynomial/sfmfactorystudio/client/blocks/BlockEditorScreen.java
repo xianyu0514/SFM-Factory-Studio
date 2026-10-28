@@ -64,8 +64,11 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import io.github.xianynomial.sfmfactorystudio.client.blocks.tutorial.TutorialState;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.tutorial.TutorialStep;
 import static io.github.xianynomial.sfmfactorystudio.client.blocks.BlockTexts.*;
 import static io.github.xianynomial.sfmfactorystudio.client.blocks.BlockTheme.*;
+import static io.github.xianynomial.sfmfactorystudio.client.blocks.EditorPrimitives.*;
 
 /**
  * Scratch-style block editor for SFM programs — frosted-glass light theme in a
@@ -236,7 +239,6 @@ public class BlockEditorScreen extends Screen {
     static final Loc S_IF_DELETED = E("if_deleted", "已删除完整运行积木");
     static final Loc S_CARD_COPIED = E("card_copied", "已复制完整运行积木，紧贴排列在正下方");
 
-
     static final Loc F_GROUP = E("group", "第 %s 组：");
     static final Loc F_ALSO_MOVE = E("also_move", "另外搬运");
     static final Loc F_OR_MOVE = E("or_move", "或者也搬运");
@@ -293,7 +295,6 @@ public class BlockEditorScreen extends Screen {
     static final Loc V_WITHOUT = E("v_without", "排除特征：%s");
     static final Loc V_WITH_ONLY = E("v_with_only", "只要特征：%s");
     static final Loc V_NOT = E("v_not", "不是 %s");
-
 
     static final Loc V_ANY = E("v_any", "任意");
     static final Loc S_WITH_INVALID = E("with_invalid", "✖ 资源标签条件不正确：%s");
@@ -361,7 +362,6 @@ public class BlockEditorScreen extends Screen {
     static final Loc M_COND_NEGATE = E("cond_negate", "把整组条件取反");
     static final Loc M_ADD_HAS = E("m_add_has", "＋ 同时满足：方块里有资源");
     static final Loc M_ADD_REDSTONE = E("m_add_redstone", "＋ 同时满足：红石信号");
-
 
     static final Loc M_OR_HAS = E("m_or_has", "＋ 任一满足：方块里有资源");
     static final Loc M_OR_REDSTONE = E("m_or_redstone", "＋ 任一满足：红石信号");
@@ -445,13 +445,7 @@ public class BlockEditorScreen extends Screen {
     static final Loc COST_TIP = E("cost_tip", "§7优化：绑精确标签/指定槽位/拉长间隔/平衡优化（吞吐量不变）");
     static final Loc BALANCE_BTN = E("balance_btn", "平衡优化");
 
-
     static final Loc TAG_COPIED = E("tag_copied", "已复制资源标签 %s（＋ 且…/或… 后可粘贴）");
-
-
-
-
-
 
     static final Loc SLOT_ALL_NONE = E("slot_all_none", "不限制（全部槽位）");
     static final Loc SLOT_OVER_WARN = E("slot_over_warn", "（超出容器 %s 格！）");
@@ -468,7 +462,6 @@ public class BlockEditorScreen extends Screen {
     static final Loc M_ADD_KIND = E("m_add_kind", "添加%s");
     static final Loc V_AND_SEP = E("v_and_sep", " 且 ");
     static final Loc V_OR_SEP = E("v_or_sep", " 或 ");
-
 
     // ---- metrics (content px) — geometry 的唯一出处是 EditorLayout -----------
     private static final int BAR_H = EditorLayout.BAR_H;
@@ -597,6 +590,14 @@ public class BlockEditorScreen extends Screen {
         }
     }
     private String generatedCache = "";
+    /**
+     * 缓存是否失效。
+     *
+     * <p>不用 {@code generatedCache.isEmpty()} 当哨兵：空程序的生成结果本身就是空串，
+     * 而 {@code tick()} 每 tick 都会调 {@code generated()}，于是空程序每 tick 重新
+     * 序列化一次。加这个标志后，空程序也只在真正改动时才重算。
+     */
+    private boolean generatedDirty = true;
 
     private EditBox nameBox;
     private @Nullable SfmlCodeEditor codeEditor;
@@ -777,6 +778,40 @@ public class BlockEditorScreen extends Screen {
         return sh > 0 ? sh : this.height > 0 ? this.height : 600;
     }
     private int canvasX, canvasY, canvasW, canvasH;
+
+    /**
+     * 新手引导的高亮锚点：控件 id → 面板坐标系下的 {x, y, w, h}。
+     *
+     * <p>每帧重建、不缓存——布局随窗口/缩放变化，缓存必然错位；重建成本是几十次
+     * {@code put}，比一次 {@code g.fill} 还便宜。
+     *
+     * <p>只写不读，不参与任何点击命中（命中走 {@code uiHits}）——这是引导能安全
+     * 接入渲染路径的前提。
+     */
+    private final java.util.Map<String, int[]> tutorialAnchors = new java.util.HashMap<>();
+
+    /**
+     * 画布内控件的锚点，存的是<b>画布内容坐标</b>（与 renderIO 的 x / rowRectOf 的 y 同一坐标系）。
+     *
+     * <p>为什么不换算成面板坐标：画布内容在
+     * {@code translate(canvasX+PAD, canvasY+PAD)} + {@code translate(-viewX,-viewY)} 两层之后绘制，
+     * 且 zoom 已焕进 layout 坐标。手写换算只要漏一项就会弄错，
+     * 所以直接存原始坐标，画的时候重新进入同一 pose 即可。
+     */
+    private final java.util.Map<String, int[]> tutorialAnchorsCanvas = new java.util.HashMap<>();
+
+    /**
+     * {@code drawResourceSelector} 刚画的「类别字段」矩形 {x,y,w,h}。
+     *
+     * <p>引导锚点需要的是「物品」那个字段框本身的宽度，而它只有
+     * {@code drawField} 内部知道（随文字与 minW 变化）。用一个短命临时存储传出来，
+     * 比给四个 helper 全部加 {@code anchorId} 参数的改动面小得多。
+     * 同一帧内顺序调用，不存在并发问题。
+     */
+    private final int[] lastKindFieldRect = new int[4];
+
+    /** {@code drawResourceValueSlot} 刚画的那个方块（资源值槽）矩形，与上面的类别字段分开记。 */
+    private final int[] lastValueSlotRect = new int[4];
     private static final int CANVAS_PAD = BlockTheme.CANVAS_PAD;
 
     // ---- deterministic layout ---------------------------------------------------
@@ -992,7 +1027,30 @@ public class BlockEditorScreen extends Screen {
     // ================================================================== lifecycle
 
     /** 虚拟分辨率缩放：逻辑分辨率 < 480 时等比缩小整个编辑器绘制，布局永不在极小面板上崩塌。 */
+    /**
+     * 编辑器内部缩放系数。小于 1 表示"同样屏幕显示更多内容、字更小"。
+     * 与 {@link EditorUiMath#virtualFrame} 的自动缩小是叠加关系：
+     * 小屏时先按 640 下限缩小，再乘本系数，因此有 0.6 的下限兜底。
+     */
+    /**
+     * 当前**实际生效**的 GUI 缩放（物理像素 / 逻辑像素）。
+     *
+     * <p>取 Window 的 {@code getGuiScale()}：它已经把 auto 缩放算完了，比读
+     * {@code options.guiScale()} 可靠（那里 0 表示 auto）。取不到时返回 0，
+     * {@link EditorUiMath#uiScaleFor} 会退回纯逻辑宽分档。
+     */
+    private static double actualGuiScale() {
+        try {
+            var w = Minecraft.getInstance().getWindow();
+            return w == null ? 0d : w.getGuiScale();
+        } catch (Throwable t) {
+            return 0d;
+        }
+    }
+
     private float edScale = 1f;
+    /** init() 时实测的 GUI 缩放（物理/逻辑）。只用于分档与诊断日志，布局仍以 edW/edH 为准。 */
+    private double guiScaleNow = 0d;
     /** 虚拟分辨率下的宽/高（≥ 480×270），所有布局计算使用这两个值。 */
     private int edW = 960, edH = 540;
 
@@ -1012,6 +1070,12 @@ public class BlockEditorScreen extends Screen {
         // 换算公式在 EditorUiMath.virtualFrame（有单测）：下限 640 让极端缩放下
         // 画布仍有 ~300px 可用宽度
         var frame = EditorUiMath.virtualFrame(this.width, this.height, 640, 240);
+        // 2026-10-26：用户要求"完美还原之前版本（0.9.1）的视觉效果"，
+        // 故移除后来加入的 uiScaleFor 紧凑系数与 0.32 下限，回到 0.9.1 的唯一来源：
+        //   edScale = frame.scale()，edW/edH = frame 的宽高。
+        // 这也是"3 倍下偏小"的真正原因 —— 0.9.1 在 3 倍（逻辑宽 1280）时 edScale 是 1.0，
+        // 紧凑系数把它压成了 0.88。
+        this.guiScaleNow = actualGuiScale();   // 仅诊断日志用，不参与任何布局计算
         edScale = frame.scale();
         edW = frame.width();
         edH = frame.height();
@@ -1039,6 +1103,30 @@ public class BlockEditorScreen extends Screen {
             SFMGuiNetwork.sendToServerBestEffortChecked(
                     new io.github.xianynomial.sfmfactorystudio.net.SlotCapabilityRequestPayload(menu.MANAGER_POSITION, "null"));
         }
+        // 引导进度只在首次 init 时读；resize 会重跑 init，
+        // 重复读取会拿旧文件覆掉本次会话的推进。
+        if (!tutorialLoaded) {
+            tutorialLoaded = true;
+            loadTutorialProgress();
+            if (TUTORIAL_PERSIST) {
+                // 发布版：把玩家已会的步骤快进掉。
+                tutorial.fastForward(program);
+            } else {
+                // 测试期：**必须从空白程序开始**。
+                // 否则程序里已有的卡/标签会让 satisfiedBy 一路为真，
+                // 点「开始」后 advanceIfDone 直接连跳到收尾屏，7 步引导根本没机会展示。
+                // 注意：这会丢弃磁盘程序的积木视图。发布 jar 里 TUTORIAL_PERSIST 恒为 true，
+                // 永不进入本分支；清空前留一条 WARN，避免开发环境出现"程序怎么突然空了"
+                // 却无从追溯（误点保存会把空程序写回磁盘）。
+                if (!program.triggers.isEmpty()) {
+                    io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.warn(
+                            "[tut] clearing {} trigger(s) for tutorial test "
+                                    + "(dev-only: -Dsfmfactorystudio.disableTutorialPersist=true)",
+                            program.triggers.size());
+                }
+                program.triggers.clear();
+            }
+        }
         layoutDirty = true;
         // 注意不要重置 fitted：选择器切屏返回会重跑 init()，重置会导致视角被抢去自动适配
         computePanel();
@@ -1053,14 +1141,20 @@ public class BlockEditorScreen extends Screen {
             program.name = s;
             dirty = true;
             draftSaveDelay = DRAFT_DELAY_TICKS;
-            generatedCache = "";
+            generatedDirty = true;
         });
         this.addRenderableWidget(nameBox);
 
         // Always keep one live editor instance. Hiding it only collapses the
         // source pane; it avoids losing the caret/undo history when users switch
         // repeatedly between blocks and code.
-        int codeH = Math.max(64, panelH / 3 - 30);
+        // 2026-10-28 用户要求「5 倍也要能代码分屏、高度足够」：
+        // 原 panelH/3-30 在 5 倍（面板高约 271）只有 60px，被 64 兜底，仅 5 行代码。
+        // 改成 34% 且下限 90：5 倍 → 92px（约 8 行），3 倍 → 230px（约 20 行）。
+        // 上限 38%：9 倍下面板只有 ~150 高，若让下限 90 生效会吃掉 60%、画布只剩 60px。
+        // 所以「下限 90 / 38% 上限」两端夹住：3 倍 230(34%)、5 倍 92、9 倍 57。
+        int codeH = Math.min(Math.round(panelH * 0.38f),
+                Math.max(90, Math.round(panelH * 0.34f)));
         if (codeEditor == null) codeEditor = new SfmlCodeEditor(this.font, panelX + PALETTE_W + 22,
                 panelY + panelH - codeH - 10, Math.max(120, panelW - PALETTE_W - 38), codeH,
                 this::onCodeTextChanged);
@@ -1077,32 +1171,130 @@ public class BlockEditorScreen extends Screen {
         offerDraftRestore();
     }
 
+    // 下面四个访问器是给 JEI 的 IGuiProperties 用的，**必须返回 GUI 逻辑坐标**。
+    // 面板字段 panelX/panelY/panelW/panelH 在 ed 空间（被 edScale 缩放过）：
+    //   9 倍时 edScale=0.667、edW=640，实际逻辑宽只有 427。
+    // 不乘 edScale 的话 guiRight 会算到 427 之外，JEI 判定侧栏在屏幕外 ⇒ 永不显示。
+    // edScale=1 的 2~4 倍下乘法恒等，行为与 0.9.1 完全一致。
     public int getPanelX() {
-        return panelW <= 1 ? (safeScreenWidth() - Math.round(safeScreenWidth() * 74f / 100f)) / 2 : panelX;
+        if (panelW <= 1) {
+            return (safeScreenWidth() - Math.round(safeScreenWidth() * 74f / 100f)) / 2;
+        }
+        return Math.round(panelX * edScale);
     }
 
     public int getPanelY() {
-        return panelH <= 1 ? (safeScreenHeight() - Math.round(safeScreenHeight() * 86f / 100f)) / 2 : panelY;
+        if (panelH <= 1) {
+            return (safeScreenHeight() - Math.round(safeScreenHeight() * 86f / 100f)) / 2;
+        }
+        return Math.round(panelY * edScale);
     }
 
+    /**
+     * 给 JEI 侧栏预留的宽度（逻辑像素）—— **按缩放分档**（2026-10-28 用户指定）：
+     * <ul>
+     *   <li>8 倍以上（逻辑宽 &lt;500，如 9 倍 427）→ 40，<b>1 列</b></li>
+     *   <li>6~7 倍（500~700，如 7 倍 548）→ 55，<b>2 列</b></li>
+     *   <li>4~5 倍（700~1150，如 5 倍 768）→ 110，5 列（常用布局）</li>
+     *   <li>3 倍及以下（≥1150，如 3 倍 1280）→ 176，9 列</li>
+     * </ul>
+     * 面板右缘直接取「屏幕宽 - 本值」，所以永远紧贴 JEI 左缘、不留空地；
+     * 同时保留 PANEL_MIN_W 下限，极端窄屏下宁可 JEI 不画也不把编辑器压扁。
+     */
+    private int jeiReserve() {
+        int logical = Math.max(1, Math.round(this.width * edScale));
+        if (logical >= 1150) return 176;
+        if (logical >= 700) return 110;
+        if (logical >= 500) return 55;
+        // 2026-10-28 实测 40 时 9 倍看不到 JEI（判放不下），提到 52 ≈ 1 列 + 滚动条
+        return 52;
+    }
+
+    /** 面板左缘留白（8 贴得太死，2026-10-27 用户反馈后改 24）。 */
+    private static final int PANEL_LEFT = 24;
+
+    /** 面板最窄可用宽度；比这更窄时宁可让 JEI 不显示，也不把编辑器压扁。 */
+    private static final int PANEL_MIN_W = 240;
+
     public int getPanelW() {
-        return panelW <= 1 ? Math.round(safeScreenWidth() * 74f / 100f) : panelW;
+        if (panelW <= 1) {
+            return Math.round(safeScreenWidth() * 74f / 100f);
+        }
+        // 宽度用「右缘 - 左缘」算，而不是各自 round：两个值独立取整会让
+        // getPanelX()+getPanelW() 比真实右缘差 1px，margin 就永远比 jeiReserve() 小 1，
+        // 保护逻辑会误触发（JEI 整个不画）。这里保证右缘精确对齐。
+        int right = Math.round((panelX + panelW) * edScale);
+        int w = right - getPanelX();
+        // 余量确实不足时才把上报宽度撑到屏幕右缘 → JEI 的 displayArea 变 0 宽 → 它自己判定不画。
+        int sw = safeScreenWidth();
+        int margin = sw - right;
+        return (margin > 0 && margin < jeiReserve()) ? (sw - getPanelX()) : w;
     }
 
     public int getPanelH() {
-        return panelH <= 1 ? Math.round(safeScreenHeight() * 86f / 100f) : panelH;
+        if (panelH <= 1) {
+            return Math.round(safeScreenHeight() * 86f / 100f);
+        }
+        return Math.round(panelH * edScale);
     }
 
     private void computePanel() {
-        // Uniform shrink on all sides (aspect preserved, centered). With JEI the
-        // panel is smaller so its ingredient list and bookmarks fit on both sides.
-        boolean jei = io.github.xianynomial.sfmfactorystudio.client.JeiCompat.isAvailable();
-        float wf = jei ? 74f / 100f : 94f / 100f;
-        float hf = jei ? 86f / 100f : 94f / 100f;
+        // 面板宽度/位置与 0.9.1 完全一致：JEI 时 74%/86%，否则 94%，始终居中。
+        //
+        // 唯一的偏离：判据用 isInstalled() 取代 0.9.1 的 isAvailable()。
+        // 原因（2026-10-26 实测）：isAvailable() 依赖 JEI runtime，而 JEI 在进世界 /
+        // 资源重载时会先 onRuntimeUnavailable 再恢复，日志里同一秒内出现
+        //   jei=false panelW=1203 (94%) → jei=true panelW=947 (74%) → jei=false 1203
+        // ⇒ 面板宽度来回跳。isInstalled() 只要模组装着就恒为 true，
+        // 面板稳定停在 74% —— 这才是 0.9.1 在玩家实际游玩时呈现的样子（截图即 74% 居中）。
+        boolean jei = io.github.xianynomial.sfmfactorystudio.client.JeiCompat.isInstalled();
+        // 2026-10-28 用户要求「界面更高更大」：
+        //   有 JEI 时高度 86% → 94%（上下各留 3%），无 JEI 时 94% → 96%。
+        //   宽度无 JEI 时 94% → 96%，两侧各留 2%，视觉上更满。
+        float wf = jei ? 74f / 100f : 96f / 100f;
+        float hf = jei ? 94f / 100f : 96f / 100f;
         panelW = Math.round(width * wf);
         panelH = Math.round(height * hf);
         panelX = (width - panelW) / 2;
         panelY = (height - panelH) / 2;
+        // 2026-10-27 用户要求「左边宽一点、右边够 JEI」：
+        //   左缘固定留 PANEL_LEFT（8 太贴，改 24）；
+        //   右缘取「居中时的右缘」与「屏幕宽 - JEI_MIN_SIDE」中较小的那个 ——
+        //   前者保证常规分辨率下不加宽也不缩（视觉与原来一致），
+        //   后者在 5 倍及以上（逻辑宽 ≤768）时主动收窄，把右侧撑到 150 让 JEI 能画。
+        // 例：1280 → 右缘 1113（原样，余 167）；768 → 右缘收到 618（余 150）。
+        if (jei) {
+            // PANEL_LEFT / JEI_MIN_SIDE / PANEL_MIN_W 都是**逻辑像素**语义，
+            // 而这里的 width/panelX/panelW 是 ed 空间（被 edScale 缩放过）。
+            // 9 倍时 edScale=0.667，必须除回来换算，否则留给 JEI 的 150 会变成实际的 100。
+            float invEd = 1f / Math.max(0.01f, edScale);
+            int leftEd = Math.max(1, Math.round(PANEL_LEFT * invEd));
+            int jeiMinEd = Math.max(1, Math.round(jeiReserve() * invEd));
+            int panelMinEd = Math.max(1, Math.round(PANEL_MIN_W * invEd));
+            // 紧贴：面板右缘 = 屏幕宽 - 预留，正好接上 JEI 左缘，中间不留空地
+            int right = width - jeiMinEd;
+            if (right - leftEd >= panelMinEd) {   // 面板窄到不可用时不强求
+                panelX = leftEd;
+                panelW = right - leftEd;
+            }
+        }
+        int sideMargin = width - (panelX + panelW);   // 右缘到屏幕右侧的余量（诊断用）
+
+        // 布局状态变化时无条件打一行（不进 debug 开关）：这是"3 倍放大 / 9 倍不变"
+        // 与"JEI 是否让位"的唯一可自证输出，玩家反馈问题时直接要这一行即可。
+        if (jei != lastJeiState || !layoutLogged) {
+            lastJeiState = jei;
+            layoutLogged = true;
+            io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.info(
+                    "[jei-layout] jei={} screen={}x{} guiScale={} edScale={} panelX={} panelW={} sideMargin={} {}",
+                    jei, width, height, guiScaleNow, edScale, panelX, panelW, sideMargin,
+                    io.github.xianynomial.sfmfactorystudio.client.JeiCompat.overlayDiagnostics());
+        }
+        // 注意：本方法在 renderEd() 里是**每帧**调用的（不只 init/resize）。
+        // 这里曾有一条无条件的 [jei-probe] INFO 日志：实测 60 行/秒，把渲染线程拖进
+        // 同步磁盘 IO，latest.log 迅速刷爆，玩家真正的崩溃信息被淹没。2026-10-28 移除。
+        // 布局诊断统一由上方的 [jei-layout] 承担（只在 JEI 状态变化或首次打开时打一行），
+        // 即"玩家反馈 JEI 位置问题时要的那一行"，仍然保留。
     }
 
     @Override
@@ -1168,7 +1360,7 @@ public class BlockEditorScreen extends Screen {
         redoStack.clear(); // 新编辑使重做历史失效
         dirty = true;
         draftSaveDelay = DRAFT_DELAY_TICKS;
-        generatedCache = "";
+        generatedDirty = true;
         blocksNewerThanCode = true;
         layoutDirty = true;
         modelVersion++;
@@ -1239,7 +1431,7 @@ public class BlockEditorScreen extends Screen {
         restoreLinks(savedLinks);
         selectedBody = null;
         nameBox.setValue(program.name);
-        generatedCache = "";
+        generatedDirty = true;
         blocksNewerThanCode = true; // 撤销/重做也改了模型，代码窗需要跟上
         selection.clear();
         selectedTriggers.clear();
@@ -1250,16 +1442,19 @@ public class BlockEditorScreen extends Screen {
         showStatus(okMessage, C_SELECT);
     }
 
+    /**
+     * 新建取出语句。<b>不预填标签</b>：空标签 = 未配置，
+     * 玩家必须自己选容器——这正是新手引导第二步要教的事。
+     * 以前预填 "a"/"b" 会让玩家以为「已经配好了」。
+     */
     private BProgram.Statement.Input newInput() {
         var s = new BProgram.Statement.Input();
-        s.access.labels.add(knownLabels.isEmpty() ? "a" : knownLabels.get(0));
         s.limits.add(new BProgram.ResourceLimit());
         return s;
     }
 
     private BProgram.Statement.Output newOutput() {
         var s = new BProgram.Statement.Output();
-        s.access.labels.add(knownLabels.isEmpty() ? "b" : knownLabels.get(0));
         s.limits.add(new BProgram.ResourceLimit());
         return s;
     }
@@ -1284,7 +1479,6 @@ public class BlockEditorScreen extends Screen {
 
     private BProgram.Bool.Has newConditionHas() {
         var has = new BProgram.Bool.Has();
-        has.access.labels.add(knownLabels.isEmpty() ? "a" : knownLabels.get(0));
         // 默认「<标签> 中有 >= 1 物品」：>= 1 是真实的非空判断（>= 0 恒真=无意义空句，
         // 用户反馈原话"这句话读不懂"的另一半根因）；通配物品让资源类别在主判断行可见
         //（用户反馈：资源类别不该藏在编辑菜单里）
@@ -1306,8 +1500,9 @@ public class BlockEditorScreen extends Screen {
     // ===================================================================== save
 
     private String generated() {
-        if (generatedCache.isEmpty()) {
+        if (generatedDirty) {
             generatedCache = BlocksToSfml.toSfml(program);
+            generatedDirty = false;
         }
         return generatedCache;
     }
@@ -1438,7 +1633,7 @@ public class BlockEditorScreen extends Screen {
         selectedBody = null;
         actionBarVisible = false;
         modelVersion++;
-        generatedCache = "";
+        generatedDirty = true;
         layoutDirty = true;
         lastModelSfml = generated();
         if (nameBox != null) nameBox.setValue(program.name);
@@ -1504,6 +1699,7 @@ public class BlockEditorScreen extends Screen {
         clearDraft();
         saveLayouts();
         showStatus(T_SAVED_OK.getString(), 0xFF0C8F58);
+        tutorialSavedOnce = true;   // 引导的「存盘」步骤靠这个位
         return true;
     }
 
@@ -1870,7 +2066,6 @@ public class BlockEditorScreen extends Screen {
         locateColor = color;
     }
 
-
     /** 修复动作走正常编辑路径：先压撤销快照，再改模型，立即刷新诊断。 */
     private void applyIssueFix(ProgramDiagnostics.Issue issue) {
         if (issue.fix() == null) return;
@@ -2208,6 +2403,14 @@ public class BlockEditorScreen extends Screen {
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
         mx /= edScale; my /= edScale;
+        // 引导按钮最优先：它盖在最上层，不能被 popup / inPanel / super 抢走
+        if (button == 0 && tutorial.active() && handleTutorialClick(mx, my)) {
+            if (Boolean.getBoolean("sfmfactorystudio.debugInput")) {
+                io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.info(
+                        "[tut] click consumed by tutorial at ({}, {})", mx, my);
+            }
+            return true;
+        }
         if (popup != null) {
             // Popup actions may replace or directly close themselves. Inspect
             // the instance that actually received the click so a replacement
@@ -2244,7 +2447,11 @@ public class BlockEditorScreen extends Screen {
             if (handled) setDragging(true);
             return handled;
         }
-        if (codeEditor != null && codeEditor.visible && codeEditor.containsPointer(mx, my) && button == 2) {
+        // 代码编辑器右键=剪贴板菜单（画布的右键平移/菜单不得截走）。
+        // button 1=右键、2=中键：两个都接受 —— 注释一直写的是"右键"，但历史实现只认 2，
+        // 导致用户在代码区按右键毫无反应。保留中键是为了不改变已有习惯（纯增益）。
+        if (codeEditor != null && codeEditor.visible && codeEditor.containsPointer(mx, my)
+                && (button == 1 || button == 2)) {
             // 代码编辑器右键 = 剪贴板菜单（画布的右键平移/菜单不得截走）
             setFocused(codeEditor);
             codeEditor.mouseClicked(mx, my, button);
@@ -2265,6 +2472,9 @@ public class BlockEditorScreen extends Screen {
             if (in(h, mx, my)) {
                 if (h.kind == K_PALETTE) {
                     pendingPalette = (String) h.data;
+                    if (Boolean.getBoolean("sfmfactorystudio.debugInput")) {
+                        io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.info("[tut] palette armed: {} at ({}, {})", h.data, mx, my);
+                    }
                     pressX = mx;
                     pressY = my;
                     return true;
@@ -2854,10 +3064,6 @@ public class BlockEditorScreen extends Screen {
         }
         // 卡片 / 画布空白 → 卡片菜单
         openContextMenu(mx, my);
-    }
-
-    private boolean overCanvasAt(double mx, double my) {
-        return mx >= canvasX && mx < canvasX + canvasW && my >= canvasY && my < canvasY + canvasH;
     }
 
     /**
@@ -3738,6 +3944,9 @@ public class BlockEditorScreen extends Screen {
     private void offerDraftRestore() {
         if (draftPromptChecked) return;
         draftPromptChecked = true;
+        // 引导期间不提示草稿：它是模态弹窗，会吃掉所有点击，
+        // 实测导致第一步的拖拽完全无响应（日志里 popup=true）。
+        if (tutorial.active()) return;
         DraftEntry draft = readDraftFile().get(draftKey());
         if (draft == null || draft.sfml().isBlank()) return;
         if (draft.sfml().equals(currentSource())) {
@@ -3807,7 +4016,7 @@ public class BlockEditorScreen extends Screen {
         undoStack.clear();
         redoStack.clear();
         actionBarVisible = false;
-        generatedCache = "";
+        generatedDirty = true;
         layoutDirty = true;
         dirty = true;
         draftSaveDelay = -1;
@@ -4058,6 +4267,23 @@ public class BlockEditorScreen extends Screen {
 
     @Override
     public void onClose() {
+        // 教程期间 ESC 是"回游戏给容器贴标签"的常规动作，
+        // 弹「未保存」确认会把人堵在门口——改成静默保存后直接退出。
+        if (tutorial.active()) {
+            io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.info(
+                    "[tut] onClose auto-save: reached={} dirty={}", tutorial.reachedOrdinal(), dirty);
+            saveTutorialProgress();
+            Path tf = tutorialFile();
+            if (tf != null) EditorFileStore.flushSync(tf);
+            // 程序不合法时（如空标签）save() 会 return false，
+            // 静默失败等于什么都没存。正式保存失败就退到草稿，
+            // 下次进编辑器读草稿恢复，编辑不会丢。
+            if (dirty && !save()) saveDraft();
+            saveLayouts();
+            closingWithoutPrompt = true;
+            super.onClose();
+            return;
+        }
         if (!closingWithoutPrompt) requestClose();
     }
 
@@ -4083,6 +4309,8 @@ public class BlockEditorScreen extends Screen {
         g.fill(px, py + 3, px + 3, py + 14, accent);
         text(g, label, px + 9, py + 5, C_TEXT);
         uiHits.add(hit(px, py, pw, 17, K_PALETTE, kind, null));
+        // 引导锚点：只记录矩形，命中仍由上一行 uiHits 决定
+        tutorialAnchors.put("pal." + kind, new int[]{px, py, pw, 17});
     }
 
     private void renderPalette(GuiGraphics g, int mx, int my) {
@@ -4199,11 +4427,346 @@ public class BlockEditorScreen extends Screen {
         g.pose().scale(edScale, edScale, 1);
         int dmx = Math.round(mx / edScale);
         int dmy = Math.round(my / edScale);
+        tutorialAnchors.clear();
+        tutorialAnchorsCanvas.clear();
+        // 引导进度：状态满足后先停 15 帧（约 0.75s）再推进。
+        // 直接 advance 会让玩家点完标签的下一帧就看不到自己的操作结果。
+        TutorialStep curStep = tutorial.current();
+        if (!curStep.manual && TutorialState.satisfiedBy(curStep, program, tutorialSavedOnce)) {
+            if (++tutorialSatisfiedTicks >= 15) {
+                tutorialSatisfiedTicks = 0;
+                if (tutorial.advanceIfDone(program, tutorialSavedOnce)) {
+                    saveTutorialProgress();
+                }
+            }
+        } else {
+            tutorialSatisfiedTicks = 0;
+        }
         try {
             renderEd(g, dmx, dmy, partialTick);
+            // 引导 overlay 画在 renderEd 内部：与调色板/帮助面板同一个
+            // 面板坐标系，命中也是同一套（mouseClicked 已除 edScale）。
+            renderTutorialOverlay(g, dmx, dmy);
+            if (TUTORIAL_ANCHOR_DEBUG) {
+                renderTutorialAnchorDebug(g);
+                g.pose().pushPose();
+                g.pose().translate(canvasX + CANVAS_PAD, canvasY + CANVAS_PAD, 0);
+                g.pose().scale(zoom, zoom, 1);
+                g.pose().translate(-viewX, -viewY, 0);
+                for (var e : tutorialAnchorsCanvas.entrySet()) {
+                    int[] r = e.getValue();
+                    border(g, r[0], r[1], r[2], r[3], 0xFF0A84FF);
+                    text(g, e.getKey(), r[0] + 2, r[1] - 9, 0xFF0A84FF);
+                }
+                g.pose().popPose();
+            }
         } finally {
             g.pose().popPose();
         }
+    }
+
+    /** 排查引导锚点是否贴合控件：-Dsfmfactorystudio.tutorialAnchors=true */
+    private static final boolean TUTORIAL_ANCHOR_DEBUG =
+            Boolean.getBoolean("sfmfactorystudio.tutorialAnchors");
+
+    /** 把每个锚点矩形描出来并标 id。开关关闭时零开销。 */
+    /** 画布内锚点：必须在画布自己的 pose 里画，否则坐标系对不上。 */
+    private void renderTutorialAnchorDebug(GuiGraphics g) {
+        for (var e : tutorialAnchors.entrySet()) {
+            int[] r = e.getValue();
+            border(g, r[0], r[1], r[2], r[3], 0xFFFF3B30);
+            text(g, e.getKey(), r[0] + 2, r[1] - 9, 0xFFFF3B30);
+        }
+    }
+
+    // ---- 新手引导 overlay（批 3）------------------------------------------
+
+    /** 非 final：启动时从 tutorial-progress.json 恢复会整体替换。 */
+    private TutorialState tutorial = new TutorialState();
+    private boolean tutorialSavedOnce = false;
+
+    /** 当前步已连续满足的帧数。满足后先停一小段再推进，
+     * 否则玩家点完标签下一帧就跳走了，看不到自己刚改了什么。 */
+    private int tutorialSatisfiedTicks = 0;
+    /** 进度是否已从文件恢复过（init 会重跑，不能重复加载）。 */
+    private boolean tutorialLoaded = false;
+    /** 仅用于诊断日志：上次打印的 JEI 可用性。 */
+    private boolean lastJeiState = false;
+    /** [jei-layout] 每次开界面必打一行（首次无条件），便于玩家实际缩放/让位取证。 */
+    private boolean layoutLogged = false;
+    /** 仅用于诊断节流。 */
+    private int jeiProbe = 0;
+
+    /** 引导气泡上两个按钮的矩形（面板坐标）。
+     * 不走 {@code uiHits}：那条链路会被 popup / inPanel / super.mouseClicked
+     * 任一环节吃掉，而引导按钮必须最优先。 */
+    private final int[] tutBtnNext = new int[4];
+    private final int[] tutBtnSkip = new int[4];
+
+    /** 把画布内锚点（内容坐标）换算成屏幕坐标；面板锚点原样返回。 */
+    private int[] tutorialTargetRect(TutorialStep step) {
+        if (step.anchor == null) return null;
+        int[] r = tutorialAnchorsCanvas.get(step.anchor);
+        if (r != null) {
+            // sX/sY 已经返回面板坐标，overlay 就画在面板坐标系里
+            return new int[]{sX(r[0]), sY(r[1]),
+                    Math.max(1, Math.round(r[2] * zoom)), Math.max(1, Math.round(r[3] * zoom))};
+        }
+        return tutorialAnchors.get(step.anchor);
+    }
+
+    private static final int TUT_MASK = 0x99000000;
+
+    /**
+     * 引导遮罩 + 高亮 + 气泡。
+     *
+     * <p><b>遮罩只画、不注册命中</b>——否则玩家点不到调色板，第一步就卡死。只有气泡上的按钮可点。
+     *
+     * <p>整屏范围按 {@code 1/edScale} 放大，保证编辑器整体缩放后仍然盖满整屏。
+     */
+    // ---- 引导进度持久化 + ESC 互转 ----------------------------------------
+
+    /**
+     * 测试期不落盘：只有发布产物才持久化引导进度。
+     *
+     * <p>开发环境由 build.gradle 注入 {@code -Dsfmfactorystudio.disableTutorialPersist=true}，
+     * 正式 jar 里没有这个属性 ⇒ 自动启用。
+     * 否则调试时一次「跳过」就永久看不到引导，没法测试。
+     */
+    private static final boolean TUTORIAL_PERSIST =
+            !Boolean.getBoolean("sfmfactorystudio.disableTutorialPersist");
+
+    /** 引导进度文件：和 drafts / templates 同目录，但语义独立（一次性经历）。 */
+    private @Nullable Path tutorialFile() {
+        if (!TUTORIAL_PERSIST) return null;
+        try {
+            Path dir = FMLPaths.CONFIGDIR.get().resolve("sfmfactorystudio");
+            Files.createDirectories(dir);
+            return dir.resolve("tutorial-progress.json");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 启动时恢复进度。读失败一律当"全新"，不让坏文件挡住引导。 */
+    private void loadTutorialProgress() {
+        Path f = tutorialFile();
+        if (f == null) return;
+        String raw = EditorFileStore.readString(f);
+        if (raw == null || raw.isBlank()) return;
+        try {
+            var parsed = com.google.gson.JsonParser.parseString(raw);
+            if (!parsed.isJsonObject()) return;
+            var o = parsed.getAsJsonObject();
+            if (o.has("progress") && o.get("progress").isJsonObject()) {
+                tutorial = TutorialState.fromJson(o.get("progress").toString());
+            }
+        } catch (Exception ignored) {
+            // 坏文件不影响游戏：保持全新状态即可，下次推进会覆写
+        }
+    }
+
+    /** 进度变化即落盘（EditorFileStore 自带 500ms 去抖 + 原子替换）。 */
+    private void saveTutorialProgress() {
+        Path f = tutorialFile();
+        if (f == null) return;
+        EditorFileStore.update(f, "progress", tutorial.toJson());
+    }
+
+    private void renderTutorialOverlay(GuiGraphics g, int mx, int my) {
+        if (!tutorial.active()) return;
+        java.util.Arrays.fill(tutBtnNext, 0);
+        java.util.Arrays.fill(tutBtnSkip, 0);
+        renderTutorialOverlayPixels(g, mx, my);
+    }
+
+    private void renderTutorialOverlayPixels(GuiGraphics g, int mx, int my) {
+        TutorialStep step = tutorial.current();
+        int[] t = tutorialTargetRect(step);
+        // 目标完全在可视区外（大倍缩放时常见）时当作无目标，否则气泡会被推出屏幕。
+        if (t != null && (t[0] + t[2] < 0 || t[0] > this.width || t[1] + t[3] < 0 || t[1] > this.height)) {
+            t = null;
+        }
+        int fw = this.width;
+        int fh = this.height;
+        if (t != null) {
+            // 回字形遮罩：上/下/左/右四块，中间留出目标
+            g.fill(0, 0, fw, t[1], TUT_MASK);
+            g.fill(0, t[1] + t[3], fw, fh, TUT_MASK);
+            g.fill(0, t[1], t[0], t[1] + t[3], TUT_MASK);
+            g.fill(t[0] + t[2], t[1], fw, t[1] + t[3], TUT_MASK);
+            border(g, t[0] - 2, t[1] - 2, t[2] + 4, t[3] + 4, 0xFF2F6FED);
+            border(g, t[0] - 3, t[1] - 3, t[2] + 6, t[3] + 6, 0x772F6FED);
+        } else {
+            g.fill(0, 0, fw, fh, TUT_MASK);
+        }
+        renderTutorialBubble(g, step, t, mx, my);
+    }
+
+    /** 带局部放大的文字。{@code text()} 用的是固定字号，
+     * 引导气泡需要比界面其他文字更显眼。 */
+    private void textScaled(GuiGraphics g, String str, int x, int y, int color, float scale) {
+        g.pose().pushPose();
+        g.pose().translate(x, y, 0);
+        g.pose().scale(scale, scale, 1);
+        text(g, str, 0, 0, color);
+        g.pose().popPose();
+    }
+
+    /** 按像素宽度贪心换行。{@code font.split} 返回 FormattedCharSequence 没有
+     * {@code getString()}，而这里只需要纯文本，所以自己切。 */
+    private List<String> tutorialWrapText(String text, int maxW) {
+        List<String> out = new ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (line.length() > 0 && this.font.width(line.toString() + c) > maxW) {
+                out.add(line.toString());
+                line.setLength(0);
+            }
+            line.append(c);
+        }
+        if (line.length() > 0) out.add(line.toString());
+        return out;
+    }
+
+    /** 引导气泡按钮的命中（面板坐标，与 mx/edScale 同系）。 */
+    private boolean handleTutorialClick(double mx, double my) {
+        if (inTutRect(mx, my, tutBtnSkip)) {
+            tutorial.skip();
+            saveTutorialProgress();
+            return true;
+        }
+        if (inTutRect(mx, my, tutBtnNext)) {
+            TutorialStep step = tutorial.current();
+            if (step.manual) tutorial.advanceManual();
+            else tutorial.advanceIfDone(program, tutorialSavedOnce);
+            saveTutorialProgress();
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean inTutRect(double mx, double my, int[] r) {
+        return r[2] > 0 && r[3] > 0
+                && mx >= r[0] && mx < r[0] + r[2] && my >= r[1] && my < r[1] + r[3];
+    }
+
+    private void renderTutorialBubble(GuiGraphics g, TutorialStep step, int[] t, int mx, int my) {
+        int panelW = this.width;
+        int panelH = this.height;
+        // 气泡在**屏幕像素**上保持恒定大小：编辑器整体被 fitContent 缩到 edScale（实测 0.53），
+        // 若按面板坐标定尺寸，窗口一小气泡和字就一起缩得看不清。
+        float inv = 1f / Math.max(0.01f, edScale);
+        // 第 2 步起操作都在画布卡片上，气泡不能盖住画布，
+        // 因此停靠到下方的代码编辑器区域（与画布不重叠）。
+        // 引导气泡统一做成「底部状态条」：全宽、贴底、占屏高约 28%。
+        // 之前按「宽度 40% + 居中」做，9x 缩放下仍会盖住画布中部，
+        // 且高度随正文行数变化（实测 "太高不够宽"）。固定成底部一条后，
+        // 无论哪种缩放，覆盖的都是代码编辑器那一层，画布主体永远不受影响。
+        // 2026-10-27：气泡原本是「全宽贴底」（bx=0 / bw=this.width），
+        // JEI 的原料列表和搜索栏也在右侧底部，实测会把「跳过 / 下一步」压住。
+        // 有 JEI 且它真的占了右侧一条时，气泡改为与面板同宽同左缘，
+        // 那条右侧整列让给 JEI；JEI 没显示（未装 / 余量不足）时保持原全宽。
+        // 判据必须是 isInstalled()（模组装着就 true）；用 isAvailable() 会因 JEI runtime
+        // 未就绪/重载而返回 false，气泡就退回全宽、继续压住按钮（2026-10-27 实测）。
+        // 注意：本方法开头有 `int panelW = this.width;` 的局部变量，会遮蔽同名字段。
+        // 这里必须写 this.panelX / this.panelW，否则条件恒为 false（2026-10-27 实测踩到）。
+        int logicalRight = Math.round((this.panelX + this.panelW) * edScale);
+        boolean jeiSide = io.github.xianynomial.sfmfactorystudio.client.JeiCompat.isInstalled()
+                && (safeScreenWidth() - logicalRight) >= jeiReserve();
+        // 2026-10-27：气泡左缘贴屏幕左边（bx=0），右缘停在面板右缘 ——
+        // 唯一让出去的就是 JEI 那一列。之前跟随 panelX 会在左侧留下等宽空白。
+        int bw = jeiSide ? (this.panelX + this.panelW) : this.width;
+        int bh = Math.max(140, Math.round(this.height * 0.28f));
+        int bx = 0;
+        int by = this.height - bh;
+        // 字号按**屏高比例**定，不用固定倍数：
+        // 实测 1455x819（大屏）下 1.4*inv 只有 ~12.6px，看着很小；
+        // 按屏高 2.2% 定字号，小窗和大窗观感一致。
+        final float FS = Math.max(1.2f, this.height * 0.022f / 9f / Math.max(0.01f, edScale));
+        int padL = Math.round(24 * inv);
+        // 换行宽度先除 FS（textScaled 会把字放大 FS 倍）。
+        var lines = tutorialWrapText(step.body.getString(),
+                Math.max(60, Math.round((bw - padL * 2) / Math.max(1f, FS))));
+        int lineH = Math.max(8, Math.round(9 * FS * 1.15f));
+        int headPad = Math.round(26 * inv);
+        int footPad = Math.round(18 * inv);
+        // 附近一个容器都没有时，第 2/3 步永远无法完成，
+        // 得明确告诉玩家怎么去把容器弄出来。
+        boolean needContainer = knownLabels.isEmpty()
+                && (step == TutorialStep.PICK_IN_LABEL || step == TutorialStep.PICK_OUT_LABEL);
+        var hintLines = needContainer
+                ? tutorialWrapText(new Loc("gui.sfmfactorystudio.ed.tut_need_container",
+                        "里面一个容器都没有。按 ESC 回游戏：手拿【标签枪】右键对准箱子，给它贴上一个名字；然后右键管理器回来。").getString(),
+                        Math.max(60, Math.round((bw - padL * 2) / Math.max(1f, FS))))
+                : java.util.List.<String>of();
+        // 高度固定，内容溢出就裁掉尾部正文行（保证按钮永远在屏幕内）。
+        int room = bh - headPad - footPad - hintLines.size() * lineH;
+        int maxLines = Math.max(1, room / Math.max(1, lineH));
+        if (lines.size() > maxLines) lines = lines.subList(0, maxLines);
+        if (tutorial.lastLoggedStep != step) {
+            tutorial.lastLoggedStep = step;
+            io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.info(
+                    "[tut-layout] step={} screen={}x{} edScale={} zoom={} bw={} bh={} bx={} by={} jeiSide={} target={}",
+                    step, this.width, this.height, edScale, zoom, bw, bh, bx, by, jeiSide,
+                    t == null ? "null" : (t[0] + "," + t[1] + "," + t[2] + "," + t[3]));
+        }
+        rounded(g, bx + 2, by + 3, bw, bh, 10, 0x55000000);
+        int radius = Math.max(4, Math.round(10 * inv));
+        rounded(g, bx, by, bw, bh, radius, 0xFFF7FAFF);
+        border(g, bx, by, bw, bh, 0xFF2F6FED);
+        // 进度点：走到第几步一眼可见
+        TutorialStep[] all = TutorialStep.values();
+        int dot = Math.max(3, Math.round(5 * inv));
+        int dotGap = Math.max(2, Math.round(4 * inv));
+        int dotX = bx + bw - padL - all.length * (dot + dotGap);
+        for (int i = 0; i < all.length; i++) {
+            int c = i <= tutorial.reachedOrdinal() ? 0xFF2F6FED : 0xFFC9D4E2;
+            int dx = dotX + i * (dot + dotGap);
+            g.fill(dx, by + Math.round(9 * inv), dx + dot, by + Math.round(9 * inv) + dot, c);
+        }
+        textScaled(g, step.title.getString(), bx + padL, by + Math.round(10 * inv), 0xFF1B4FA0, FS);
+        int y = by + Math.round(28 * inv);
+        for (var line : lines) {
+            textScaled(g, line, bx + padL, y, 0xFF3B4656, 1.12f * inv);
+            y += lineH;
+        }
+        if (!hintLines.isEmpty()) {
+            // 橙色 + 略大：这是唯一出路，不能和正文一个强度
+            for (var line : hintLines) {
+                textScaled(g, line, bx + padL, y, 0xFFB45309, 1.2f * inv);
+                y += lineH;
+            }
+        }
+        String nextLabel = step.manual
+                ? (step.isLast() ? new Loc("gui.sfmfactorystudio.ed.tut_btn_done", "完成").getString()
+                                 : new Loc("gui.sfmfactorystudio.ed.tut_btn_start", "开始").getString())
+                : new Loc("gui.sfmfactorystudio.ed.tut_btn_next", "下一步").getString();
+        int btnH = Math.max(14, Math.round(20 * inv));
+        // 文字宽度要乘 FS：textScaled 会把字放大 FS 倍，
+        // 用 font.width 原值会导致「下一步」的「步」被切在按钮外。
+        int nw = Math.round(this.font.width(nextLabel) * FS) + Math.round(22 * inv);
+        int nx = bx + bw - padL - nw;
+        int ny = by + bh - Math.round(8 * inv) - btnH;
+        boolean nh = mx >= nx && mx < nx + nw && my >= ny && my < ny + btnH;
+        rounded(g, nx, ny, nw, btnH, Math.round(5 * inv), nh ? 0xFF1F5FD0 : 0xFF2F6FED);
+        textScaled(g, nextLabel, nx + Math.round(11 * inv), ny + Math.round(btnH * 0.28f), 0xFFFFFFFF, FS);
+        tutBtnNext[0] = nx; tutBtnNext[1] = ny; tutBtnNext[2] = nw; tutBtnNext[3] = btnH;
+        uiHits.add(hit(nx, ny, nw, btnH, K_CLICK, null, () -> {
+            if (step.manual) tutorial.advanceManual();
+            else tutorial.advanceIfDone(program, tutorialSavedOnce);
+        }));
+        String skipLabel = new Loc("gui.sfmfactorystudio.ed.tut_btn_skip", "跳过").getString();
+        int sw = Math.round(this.font.width(skipLabel) * FS) + Math.round(12 * inv);
+        int sx = bx + padL, sy = by + bh - Math.round(8 * inv) - btnH;
+        boolean sh = mx >= sx && mx < sx + sw && my >= sy && my < sy + btnH;
+        // 「跳过」是引导卡住时的唯一出路，不能只画一行灰字。
+        rounded(g, sx, sy, sw, btnH, Math.max(3, Math.round(5 * inv)), sh ? 0x22C22B21 : 0x148A94A0);
+        if (sh) border(g, sx, sy, sw, btnH, 0x55C22B21);
+        textScaled(g, skipLabel, sx + Math.round(6 * inv), sy + Math.round(btnH * 0.28f), sh ? 0xFFC22B21 : 0xFF7A8494, FS);
+        tutBtnSkip[0] = sx; tutBtnSkip[1] = sy; tutBtnSkip[2] = sw; tutBtnSkip[3] = btnH;
+        uiHits.add(hit(sx, sy, sw, btnH, K_CLICK, null, tutorial::skip));
     }
 
     private void renderEd(GuiGraphics g, int mx, int my, float partialTick) {
@@ -4232,13 +4795,18 @@ public class BlockEditorScreen extends Screen {
         // 窄面板按钮需要更多行：按宽度猜一个下限（注意 <380 判断必须在 <560 之前，
         // 否则三分支永远走不到 3 行），再与 renderToolbar 回写的实际占用行数取最大。
         // 声明行数 >= 实际行数 ⇒ 按钮永远不会溢出进画布区域吞点击。
-        toolbarRows = Math.max(EditorUiMath.guessToolbarRows(panelW), toolbarRowsUsed);
-        canvasX = panelX + PALETTE_W + 16;
-        canvasY = panelY + toolbarH() + 6;
-        int baseCanvasW = panelX + panelW - 8 - canvasX;
+        // 2026-10-28 用户反馈「功能行高度空白太多」：guessToolbarRows 在 panelW<380 时
+        // 保守猜 3 行（28px×3=84px），而实际按钮往往只排 1 行，多出来的两行纯空白。
+        // placeToolbar 的返回值就是真实占用行数，直接用它即可 —— 它已保证所有按钮
+        // 都落在返回的行数内，不会出现「按钮溢出工具栏吞点击」的老问题。
+        toolbarRows = Math.max(1, toolbarRowsUsed);
+        // 2026-10-28 用户要求「减少画布周围的框边距」：左 16→8、上 6→4、右 8→4。
+        canvasX = panelX + PALETTE_W + 8;
+        canvasY = panelY + toolbarH() + 4;
+        int baseCanvasW = panelX + panelW - 4 - canvasX;
         issuesPanelVisible = issuesOpen && baseCanvasW - (ISSUES_W + 10) >= 200;
         canvasW = baseCanvasW - (issuesPanelVisible ? ISSUES_W + 10 : 0);
-        int availableCodeArea = Math.max(1, panelH - toolbarH() - 12);
+        int availableCodeArea = Math.max(1, panelH - toolbarH() - 8);
         codeSplitFits = CodePaneLayout.canSplit(canvasW, availableCodeArea);
         codeExpandedEffective = new CodeViewPreferences(codePaneFraction, codeOnly, codeWrapPreference, previewMode)
                 .showCode(codeSplitFits);
@@ -4260,7 +4828,7 @@ public class BlockEditorScreen extends Screen {
             return;
         }
         canvasH = codeExpandedEffective
-                ? CodePaneLayout.split(canvasY, panelY + panelH - 6, codePaneFraction).canvasHeight()
+                ? CodePaneLayout.split(canvasY, panelY + panelH - 4, codePaneFraction).canvasHeight()
                 : availableCodeArea;
         if (!fitted) {
             fitContent();
@@ -4905,10 +5473,19 @@ public class BlockEditorScreen extends Screen {
     // 程序里是显著热点。键=matcher 原文；模型重建时 matcher 对象随语句重建，
     // 但 matcher 字符串内容相同——缓存命中即可，无需失效（显示规则不变）。
     private static final java.util.HashMap<String, String> DISPLAY_NAME_CACHE = new java.util.HashMap<>();
+    /** 缓存上限：键是"见过的资源标签串"，无界会随游玩时长无限增长。
+     *  到上限整体清空 —— 只影响一次重算，显示结果完全不变。 */
+    private static final int DISPLAY_NAME_CACHE_MAX = 4096;
 
     private String cachedDisplayName(String matcher) {
-        return DISPLAY_NAME_CACHE.computeIfAbsent(matcher == null ? "*" : matcher,
-                m -> ResourceTagIndex.displayName(nbtComponentDisplay(m)));
+        String key = matcher == null ? "*" : matcher;
+        String cached = DISPLAY_NAME_CACHE.get(key);
+        if (cached != null) return cached;
+        if (DISPLAY_NAME_CACHE.size() >= DISPLAY_NAME_CACHE_MAX) DISPLAY_NAME_CACHE.clear();
+        String resolved = ResourceTagIndex.displayName(nbtComponentDisplay(key));
+        // 与 computeIfAbsent 的语义保持一致：解析不出名字时不入缓存（下次重试）。
+        if (resolved != null) DISPLAY_NAME_CACHE.put(key, resolved);
+        return resolved;
     }
 
     /** 成本模型的数据源：服务器推送的标签绑定计数（未知按保守值估算）。 */
@@ -5069,6 +5646,11 @@ public class BlockEditorScreen extends Screen {
         // toolbarRowsUsed 供下帧 toolbarH() 联动——按钮永远不会画进工具栏条
         // 以外的区域（否则会以 uiHits 吞掉画布顶部的点击）。
         int bh = 20;
+        // 2026-10-28：按钮左边界只保留固定的「程序名右缘 + 126」，
+        // 不再让标题宽度参与——否则标题一长就把可用宽度吃掉，5 颗按钮被迫折成两行。
+        // 标题放不下时在绘制处按剩余宽度截断（见下方 titleRoom）。
+        int titleX = namePillX() + 120 + 12;
+        int titleW = this.font.width(T_TITLE.getString());
         int minBx = namePillX() + 126; // 程序名 pill 右缘 + 余量
         long errCount = issueErrCount;
         long warnCount = issueWarnCount;
@@ -5078,19 +5660,19 @@ public class BlockEditorScreen extends Screen {
                 : T_ISSUES_TITLE.getString();
         int issueColor = errCount > 0 ? 0xCCD13438 : warnCount > 0 ? 0xCCB45309 : 0xCC5B6472;
         int issueHover = errCount > 0 ? 0xCCB02A30 : warnCount > 0 ? 0xCC9C4708 : 0xCC49525E;
-        record Tb(String label, int minW, int color, int hover, Runnable action) {}
+        // id 仅供新手引导定位锚点；不需高亮的按钮走下面的兼容构造（id=null）。
+        record Tb(String id, String label, int minW, int color, int hover, Runnable action) {
+            Tb(String label, int minW, int color, int hover, Runnable action) {
+                this(null, label, minW, color, hover, action);
+            }
+        }
         java.util.List<Tb> specs = new java.util.ArrayList<>();
-        specs.add(new Tb("⬤ " + T_SAVE.getString(), 40, C_SAVE, C_SAVE_H, this::save));
+        specs.add(new Tb("btn.save", T_SAVE.getString(), 34, C_SAVE, C_SAVE_H, this::save));
         int codeButtonWidth = Math.max(this.font.width(T_PREVIEW.getString()), this.font.width(C_COLLAPSE.getString())) + 14;
         specs.add(new Tb(codeExpandedEffective ? C_COLLAPSE.getString() : T_PREVIEW.getString(), codeButtonWidth,
                 codeExpandedEffective ? 0xCC2F6FED : 0xCC5B6472,
                 codeExpandedEffective ? 0xCC2459C4 : 0xCC49525E, this::toggleCodeEditor));
         specs.add(new Tb(T_UNDO.getString(), 36, 0xCC5B6472, 0xCC49525E, this::undo));
-        specs.add(new Tb(T_REDO.getString(), 36, 0xCC5B6472, 0xCC49525E, this::redo));
-        specs.add(new Tb(T_FIT.getString(), 34, 0xCC5B6472, 0xCC49525E, () -> {
-            fitted = false;
-            showStatus(S_FITTED_ALL.getString(), C_SELECT);
-        }));
         specs.add(new Tb(T_ZONES.getString(), 34, zoneDrawing ? 0xCC2F6FED : 0xCC5B6472,
                 zoneDrawing ? 0xCC2459C4 : 0xCC49525E, () -> {
                     zoneDrawing = !zoneDrawing;
@@ -5098,16 +5680,12 @@ public class BlockEditorScreen extends Screen {
                 }));
         // 相位均衡：多台管理器/多个定时触发器在同一刻集中执行会造成 MSPT
         // 尖刺（吞吐量不变，只挪触发时刻）。按序分配 plus 偏移摊平负载。
-        specs.add(new Tb(BALANCE_BTN.getString(), 48, 0xCC5B6472, 0xCC49525E,
-                this::balanceTriggerPhases));
-        specs.add(new Tb("?", 26, 0xCC5B6472, 0xCC49525E, this::toggleHelp));
         // 问题按钮：数量在面板里看，按钮只显示短文案。
         specs.add(new Tb(issueLabel, 40, issueColor, issueHover, () -> {
             issuesOpen = !issuesOpen;
             issuesScroll = 0;
             refreshIssues();
         }));
-        specs.add(new Tb(T_CLOSE.getString(), 34, 0xCC5B6472, 0xCC49525E, this::closeEditor));
         // 「存为模板」只在框选动作条（renderActionBar）出现——工具栏不再放
         // 条件按钮，标题区拥挤和折行压力一并解决（用户拍板 2026-09-08）。
         int n = specs.size();
@@ -5115,20 +5693,27 @@ public class BlockEditorScreen extends Screen {
         for (int i = 0; i < n; i++) ws[i] = Math.max(specs.get(i).minW(), this.font.width(specs.get(i).label()) + 14);
         EditorUiMath.Placement placement = EditorUiMath.placeToolbar(
                 panelX, panelW, minBx, panelY + 4, TOOLBAR_H, 4, ws, xs, ys);
+        // 2026-10-28 用户拍板：恢复 placeToolbar 原生的「右对齐、保存贴最右」，
+        // 不再做均分/贴左（前者压标题、后者不符合阅读习惯）。minBx 仍作为
+        // 左边界兜底，保证极窄面板下按钮不会压到标题文字上。
         for (int i = 0; i < n; i++) {
             Tb b = specs.get(i);
+            if (b.id() != null) tutorialAnchors.put(b.id(), new int[]{xs[i], ys[i], ws[i], bh});
             button(g, xs[i], ys[i], ws[i], bh, b.label(), b.color(), b.hover(), b.action(), mx, my);
         }
         // 实际占用行数回写：下帧 canvasY/canvasH/调色板/问题板顶部基准联动；
         // 声明行数取猜测下限与实际的最大 ⇒ 工具栏条永远包住所有按钮。
         toolbarRowsUsed = placement.rows();
-        toolbarRows = Math.max(EditorUiMath.guessToolbarRows(panelW), toolbarRowsUsed);
+        // 2026-10-28 用户反馈「功能行高度空白太多」：guessToolbarRows 在 panelW<380 时
+        // 保守猜 3 行（28px×3=84px），而实际按钮往往只排 1 行，多出来的两行纯空白。
+        // placeToolbar 的返回值就是真实占用行数，直接用它即可 —— 它已保证所有按钮
+        // 都落在返回的行数内，不会出现「按钮溢出工具栏吞点击」的老问题。
+        toolbarRows = Math.max(1, toolbarRowsUsed);
 
         // title + status sit between the name box and the button group. The
         // status is right-aligned against the group's left edge so the extra
         // 存为模板 button (visible while blocks are selected) can never cover
         // it; the decorative title yields first when space runs out.
-        int titleX = namePillX() + 120 + 12;
         int groupLeft = placement.row1Left();
         String status = null;
         int col = C_TEXT_SUB;
@@ -5143,8 +5728,14 @@ public class BlockEditorScreen extends Screen {
         if (status != null && statusX >= titleX) {
             text(g, status, statusX, panelY + 10, col);
         }
-        if (titleX + this.font.width(T_TITLE.getString()) + 10 < (status != null ? statusX : groupLeft)) {
-            text(g, T_TITLE.getString(), titleX, panelY + 10, C_TEXT);
+        // 标题按「按钮组左缘（或状态字左缘）」的剩余空间截断，绝不让按钮为它折行
+        int titleRoom = (status != null ? statusX : groupLeft) - 12 - titleX;
+        if (titleRoom > 24) {
+            String tt = T_TITLE.getString();
+            if (this.font.width(tt) > titleRoom) {
+                tt = this.font.plainSubstrByWidth(tt, Math.max(8, titleRoom - 6)) + "…";
+            }
+            text(g, tt, titleX, panelY + 10, C_TEXT);
         }
         if (!program.triggers.isEmpty()) {
             String hint = S_SEARCH_HINT.getString();
@@ -5278,9 +5869,11 @@ public class BlockEditorScreen extends Screen {
         border(g, canvasX, py, canvasW, ph, G_BORDER_SOFT);
         if (!codeOnlyEffective) {
             boolean hover = my >= py - CodePaneLayout.GAP && my < py && mx >= canvasX && mx < canvasX + canvasW;
-            g.fill(canvasX, py - CodePaneLayout.GAP, canvasX + canvasW, py, 0xFFCCD5E2);
-            g.fill(canvasX + canvasW / 2 - 20, py - 4, canvasX + canvasW / 2 + 20, py - 2,
-                    hover || draggingCodeDivider ? C_SELECT : G_BORDER);
+            // 原来把整条 gap 铺成不透明灰底、抓手又用 G_BORDER（与底色只差 3 个色阶）：
+            // 等于在灰底上画灰线，肉眼无法分辨。改为不铺底色 + 一根淡蓝把手。
+            int gripColor = (hover || draggingCodeDivider) ? C_SELECT : 0xFFB8C6D8;
+            int cx = canvasX + canvasW / 2;
+            g.fill(cx - 14, py - 3, cx + 14, py - 1, gripColor);
         }
         int x = canvasX + 5;
         String[] labels = {codeOnlyEffective ? (codeSplitFits ? C_SPLIT.getString() : C_BLOCKS.getString()) : C_FOCUS.getString(),
@@ -5821,13 +6414,66 @@ public class BlockEditorScreen extends Screen {
             int actionY = y + h - FOOT_H;
             boolean hasCopy = copyFarthestBelow(t) != null;
             int removeX = hasCopy ? duplicateX - 24 : duplicateX;
-            g.fill(x + 6, y + h - 10, removeX - 5, y + h - 4, mix(G_CARD, accent, 22));
+            int noteH = layout.noteHeightOf(t.id);
+            if (noteH > 0) {
+                // 有注释时 footer 左侧那条装饰线让位给注释文字（同一块区域，叠着会糊）
+                int nx = x + CARD_INNER;
+                int ny = y + h - Math.max(FOOT_H, noteH) - EditorLayout.NOTE_LINE_H;
+                int nw = Math.max(20, w - CARD_INNER * 2 - EditorLayout.NOTE_BTN_W);
+                renderFooterNote(g, t, nx, ny, nw, noteH);
+                uiHits.add(hit(nx, ny, nw, noteH, K_CLICK, null, () -> editTriggerComment(t, nx, ny)));
+            } else {
+                g.fill(x + 6, y + h - 10, removeX - 5, y + h - 4, mix(G_CARD, accent, 22));
+            }
             if (hasCopy) {
                 drawTriggerFooterButton(g, removeX, actionY, "−", 0xFFC22B21,
                         () -> deleteDuplicateBelow(t), mx, my);
             }
             drawTriggerFooterButton(g, duplicateX, actionY, "＋", accent,
                     () -> duplicateTriggerBelow(t, h), mx, my);
+        }
+    }
+
+    /**
+     * 把注释写回卡片：清掉 body 里的旧注释节点，有内容就在最前面插一条。
+     * 之后让布局重新量行数——脚注高度会跟着变，卡片高度也必须跟着变。
+     */
+    private void setTriggerComment(BProgram.Trigger t, String text) {
+        String v = text == null ? "" : text.strip();
+        t.body.removeIf(s -> s instanceof BProgram.Statement.Comment);
+        if (!v.isEmpty()) t.body.add(0, new BProgram.Statement.Comment(v));
+        layout.markBodyDirty(t.body);
+        layoutDirty = true;
+        if (codeExpandedEffective && codeEditor != null) {
+            codeEditor.setValueFromModel(generated());
+        }
+    }
+
+    private void editTriggerComment(BProgram.Trigger t, int contentX, int contentY) {
+        openTextEditor(contentX, contentY, EditorLayout.commentTextOf(t), v -> {
+            pushUndo();
+            setTriggerComment(t, v);
+        }, null, 300);
+    }
+
+    private void renderFooterNote(GuiGraphics g, BProgram.Trigger t,
+                                  int x, int y, int w, int h) {
+        String text = EditorLayout.commentTextOf(t);
+        if (text.isEmpty() || w <= 0 || h <= 0) return;
+        // 引用块样式：不用整块色底，只留一根左竖线（色块面积一大就显重）。
+        int bx = x - CARD_INNER + 2;
+        int bright = Math.max(bx + 12, x + w - 8);
+        g.fill(bx, y, bright, y + h, 0xFFFFFDF7);
+        g.fill(bx, y, bx + 2, y + h, 0xFFFFC857);
+        // 逐行绘制而非 textWithWordWrap：后者行距由字体决定，会与布局的 11px 对不上，
+        // 最后一行被卡片下沿切掉。这里把行距钉死成 NOTE_LINE_H，布局与渲染严格一致。
+        var lines = this.font.split(Component.literal(text), w);
+        int textH = lines.size() * EditorLayout.NOTE_LINE_H;
+        int ty = y + Math.max(0, (h - textH) / 2);
+        for (var line : lines) {
+            if (ty + EditorLayout.NOTE_LINE_H > y + h + 1) break;
+            g.drawString(this.font, line, x, ty, 0xFF6B5844, false);
+            ty += EditorLayout.NOTE_LINE_H;
         }
     }
 
@@ -6158,13 +6804,21 @@ public class BlockEditorScreen extends Screen {
         fx = drawText(g, fx, y, T_IO_FROM.getString());
         String labelDisp = in.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", in.access.labels);
         hits.add(hit(fx, y, 32, BAR_H, K_RCLICK, null, () -> openLabelContext(sxx, syy, in.access.labels)));
+        int anchorLabel = fx;
         fx = drawField(g, fx, y, labelDisp, 32,
                 () -> openLabelEditor(sxx, syy, in.access.labels), mx, my, false);
+        tutorialAnchorsCanvas.putIfAbsent("access.in.label", new int[]{anchorLabel, y, fx - anchorLabel, BAR_H});
         BProgram.ResourceLimit rl = primaryLimit(in.limits);
+        int anchorSide = fx;
         fx = drawSideChip(g, fx, y, in.access, rl, mx, my);
+        tutorialAnchorsCanvas.putIfAbsent("access.side", new int[]{anchorSide, y, fx - anchorSide, BAR_H});
         fx = drawText(g, fx, y, T_IO_TAKE.getString());
         fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
+        // access.kind = 右侧那个方块（资源值槽，点它选具体资源）
+        tutorialAnchorsCanvas.putIfAbsent("access.kind", lastValueSlotRect.clone());
+        // access.category = 「物品/流体」字段（点它改资源类型）
+        tutorialAnchorsCanvas.putIfAbsent("access.category", lastKindFieldRect.clone());
         // 备选资源延主行显示（用户多次强调不换行）：主槽后直接续排
         if (rl != null && rl.resources.size() > 1) {
             for (int ai = 1; ai < rl.resources.size(); ai++) {
@@ -6207,12 +6861,20 @@ public class BlockEditorScreen extends Screen {
         fx = drawText(g, fx, y, T_IO_PUT.getString());
         String labelDisp = out.access.labels.isEmpty() ? T_LABEL.getString() : String.join("+", out.access.labels);
         hits.add(hit(fx, y, 32, BAR_H, K_RCLICK, null, () -> openLabelContext(sxx, syy, out.access.labels)));
+        int anchorLabel = fx;
         fx = drawField(g, fx, y, labelDisp, 32,
                 () -> openLabelEditor(sxx, syy, out.access.labels), mx, my, false);
+        tutorialAnchorsCanvas.putIfAbsent("access.out.label", new int[]{anchorLabel, y, fx - anchorLabel, BAR_H});
         BProgram.ResourceLimit rl = primaryLimit(out.limits);
+        int anchorSide = fx;
         fx = drawSideChip(g, fx, y, out.access, rl, mx, my);
+        tutorialAnchorsCanvas.putIfAbsent("access.side", new int[]{anchorSide, y, fx - anchorSide, BAR_H});
         fx = drawInlineQuantity(g, fx, y, rl, mx, my);
         fx = drawResourceField(g, fx, y, rl, 42, mx, my);
+        // access.kind = 右侧那个方块（资源值槽，点它选具体资源）
+        tutorialAnchorsCanvas.putIfAbsent("access.kind", lastValueSlotRect.clone());
+        // access.category = 「物品/流体」字段（点它改资源类型）
+        tutorialAnchorsCanvas.putIfAbsent("access.category", lastKindFieldRect.clone());
         if (rl != null && rl.resources.size() > 1) {
             for (int ai = 1; ai < rl.resources.size(); ai++) {
                 final int idx = ai;
@@ -6236,7 +6898,6 @@ public class BlockEditorScreen extends Screen {
             pushUndo();
             list.remove(index);
         }, mx, my);
-
 
         if (expandedIds.contains(stmt.id)) {
             renderOutputOptions(g, x + INDENT, y + BAR_H, mx, my, out, list, index);
@@ -7077,7 +7738,9 @@ public class BlockEditorScreen extends Screen {
         for (int i = 0; i < access.sides.size(); i++) {
             sb.append(i == 0 ? "" : ",").append(sideZh(access.sides.get(i)));
         }
-        return sb.toString();
+        // sides 为空 = 默认面（SFM 不指定侧面时就是"没选"）。原先这里直接返回空串，
+        // 侧面按钮上什么都不显示，玩家既看不出这栏是干什么的，也读不出当前处于"默认"。
+        return sb.length() == 0 ? V_SIDES_ANY.getString() : sb.toString();
     }
 
     private String rrDisp(BProgram.RoundRobinMode rr) {
@@ -7173,21 +7836,6 @@ public class BlockEditorScreen extends Screen {
             return or.parts.stream().map(this::shortWithExpr).collect(java.util.stream.Collectors.joining(V_OR_SEP.getString()));
         }
         return V_ANY.getString();
-    }
-
-    private void setWithFromText(BProgram.ResourceLimit limit, String text) {
-        if (text.isBlank()) {
-            pushUndo();
-            limit.with = null;
-            return;
-        }
-        SfmlToBlocks.ResultWithFilter parsed = SfmlToBlocks.parseWithFilter(text);
-        if (!parsed.ok()) {
-            showStatus(S_WITH_INVALID.getString(String.join("；", parsed.errors())), 0xFFD13438);
-            return;
-        }
-        pushUndo();
-        limit.with = parsed.filter();
     }
 
     private void renderForget(GuiGraphics g, List<BProgram.Statement> list, int index,
@@ -7515,6 +8163,10 @@ public class BlockEditorScreen extends Screen {
                 : current.kind().chineseName();
         int fx = drawField(g, x, y, category, 32,
                 () -> openResourceKindMenu(x, y, current, setter), mx, my, false);
+        lastKindFieldRect[0] = x;
+        lastKindFieldRect[1] = y;
+        lastKindFieldRect[2] = fx - x;
+        lastKindFieldRect[3] = BAR_H;
         return drawResourceValueSlot(g, fx, y, current, setter, mx, my, multiBrowse);
     }
 
@@ -7552,6 +8204,10 @@ public class BlockEditorScreen extends Screen {
                                       Consumer<BProgram.ResourceRef> setter, int mx, int my,
                                       @Nullable Runnable multiBrowse) {
         int size = BAR_H; // 20px, like an 18px vanilla slot + breathing room
+        lastValueSlotRect[0] = x;
+        lastValueSlotRect[1] = y;
+        lastValueSlotRect[2] = size;
+        lastValueSlotRect[3] = size;
         boolean hover = overField(mx, my, x, y, size, size);
         g.fill(x + 1, y + 1, x + size - 1, y + size - 1, hover ? 0x997080A0 : 0x90606B7E);
         g.fill(x + 1, y + 1, x + size - 1, y + 2, 0x8C2A2A2A);
@@ -7661,47 +8317,9 @@ public class BlockEditorScreen extends Screen {
         border(g, x, y, w, h, hover ? 0xFF8FB4E8 : C_PILL_BORDER);
     }
 
-    /** Rounded rect with radius 3 (two overlapping fills + corner trim). */
-    private static void rounded(GuiGraphics g, int x, int y, int w, int h, int r, int color) {
-        if (r <= 0 || w < r * 2 || h < r * 2) {
-            g.fill(x, y, x + w, y + h, color);
-            return;
-        }
-        g.fill(x + 1, y, x + w - 1, y + h, color);
-        g.fill(x, y + 1, x + w, y + h - 1, color);
-    }
 
-    private static void border(GuiGraphics g, int x, int y, int w, int h, int color) {
-        g.fill(x + 1, y, x + w - 1, y + 1, color);
-        g.fill(x + 1, y + h - 1, x + w - 1, y + h, color);
-        g.fill(x, y + 1, x + 1, y + h - 1, color);
-        g.fill(x + w - 1, y + 1, x + w, y + h - 1, color);
-    }
 
-    /** 虚线描边：拖动卡片时标出落位。 */
-    private static void dashedBorder(GuiGraphics g, int x, int y, int w, int h, int color) {
-        int x2 = x + w, y2 = y + h;
-        int dash = 5;
-        for (int i = x; i < x2; i += dash * 2) {
-            int e = Math.min(i + dash, x2);
-            g.fill(i, y, e, y + 1, color);
-            g.fill(i, y2 - 1, e, y2, color);
-        }
-        for (int i = y; i < y2; i += dash * 2) {
-            int e = Math.min(i + dash, y2);
-            g.fill(x, i, x + 1, e, color);
-            g.fill(x2 - 1, i, x2, e, color);
-        }
-    }
 
-    private static int mix(int a, int b, int ratio) {
-        int ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
-        int br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
-        int r = (ar * (255 - ratio) + br * ratio) / 255;
-        int gg = (ag * (255 - ratio) + bg * ratio) / 255;
-        int bl = (ab * (255 - ratio) + bb * ratio) / 255;
-        return 0xFF000000 | (r << 16) | (gg << 8) | bl;
-    }
 
     private boolean overField(double mx, double my, int contentX, int contentY, int w, int h) {
         double cmx = ctX(mx), cmy = ctY(my);
@@ -7885,8 +8503,6 @@ public class BlockEditorScreen extends Screen {
 
     // ---- NBT 组件条件（伪标签 nbt:<组件id>，服务端 fork 支持时可用）-----------
 
-    
-
     /**
      * 组件 id → 伪标签匹配串：SFML 的 tagMatcher 语法是 ns:elem/elem（路径内不允许
      * 冒号），所以组件 id 的冒号写成斜杠：minecraft:enchantments → nbt:minecraft/enchantments。
@@ -7912,13 +8528,11 @@ public class BlockEditorScreen extends Screen {
 
     /** NBT 组件条件选择：物品选择器（推荐）/ 常用中文列表 / 手动输入。 */
     
-
     /**
      * 背包物品的 NBT 采集已升级为独立选择器 NbtItemPickerScreen
      * （图标网格 + 拼音搜索 + 中文组件列表），此处只保留手动输入校验。
      */
     
-
     /** 程序里是否用了 nbt: 伪标签（无服务器支持时保存前拦截，不发请求）。 */
     private boolean programHasNbtMatcher() {
         for (BProgram.Trigger t : program.triggers) {
@@ -8056,7 +8670,6 @@ public class BlockEditorScreen extends Screen {
         tag.matcher = matcher;
     }
 
-
     private void openLabelEditor(int x, int y, List<String> target) {
         openLabelEditor(x, y, target, false);
     }
@@ -8127,7 +8740,6 @@ public class BlockEditorScreen extends Screen {
                                        Consumer<BProgram.ResourceRef> setter, @Nullable Runnable multiBrowse) {
         showResourceValueMenu(sX(contentX), sY(contentY) + BAR_H + 2, current, setter, multiBrowse);
     }
-
 
     private void showResourceValueMenu(int screenX, int screenY, BProgram.ResourceRef current,
                                        Consumer<BProgram.ResourceRef> setter) {
@@ -8234,10 +8846,6 @@ public class BlockEditorScreen extends Screen {
                 resources.remove(index);
             }
         }));
-    }
-
-    private void openSideEditor(int x, int y, BProgram.LabelAccess access) {
-        showSideEditor(sX(x), sY(y) + BAR_H + 2, access);
     }
 
     private void showSideEditor(int screenX, int screenY, BProgram.LabelAccess access) {

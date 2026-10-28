@@ -30,7 +30,14 @@ public class UpdateLabelsPayload {
 
     public static UpdateLabelsPayload decode(FriendlyByteBuf buf) {
         int n = buf.readVarInt();
-        List<LabelInfo> out = new ArrayList<>(Math.max(0, n));
+        // 防御：n 来自对端。正常标签数远小于此；畸形/恶意包若声明超大 n，
+        // new ArrayList<>(n) 会直接 OOM 把客户端崩掉。上限取剩余可读字节数
+        // ——每项至少 2 字节（1 字节长度前缀 + 1 字节 VarInt 计数），超过它
+        // 必然不可能成立。抛异常让整包被丢弃，不会造成后续包解析错位。
+        if (n < 0 || n > buf.readableBytes()) {
+            throw new IllegalArgumentException("UpdateLabels: implausible label count " + n);
+        }
+        List<LabelInfo> out = new ArrayList<>(n);
         for (int i = 0; i < n; i++) out.add(new LabelInfo(buf.readUtf(), buf.readVarInt()));
         return new UpdateLabelsPayload(out);
     }

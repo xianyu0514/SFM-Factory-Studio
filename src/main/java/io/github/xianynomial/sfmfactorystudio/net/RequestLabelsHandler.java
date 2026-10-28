@@ -30,10 +30,24 @@ public final class RequestLabelsHandler {
     private RequestLabelsHandler() {
     }
 
+    /**
+     * 允许的最大距离（平方，单位=格）。{@code msg.pos} 完全来自客户端：不设限的话，
+     * 任意坐标都能让服务端去读已加载区块里任意管理器磁盘上的标签（越权读取），
+     * 而且是无成本的高频触发。64 格 = 原版交互距离（4~6 格）的十倍余量，
+     * 与 1.21.1 / 26.1.2 的同名常量同一标准。
+     */
+    private static final double MAX_DISTANCE_SQR = 64 * 64;
+
     public static void handle(RequestLabelsPayload msg, Supplier<NetworkEvent.Context> ctxSup) {
         NetworkEvent.Context ctx = ctxSup.get();
         ctx.enqueueWork(() -> {
             ServerPlayer player = ctx.getSender();
+            if (player == null) return;   // 客户端侧不该走到这里；防御 NPE
+            if (player.distanceToSqr(
+                    msg.pos.getX() + 0.5, msg.pos.getY() + 0.5, msg.pos.getZ() + 0.5) > MAX_DISTANCE_SQR) {
+                // 静默丢弃：越权请求不该得到任何可区分的回包
+                return;
+            }
             BlockEntity be = player.level().getBlockEntity(msg.pos);
             if (!(be instanceof ManagerBlockEntity manager)) return;
             ItemStack disk = manager.getDisk();

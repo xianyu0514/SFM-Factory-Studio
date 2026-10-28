@@ -14,7 +14,7 @@ Build automation with blocks — edits side-by-side with SFML source, always sav
 
 - **Minecraft**: 1.21.1 (NeoForge) & 1.20.1 (Forge)
 - **Dependency**: [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager) (required)
-- **Version**: 0.9.0
+- **Version**: 1.0
 - **License**: MPL-2.0
 
 [Downloads](#installation) · [Features](#features) · [Installation](#installation) · [Building](#building)
@@ -104,12 +104,12 @@ Mod list → select this mod → **Config** (in-game GUI, or edit `config/sfmfac
 ### 1.21.1 (NeoForge)
 
 1. Install [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. Drop `SFM-Factory-Studio-1.21.1-0.9.0.jar` into `mods/`
+2. Drop `SFM-Factory-Studio-1.21.1-1.0.jar` into `mods/`
 
 ### 1.20.1 (Forge)
 
 1. Install [Super Factory Manager 4.34.0](https://www.curseforge.com/minecraft/mc-mods/super-factory-manager)
-2. Drop `SFM-Factory-Studio-1.20.1-0.9.0.jar` into `mods/`
+2. Drop `SFM-Factory-Studio-1.20.1-1.0.jar` into `mods/`
 
 | Setup | Editor | NBT tag filter | TPS tools |
 |---|---|---|---|

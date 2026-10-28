@@ -16,10 +16,12 @@ displayTest="IGNORE_ALL_VERSION"
 # type="required"/"optional" syntax is NeoForge-only and FML rejects the file.
 
 # This addon requires Super Factory Manager to be installed.
+# 与 SFM 本体对齐（2026-10-28）：编译基线 libs/sfm-1.20.1-4.34.0，只测过 4.34.0。
+# 放宽下限会让旧版玩家装上后撞 NoSuchMethodError，不如让 FML 提前拦下。
 [[dependencies.${mod_id}]]
     modId="sfm"
     mandatory=true
-    versionRange="[4.30,)"
+    versionRange="[4.34,)"
     ordering="AFTER"
     side="BOTH"
 
