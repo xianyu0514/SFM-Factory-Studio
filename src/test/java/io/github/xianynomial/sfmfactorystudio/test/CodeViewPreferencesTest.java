@@ -14,8 +14,10 @@ class CodeViewPreferencesTest {
         assertFalse(prefs.focused());
         assertEquals(.4, prefs.fraction());
         var split = CodePaneLayout.split(0, 506, prefs.fraction());
-        assertEquals(300, split.canvasHeight());
-        assertEquals(200, split.codeHeight());
+        // 可用高度 = 506 - GAP(4) = 502，按 60/40 分 → 301 / 201
+        assertEquals(506 - CodePaneLayout.GAP, split.canvasHeight() + split.codeHeight());
+        assertEquals(301, split.canvasHeight());
+        assertEquals(201, split.codeHeight());
     }
     @Test void collapsedAndFocusedChoicesSurviveRealJsonRoundTrip() {
         for (boolean expanded : new boolean[]{false, true}) for (boolean focused : new boolean[]{false, true}) {

@@ -2,7 +2,12 @@ package io.github.xianynomial.sfmfactorystudio.client.blocks.model;
 
 /** Same geometry for drawing, hit testing and dragging the horizontal divider. */
 public final class CodePaneLayout {
-    public static final int GAP = 6;
+    /**
+     * 画布与代码面板之间的间隙（也是拖动条所在的高度）。
+     * 从 6 收到 4：视觉上更紧凑，拖动区域仍然够点（4px ≈ 8 物理像素@scale2）。
+     * 所有分屏高度、拖动换算都由它推导，改这一个值即可全局一致。
+     */
+    public static final int GAP = 4;
     private CodePaneLayout() {}
     public static boolean canSplit(int width, int height) { return width >= 280 && height >= 260; }
     public record Split(int canvasHeight, int codeTop, int codeHeight, int dividerY) {}

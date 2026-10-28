@@ -26,7 +26,8 @@ public class EditorUiMathTest {
     private static final int START_ROW_Y = PANEL_Y + 4;
 
     // 中文文案下的 9 颗固定按钮宽（保存/代码/撤销/重做/适配/分区/平衡/问题/关闭）
-    private static final int[] ZH_9 = {86, 52, 48, 46, 44, 42, 48, 52, 46};
+    // 2026-10-28 工具栏精简后只剩 6 颗：保存 / 代码 / 撤销 / 分区 / ? / 问题检查
+    private static final int[] ZH_BTNS = {86, 52, 48, 42, 26, 52};
     private static final int TPL_W = 68;
 
     private static int[] withTpl(int[] base) {
@@ -76,7 +77,7 @@ public class EditorUiMathTest {
 
     @Test
     void allButtonsInsideDeclaredStrip_sweep() {
-        int[][] sets = {ZH_9, withTpl(ZH_9),
+        int[][] sets = {ZH_BTNS, withTpl(ZH_BTNS),
                 {90, 60, 52, 52, 48, 48, 56, 60, 52, 72}}; // 英文更宽的文案
         for (int[] widths : sets) {
             for (int panelW = 150; panelW <= 1200; panelW += 7) {
@@ -92,11 +93,13 @@ public class EditorUiMathTest {
         // 需要 ~4 行，第 3/4 行画进画布顶部。修复后必须折行并如实报告行数：
         int panelW = 355;
         int n = 10;
-        int[] widths = withTpl(ZH_9);
+        int[] widths = withTpl(ZH_BTNS);
         int[] xs = new int[n], ys = new int[n];
         EditorUiMath.Placement p = EditorUiMath.placeToolbar(
                 PANEL_X, panelW, PANEL_X + 96, START_ROW_Y, TOOLBAR_H, GAP, widths, xs, ys);
-        assertTrue(p.rows() >= 3, "窄面板必须如实折到 3+ 行，实际=" + p.rows());
+        // 2026-10-28 工具栏从 9 颗精简到 6 颗，355 宽下折 2 行即可。
+        // 这里只锁「必须折行、且声明行数 >= 实际行数」这个不变量，不再写死行数。
+        assertTrue(p.rows() >= 2, "窄面板必须折行（>=2），实际=" + p.rows());
         int declared = Math.max(EditorUiMath.guessToolbarRows(panelW), p.rows());
         for (int i = 0; i < n; i++) {
             assertTrue(ys[i] < START_ROW_Y + declared * TOOLBAR_H,
@@ -109,7 +112,7 @@ public class EditorUiMathTest {
     @Test
     void widePanel_singleRow_leftToRightOrder() {
         int panelW = 902;
-        int[] widths = withTpl(ZH_9);
+        int[] widths = withTpl(ZH_BTNS);
         int n = widths.length;
         int[] xs = new int[n], ys = new int[n];
         EditorUiMath.Placement p = EditorUiMath.placeToolbar(
@@ -188,5 +191,6 @@ public class EditorUiMathTest {
         assertTrue(EditorUiMath.shouldSwitchGap(120, 100, true, damp), "出带(20px>15px)换位");
         assertTrue(EditorUiMath.shouldSwitchGap(80, 100, true, damp), "反方向出带(20px)同样换位");
         assertTrue(EditorUiMath.shouldSwitchGap(100, 100, false, damp), "无候选(卡外)立即切换");
+        assertTrue(EditorUiMath.shouldSwitchGap(100, 100, true, damp) == false, "恰好等于阻尼值=仍在带内");
     }
 }

@@ -6,11 +6,8 @@ import mezz.jei.api.JeiPlugin;
 import mezz.jei.api.gui.handlers.IGuiProperties;
 import mezz.jei.api.registration.IGuiHandlerRegistration;
 import mezz.jei.api.runtime.IJeiRuntime;
-import ca.teamdman.sfm.client.screen.ManagerScreen;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.BlockEditorScreen;
-import mezz.jei.api.gui.handlers.IGuiContainerHandler;
 
-import java.util.List;
 import net.minecraft.resources.ResourceLocation;
 
 /**
@@ -29,20 +26,12 @@ public class SfmGuiJeiPlugin implements IModPlugin {
 
     @Override
     public void registerGuiHandlers(IGuiHandlerRegistration registration) {
-        io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.info("[sfmfactorystudio] JEI: registering ghost-drop + screen handlers for the block editor");
+        SFMGui.LOGGER.info("[sfmfactorystudio] JEI: registering ghost-drop + screen handlers for the block editor");
         registration.addGhostIngredientHandler(BlockEditorScreen.class, new JeiGhostHandler());
-        // dedicated adapter: JEI draws its ingredient list (with tabs) beside the
-        // editor window — the editor reserves the right margin so nothing overlaps
-        // The manager screen already shows SFM's own log/program UI; claim the
-        // whole screen as "extra gui area" so JEI hides its overlay there.
-        registration.addGuiContainerHandler(ManagerScreen.class, new IGuiContainerHandler<>() {
-            @Override
-            public List<net.minecraft.client.renderer.Rect2i> getGuiExtraAreas(ManagerScreen screen) {
-                return List.of(new net.minecraft.client.renderer.Rect2i(
-                        0, 0, screen.width, screen.height));
-            }
-        });
 
+        // BlockEditorScreen 是普通 Screen（非容器界面），JEI 只对注册了 IGuiProperties
+        // 的这类界面尝试画侧栏/书签。所有值必须是 **GUI 逻辑坐标**（与 getScreenWidth 同系），
+        // 不是 ED 面板坐标 —— 旧版本的 getUiK 换算就是因为当年 panelX 用的是另一套坐标系。
         registration.addGuiScreenHandler(BlockEditorScreen.class, screen -> new IGuiProperties() {
             @Override
             public Class<? extends net.minecraft.client.gui.screens.Screen> getScreenClass() {
@@ -61,6 +50,8 @@ public class SfmGuiJeiPlugin implements IModPlugin {
 
             @Override
             public int getGuiXSize() {
+                // 报告值限流到屏幕一半以内（JEI 实测超过 50% 就当全屏界面、不画侧栏）。
+                // 实际绘制仍用 panelW，只是告诉 JEI “GUI 只占到这里”。
                 return screen.getPanelW();
             }
 
@@ -83,14 +74,15 @@ public class SfmGuiJeiPlugin implements IModPlugin {
 
     @Override
     public void onRuntimeAvailable(IJeiRuntime jeiRuntime) {
-        io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.info("[sfmfactorystudio] JEI: runtime available — JEI integration active");
+        SFMGui.LOGGER.info("[sfmfactorystudio] JEI: runtime available — JEI integration active");
         JeiRuntimeHolder.setRuntime(jeiRuntime);
+        SFMGui.LOGGER.info("[sfmfactorystudio] JEI runtime available");
         JeiCompat.onRuntimeAvailable();
     }
 
     @Override
     public void onRuntimeUnavailable() {
-        io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.warn("[sfmfactorystudio] JEI: runtime unavailable");
+        SFMGui.LOGGER.warn("[sfmfactorystudio] JEI: runtime unavailable");
         JeiRuntimeHolder.setRuntime(null);
         JeiCompat.onRuntimeUnavailable();
     }

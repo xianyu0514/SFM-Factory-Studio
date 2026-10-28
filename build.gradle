@@ -38,6 +38,16 @@ minecraft {
         }
 
         client {
+            // 1.20.1 用 Forge 的 property 语法（不是 NeoGradle 的 systemProperty）。
+            // 之前这里是空的，所以 -PdebugInput 完全无效，
+            // [input] / [tut] / [jei-layout] 这些诊断日志在 1.20.1 从未打过。
+            property 'sfmfactorystudio.debugInput', 'true'
+            // 测试期不持久化引导进度（正式 jar 无此属性 ⇒ 自动启用）
+            property 'sfmfactorystudio.disableTutorialPersist', 'true'
+            // 默认 854x480 的 dev 窗口会把 guiScale 压到 2（3 倍需要 2560 宽），
+            // 面板随之只剩 ~474 逻辑宽，右侧留不出 JEI 侧栏 —— 那些结论都不代表
+            // 玩家真实分辨率下的表现。测试窗口固定 2560x1440，让 guiScale=3 真正生效。
+            args '--width', '2560', '--height', '1440'
         }
     }
 }

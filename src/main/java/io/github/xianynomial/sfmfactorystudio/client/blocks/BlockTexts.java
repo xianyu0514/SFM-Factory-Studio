@@ -8,7 +8,7 @@ import io.github.xianynomial.sfmfactorystudio.client.Loc;
  * (Loc falls back to the Chinese default when a key is missing).
  */
 public final class BlockTexts {
-    public static final Loc T_TITLE = new Loc("gui.sfmfactorystudio.blocks.title", "SFM 智造工坊 · 可视化编程");
+    public static final Loc T_TITLE = new Loc("gui.sfmfactorystudio.blocks.title", "SFM 智造工坊");
     public static final Loc T_SAVE = new Loc("gui.sfmfactorystudio.blocks.save", "保存");
     public static final Loc T_PREVIEW = new Loc("gui.sfmfactorystudio.blocks.preview", "代码 F6");
     public static final Loc T_CLOSE = new Loc("gui.sfmfactorystudio.blocks.close", "关闭");
@@ -96,7 +96,7 @@ public final class BlockTexts {
     public static final Loc T_AB_TPL = new Loc("gui.sfmfactorystudio.blocks.ab_tpl", "★ 存为模板");
     public static final Loc T_AB_DEL = new Loc("gui.sfmfactorystudio.blocks.ab_del", "✕ 删除");
     public static final Loc T_AB_CANCEL = new Loc("gui.sfmfactorystudio.blocks.ab_cancel", "○ 取消");
-    public static final Loc T_ISSUES_TITLE = new Loc("gui.sfmfactorystudio.blocks.issues_title", "问题检查");
+    public static final Loc T_ISSUES_TITLE = new Loc("gui.sfmfactorystudio.blocks.issues_title", "检测");
     public static final Loc T_ISSUES_ERR = new Loc("gui.sfmfactorystudio.blocks.issues_err", "错误");
     public static final Loc T_ISSUES_WARN = new Loc("gui.sfmfactorystudio.blocks.issues_warn", "提醒");
     public static final Loc T_ISSUES_NONE = new Loc("gui.sfmfactorystudio.blocks.issues_none", "没有发现问题 ✔");

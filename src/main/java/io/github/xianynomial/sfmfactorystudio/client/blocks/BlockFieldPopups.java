@@ -730,8 +730,21 @@ abstract class Popup {
                 int ry = y + 35 + i * rowH;
                 if (my >= ry && my < ry + rowH && mx >= x + 2 && mx < x + w - 2) {
                     String label = filtered.get(scroll + i);
-                    if (selected.contains(label)) selected.remove(label);
-                    else selected.add(label);
+                    // Ctrl / Shift = 多选（保持打开）；
+                    // 普通点击 = 单选并**立即完成并关闭**。
+                    // 用户反馈：原来要「点标签→再点空白关闭」两步，太啰嗦。
+                    // 用 Screen 的静态方法读修饰键：
+                    // 1.20/1.21 的 mouseClicked 签名里没有 modifiers 参数。
+                    boolean multi = net.minecraft.client.gui.screens.Screen.hasControlDown()
+                            || net.minecraft.client.gui.screens.Screen.hasShiftDown();
+                    if (multi) {
+                        if (selected.contains(label)) selected.remove(label);
+                        else selected.add(label);
+                    } else {
+                        selected.clear();
+                        selected.add(label);
+                        finish();
+                    }
                     return true;
                 }
             }

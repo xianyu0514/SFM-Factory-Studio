@@ -39,6 +39,12 @@ public final class EditorLayout {
     public static final int INDENT = 16;
     public static final int HEAD_H = 28;
     public static final int FOOT_H = 24;
+    // ---- 注释脚注 -------------------------------------------------------------
+    /** 脚注行高。比正文行距略小，脚注不该和代码抢同等的视觉重量。 */
+    public static final int NOTE_LINE_H = 11;
+    public static final int NOTE_PAD_V = 1;
+    /** 脚注文字右侧必须让开按钮区的宽度（与渲染端严格对齐，否则会留空洞）。 */
+    public static final int NOTE_BTN_W = 47;
     public static final int ADD_H = 16;
     public static final int CARD_W = 380;
     public static final int CARD_INNER = 10;
@@ -85,10 +91,86 @@ public final class EditorLayout {
     private int contentMinX = 0, contentMinY = 0;
     private int contentW = 1, contentH = 1;
 
+    // ==================================================================== 注释脚注
+    // 卡片的注释画在底部 footer 左侧空白里。布局只关心"有几行"，
+    // 字宽测量抽成可注入接口：生产传字体真实宽度，单测传 APPROX（可断言）。
+
+    /** 字宽测量。生产用 {@code font::width}，测试用 {@link #APPROX}。 */
+    public interface Metrics {
+        int width(String text);
+    }
+
+    /** 近似字宽：CJK 及全角 9px、其余 6px（与 {@code Font.width} 实测一致）。 */
+    public static final Metrics APPROX = text -> {
+        int w = 0;
+        for (int i = 0; i < text.length(); ) {
+            int cp = text.codePointAt(i);
+            w += cp >= 0x2E80 ? 9 : 6;
+            i += Character.charCount(cp);
+        }
+        return w;
+    };
+
+    /** 注释在给定宽度下折成几行；按字符折行（中文无空格可断），显式 \n 强制换行。 */
+    public static int noteLineCount(String text, int width, Metrics m) {
+        if (text == null || width <= 0) return 0;
+        String trimmed = text.strip();
+        if (trimmed.isEmpty()) return 0;
+        int lines = 0;
+        for (String para : trimmed.split("\n", -1)) {
+            if (para.isEmpty()) {
+                lines++;
+                continue;
+            }
+            int cur = 0;
+            int paraLines = 1;
+            for (int i = 0; i < para.length(); ) {
+                int cp = para.codePointAt(i);
+                String ch = new String(Character.toChars(cp));
+                int w = m.width(ch);
+                if (cur > 0 && cur + w > width) {
+                    paraLines++;
+                    cur = w;
+                } else {
+                    cur += w;
+                }
+                i += Character.charCount(cp);
+            }
+            lines += paraLines;
+        }
+        return Math.max(1, lines);
+    }
+
+    /** 脚注区高度：行数 × 行高 + 上下内距。2 行时恰好等于 {@link #FOOT_H}。 */
+    public static int noteHeight(int lines) {
+        return lines <= 0 ? 0 : lines * NOTE_LINE_H + NOTE_PAD_V * 2;
+    }
+
+    /** 脚注超出 footer 的部分（布局用它增长卡片）。2 行以内返回 0 —— 零增高。 */
+    public static int noteExtraHeight(int lines) {
+        return Math.max(0, noteHeight(lines) - FOOT_H);
+    }
+
+    /** 该卡片要显示的注释文本（body 里所有注释按顺序拼接）。 */
+    public static String commentTextOf(BProgram.Trigger trigger) {
+        if (trigger == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (BProgram.Statement s : trigger.body) {
+            if (!(s instanceof BProgram.Statement.Comment c)) continue;
+            String t = c.text == null ? "" : c.text.strip();
+            if (t.isEmpty()) continue;
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(t);
+        }
+        return sb.toString();
+    }
+
     /** Per-card layout cache. Rects/positions are shared with the global maps. */
     private static final class CardCache {
         int x, y;              // position the cached rows are laid out at
         int height;            // card height (position independent)
+        /** 注释脚注区高度（0 = 无注释）。超出 FOOT_H 的部分已计入 height。 */
+        int noteHeight;
         /** 卡片宽度：默认 CARD_W，备选资源横向铺开放不下时按内容加长。 */
         int width = CARD_W;
         boolean dirty = true;
@@ -431,7 +513,12 @@ public final class EditorLayout {
         int by = y + HEAD_H + 6;
         int end = layoutBody(t.body, x + CARD_INNER, by, cc);
         end = end + ADD_H;                        // add-row
-        cc.height = (end + FOOT_H + 4) - y;
+        // 注释脚注：宽度让开底部按钮区；只有超过 2 行（= FOOT_H）才增长卡片，
+        // 因此 1~2 行注释完全不改变卡片外观高度。
+        int noteLines = noteLineCount(commentTextOf(t),
+                cc.width - CARD_INNER * 2 - NOTE_BTN_W, APPROX);
+        cc.noteHeight = noteHeight(noteLines);
+        cc.height = (end + FOOT_H + 4 + noteExtraHeight(noteLines)) - y;
     }
 
     /** Move a card's cached geometry without re-measuring anything. */
@@ -783,5 +870,11 @@ public final class EditorLayout {
 
     public void clearCardPos() {
         cardPos.clear();
+    }
+
+    /** 已布局卡片的脚注高度（0 = 无注释）。渲染端直接读它，避免重复计算导致错位。 */
+    public int noteHeightOf(long triggerId) {
+        CardCache cc = cardCaches.get(triggerId);
+        return cc == null ? 0 : cc.noteHeight;
     }
 }
