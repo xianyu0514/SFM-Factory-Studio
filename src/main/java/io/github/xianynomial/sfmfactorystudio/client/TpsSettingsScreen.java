@@ -115,11 +115,33 @@ public final class TpsSettingsScreen extends Screen {
         int cx = this.width / 2;
         int y = Math.max(56, this.height / 2 - 96);
         g.drawCenteredString(this.font, this.title, cx, y - 24, COL_LABEL);
-        g.drawCenteredString(this.font, DESC_BACKOFF_1.getString(), cx, y + 22, COL_DESC);
-        g.drawCenteredString(this.font, DESC_BACKOFF_2.getString(), cx, y + 52, COL_DESC);
-        g.drawCenteredString(this.font, DESC_BUDGET.getString(), cx, y + 82, COL_WARN);
-        g.drawCenteredString(this.font, DESC_DEFAULT.getString(), cx, this.height - 44, COL_DESC);
+        // 说明文字统一放到控件区下方并自动换行（与 26.1.2 对齐）：
+        // 单行居中在窄窗口必然横向溢出。控件区最后一行按钮在 y + 126，从 y + 132 往下排。
+        int descTop = y + 132;
+        int descW = Math.max(180, Math.min(560, this.width - 40));
+        int cy = descTop;
+        // 窗口过矮时裁掉溢出部分，绝不让文字压到按钮或画到屏幕外
+        g.enableScissor(0, descTop - 2, this.width, this.height - 4);
+        try {
+            cy += drawWrapped(g, DESC_BACKOFF_1.getString(), cx, cy, descW, COL_DESC) + 5;
+            cy += drawWrapped(g, DESC_BACKOFF_2.getString(), cx, cy, descW, COL_DESC) + 5;
+            cy += drawWrapped(g, DESC_BUDGET.getString(), cx, cy, descW, COL_WARN) + 5;
+            drawWrapped(g, DESC_DEFAULT.getString(), cx, cy, descW, COL_DESC);
+        } finally {
+            g.disableScissor();
+        }
         super.render(g, mx, my, partialTick);
+    }
+
+    /**
+     * 以 cx 为中心的自动换行文本块，返回实际占用高度（行数 × 行高）。
+     * drawWordWrap 是左对齐折行，所以左边界取 cx - width/2 让整块居中。
+     */
+    private int drawWrapped(GuiGraphics g, String text, int cx, int y, int width, int color) {
+        Component line = Component.literal(text);
+        var wrapped = this.font.split(line, width);
+        g.drawWordWrap(this.font, line, cx - width / 2, y, width, color);
+        return Math.max(1, wrapped.size()) * 9;
     }
 
     @Override

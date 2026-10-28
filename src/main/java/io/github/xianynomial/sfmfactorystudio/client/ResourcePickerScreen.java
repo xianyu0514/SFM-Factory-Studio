@@ -243,10 +243,6 @@ public class ResourcePickerScreen extends Screen {
         return index >= 0 && index < filtered.size() ? index : -1;
     }
 
-    private void toggleMulti(ResourceIndex.Entry entry) {
-        if (!multiSelected.remove(entry.sfmlId())) multiSelected.add(entry.sfmlId());
-    }
-
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
         if (super.mouseClicked(mx, my, button)) return true;

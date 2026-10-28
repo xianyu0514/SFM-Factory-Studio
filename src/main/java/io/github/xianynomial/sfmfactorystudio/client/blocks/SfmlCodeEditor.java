@@ -35,7 +35,11 @@ import java.util.function.Consumer;
  * editor while fitting inside the block editor.</p>
  */
 final class SfmlCodeEditor extends AbstractWidget {
-    private static final int LINE_H = 10;
+    /**
+     * 行高。字体本身 9px，原值 10 只留 1px 缝隙，满屏代码会糊成一片；
+     * 12 是"能一眼分清每行"的最小值。所有行位置都由它推出，改它不会错位。
+     */
+    private static final int LINE_H = 12;
     private static final int GUTTER_W = 36;
     private static final int PAD = 4;
     private static final int BAR = 10;
@@ -752,8 +756,10 @@ final class SfmlCodeEditor extends AbstractWidget {
         }
         updateHover(mouseX, mouseY);
         g.fill(getX(), getY(), getX() + width, getY() + height, 0xFF111827);
-        g.fill(getX(), getY(), getX() + GUTTER_W, getY() + height - FOOTER, 0xFF182234);
-        border(g, getX(), getY(), width, height, isFocused() ? 0xFF2F6FED : 0xFFB8C5D6);
+        // 行号栏贴近正文底色（原 0xFF182234 对比过强，像并排两块面板）
+        g.fill(getX(), getY(), getX() + GUTTER_W, getY() + height - FOOTER, 0xFF161F2E);
+        // 未聚焦用同色系暗边：原浅灰 0xFFB8C5D6 在深底上像贴了一圈亮条
+        border(g, getX(), getY(), width, height, isFocused() ? 0xFF2F6FED : 0xFF232F42);
         int first = Math.max(0, scrollY / LINE_H);
         int caretRow = rowOf(cursor);
         int last = Math.min(rows.size(), first + visibleLines() + 2);
@@ -765,54 +771,104 @@ final class SfmlCodeEditor extends AbstractWidget {
         if (focusWord != null && focusWord.length() > 40) focusWord = null;
         List<int[]> focusHits = focusWord == null
                 ? List.of() : SfmlKeywordDocs.occurrences(value, focusWord);
-        clip(g, getX() + 1, getY() + PAD, getX() + GUTTER_W, getY() + PAD + viewHeight());
-        for (int i = first; i < last; i++) {
-            var row = rows.get(i);
-            String number = row.continuation() ? ">" : Integer.toString(row.line() + 1);
-            g.drawString(font, number, getX() + GUTTER_W - 5 - font.width(number),
-                    getY() + PAD + i * LINE_H - scrollY, 0xFF8C9AAF, false);
+        // 当前行底纹：横跨行号栏与正文，必须画在两者之下（先画）
+        boolean caretVisible = isFocused() && caretRow >= first && caretRow < last;
+        if (caretVisible) {
+            int cy = getY() + PAD + caretRow * LINE_H - scrollY;
+            g.fill(getX() + 1, cy - 1, getX() + width - BAR, cy + LINE_H - 1, 0x2E2E5075);
         }
-        g.disableScissor();
+        // 行号栏与正文各自包在 try/finally 里：clip 是全局渲染状态，中途抛异常
+        // 若跳过 disableScissor，裁剪矩形会泄漏到整个屏幕——玩家看到画面被裁成
+        // 编辑器的一小块，只能重启客户端。BlockEditorScreen 的 5 处 scissor 同此写法。
+        clip(g, getX() + 1, getY() + PAD, getX() + GUTTER_W, getY() + PAD + viewHeight());
+        try {
+            for (int i = first; i < last; i++) {
+                var row = rows.get(i);
+                String number = row.continuation() ? ">" : Integer.toString(row.line() + 1);
+                // 当前行号提亮，其余保持低调的灰
+                int numColor = (caretVisible && i == caretRow) ? 0xFFC8D4E6 : 0xFF8C9AAF;
+                g.drawString(font, number, getX() + GUTTER_W - 5 - font.width(number),
+                        getY() + PAD + i * LINE_H - scrollY, numColor, false);
+            }
+        } finally {
+            g.disableScissor();
+        }
         clip(g, getX() + GUTTER_W + PAD, getY() + PAD,
                 getX() + GUTTER_W + PAD + contentWidth(), getY() + PAD + viewHeight());
-        for (int i = first; i < last; i++) {
-            var row = rows.get(i);
-            int y = getY() + PAD + i * LINE_H - scrollY;
-            int start = row.start(), end = row.end();
-            if (errorStart >= 0 && start >= errorStart && start <= errorEnd)
-                g.fill(getX() + GUTTER_W + PAD, y - 1, getX() + GUTTER_W + PAD + contentWidth(), y + 9, 0x554D2020);
-            if (i == caretRow) g.fill(getX() + GUTTER_W + PAD, y - 1, getX() + GUTTER_W + PAD + contentWidth(), y + 9, 0x222E5075);
-            if (selectionEnd > start && selectionStart <= end) {
-                int from = Math.max(start, selectionStart), to = Math.min(end, selectionEnd);
-                if (to >= from) {
+        try {
+            for (int i = first; i < last; i++) {
+                var row = rows.get(i);
+                int y = getY() + PAD + i * LINE_H - scrollY;
+                int start = row.start(), end = row.end();
+                if (errorStart >= 0 && start >= errorStart && start <= errorEnd)
+                    g.fill(getX() + GUTTER_W + PAD, y - 1, getX() + GUTTER_W + PAD + contentWidth(), y + 9, 0x554D2020);
+                if (selectionEnd > start && selectionStart <= end) {
+                    int from = Math.max(start, selectionStart), to = Math.min(end, selectionEnd);
+                    if (to >= from) {
+                        int x1 = textX + font.width(value.substring(start, from));
+                        int x2 = textX + font.width(value.substring(start, to));
+                        if (selectionEnd > end) x2 += 3;
+                        g.fill(x1, y - 1, Math.max(x1 + 1, x2), y + 9, 0x883B82F6);
+                    }
+                }
+                for (int[] hit : focusHits) {
+                    if (hit[1] <= start) continue;
+                    if (hit[0] >= end) break;
+                    int from = Math.max(hit[0], start), to = Math.min(hit[1], end);
                     int x1 = textX + font.width(value.substring(start, from));
                     int x2 = textX + font.width(value.substring(start, to));
-                    if (selectionEnd > end) x2 += 3;
-                    g.fill(x1, y - 1, Math.max(x1 + 1, x2), y + 9, 0x883B82F6);
+                    g.fill(x1, y, x2, y + 9, 0x303B82F6);
                 }
+                // 缩进参考线：按前导空格每 4 个一层，最多 3 层。极淡 8% 白。
+                int indentSpaces = 0;
+                while (start + indentSpaces < end && indentSpaces < 24
+                        && value.charAt(start + indentSpaces) == ' ') {
+                    indentSpaces++;
+                }
+                int levels = Math.min(3, indentSpaces / 4);
+                if (levels > 0) {
+                    int step = Math.max(4, font.width("    "));
+                    for (int lv = 1; lv <= levels; lv++) {
+                        int lx = textX + lv * step - 1;
+                        g.fill(lx, y, lx + 1, y + LINE_H - 2, 0x14FFFFFF);
+                    }
+                }
+                g.drawString(font, rowComponent(row), textX, y, 0xFFE7EDF7, false);
             }
-            for (int[] hit : focusHits) {
-                if (hit[1] <= start) continue;
-                if (hit[0] >= end) break;
-                int from = Math.max(hit[0], start), to = Math.min(hit[1], end);
-                int x1 = textX + font.width(value.substring(start, from));
-                int x2 = textX + font.width(value.substring(start, to));
-                g.fill(x1, y, x2, y + 9, 0x303B82F6);
+            if (isFocused() && (Util.getMillis() - focusedAt) / 500L % 2L == 0L) {
+                int row = rowOf(cursor);
+                int cx = textX + font.width(value.substring(rows.get(row).start(), cursor));
+                int cy = getY() + PAD + row * LINE_H - scrollY;
+                g.fill(cx, cy - 1, cx + 1, cy + 9, 0xFFF8FAFC);
             }
-            g.drawString(font, rowComponent(row), textX, y, 0xFFE7EDF7, false);
+        } finally {
+            g.disableScissor();
         }
-        if (isFocused() && (Util.getMillis() - focusedAt) / 500L % 2L == 0L) {
-            int row = rowOf(cursor);
-            int cx = textX + font.width(value.substring(rows.get(row).start(), cursor));
-            int cy = getY() + PAD + row * LINE_H - scrollY;
-            g.fill(cx, cy - 1, cx + 1, cy + 9, 0xFFF8FAFC);
-        }
-        g.disableScissor();
         int bottom = getY() + height - FOOTER;
-        g.fill(getX() + width - BAR, getY() + PAD, getX() + width - 1, getY() + PAD + viewHeight(), 0xFF202D40);
-        g.fill(getX() + GUTTER_W + PAD, bottom - BAR, getX() + GUTTER_W + PAD + contentWidth(), bottom - 1, 0xFF202D40);
-        g.fill(getX() + width - BAR + 1, verticalThumbY(), getX() + width - 2, verticalThumbY() + verticalThumbSize(), verticalBar ? 0xFF9CBEF5 : 0xFF52627A);
-        g.fill(horizontalThumbX(), bottom - BAR + 1, horizontalThumbX() + horizontalThumbSize(), bottom - 2, horizontalBar ? 0xFF9CBEF5 : 0xFF52627A);
+        // 滚动条收敛（VSCode 风格）：轨道只在真能滚时画且几乎与背景同色；
+        // 滑块可见宽度 4px、静止 30% 透明，悬停/拖动才提亮。命中区域仍是 BAR。
+        boolean canScrollY = maxScrollY() > 0;
+        boolean canScrollX = maxScrollX() > 0;
+        if (canScrollY) {
+            g.fill(getX() + width - BAR, getY() + PAD, getX() + width - 1,
+                    getY() + PAD + viewHeight(), 0xFF151E2C);
+        }
+        if (canScrollX) {
+            g.fill(getX() + GUTTER_W + PAD, bottom - BAR, getX() + GUTTER_W + PAD + contentWidth(),
+                    bottom - 1, 0xFF151E2C);
+        }
+        final int VIS_W = 4;
+        int inset = (BAR - VIS_W) / 2;
+        int thumbV = (verticalBar || scrollDrag == 1) ? 0x99B3C4DA : 0x4D94A3B8;
+        int thumbH = (horizontalBar || scrollDrag == 2) ? 0x99B3C4DA : 0x4D94A3B8;
+        if (canScrollY) {
+            int vx = getX() + width - BAR + inset;
+            g.fill(vx, verticalThumbY(), vx + VIS_W, verticalThumbY() + verticalThumbSize(), thumbV);
+        }
+        if (canScrollX) {
+            int hy = bottom - BAR + inset;
+            g.fill(horizontalThumbX(), hy, horizontalThumbX() + horizontalThumbSize(), hy + VIS_W, thumbH);
+        }
         g.fill(getX() + 1, bottom, getX() + width - 1, getY() + height - 1, 0xFF182234);
         String position = POSITION.getString(lineOf(cursor) + 1, cursor - lineStart(lineOf(cursor)) + 1, lineStarts.size());
         int positionWidth = Math.min(font.width(position), Math.max(1, width / 2));

@@ -65,6 +65,9 @@ dependencies {
     // JEI API: compile-only optional integration; guarded at runtime.
     compileOnly(jeiCommonApi) { transitive = false }
     compileOnly(jeiNeoApi) { transitive = false }
+    // dev 环境要**真正加载** JEI 才能验证侧栏联动（compileOnly 只够编译）。
+    // 用 libs 里的完整包（19.21.0.247，与编译用的 API 同版本），离线可用。
+    runtimeOnly files("libs/jei-1.21.1-neoforge-19.21.0.247.jar")
     // Make SFM classes available when running tests (they use SFM's SFML parser/AST).
     testImplementation sfmJar
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
@@ -80,12 +83,13 @@ dependencies {
 runs {
     configureEach {
         systemProperty 'forge.logging.markers', 'REGISTRIES'
+        // 测试期不持久化引导进度（正式 jar 无此属性⇒自动启用）
+        systemProperty 'sfmfactorystudio.disableTutorialPersist', 'true'
         systemProperty 'forge.logging.console.level', 'debug'
         modSource project.sourceSets.main
-        // SFM must be present at runtime; add it to the mod runtime classpath.
-        dependencies {
-            runtime sfmJar
-        }
+        // SFM 由 stageSfmForRun 复制到 runs/client/mods/（见文件末尾）。
+        // 不能同时用 runtime 依赖：NeoForge 会同时看到 classpath 与 mods 两份，
+        // 报 "Module mixinextras.neoforge reads more than one module named sfm"。
     }
     client { }
     server { }
@@ -116,4 +120,16 @@ tasks.named('processResources', ProcessResources).configure {
 
 test {
     useJUnitPlatform()
+}
+
+// 1.21.1 dev 运行时：SFM 必须作为"mods 目录里的 mod"出现。
+// 走 classpath（runtime / runtimeOnly）时 NeoForge 的 mod 发现扫不到它
+// （实测报 "Mod sfmfactorystudio requires sfm 4.30 or above"）；两边都放又会
+// 触发 "reads more than one module named sfm"。所以只走 mods 目录，并自动同步。
+tasks.register('stageSfmForRun', Copy) {
+    from layout.projectDirectory.file('libs/sfm-4.34.0.jar')
+    into layout.projectDirectory.dir('runs/client/mods')
+}
+tasks.matching { it.name == 'runClient' || it.name == 'prepareRunClient' }.configureEach {
+    dependsOn 'stageSfmForRun'
 }
