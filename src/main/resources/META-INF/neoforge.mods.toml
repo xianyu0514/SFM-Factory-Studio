@@ -1,0 +1,55 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
+logoFile="logo.png"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+authors="${mod_authors}"
+description='''${mod_description}'''
+# Client-friendly: joining a vanilla-SFM server without this addon is allowed.
+displayTest="IGNORE_ALL_VERSION"
+
+# The [[mixins]] block declares the mixin config to FML so it gets loaded.
+[[mixins]]
+config="sfmfactorystudio.mixins.json"
+
+# This addon requires Super Factory Manager to be installed.
+# 与 SFM 本体版本严格对齐（2026-10-28）：
+#   编译基线是 libs/sfm-26.1.2-4.34.0.jar，测试也只跑过 4.34.0。
+#   4.30~4.32 并不提供 26.1.2 线，4.33.0 才首次支持；放宽下限只会让用户装上后
+#   在 SFMBlockCapabilityDiscovery / LabelPositionHolder 等直接调用处撞
+#   NoSuchMethodError（mixin 有 require=0 兜底，普通调用没有）。
+#   宁可让 FML 在加载阶段用一句"requires sfm 4.34"拦下，也不要在世界里崩。
+[[dependencies.${mod_id}]]
+modId="sfm"
+type="required"
+versionRange="[4.34,)"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.${mod_id}]]
+modId="neoforge"
+type="required"
+versionRange="${neo_version_range}"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.${mod_id}]]
+modId="minecraft"
+type="required"
+versionRange="${minecraft_version_range}"
+ordering="AFTER"
+side="BOTH"
+
+# Optional JEI integration: when present, the resource picker uses JEI's item list
+# and renderer. Load after JEI (client only) so our plugin's runtime is ready.
+[[dependencies.${mod_id}]]
+modId="jei"
+type="optional"
+versionRange="[29.0,)"
+ordering="AFTER"
+side="CLIENT"
+

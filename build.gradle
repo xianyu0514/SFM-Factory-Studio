@@ -1,0 +1,142 @@
+plugins {
+    id 'java'
+    // 与 SFM 26.1.2 分支同一插件版本（gradle/plugins/26.1.2/plugin-classpath.txt）
+    id 'net.neoforged.gradle.userdev' version '7.1.27'
+}
+
+version = project.mod_version
+group = project.mod_group_id
+
+base {
+    // Public-facing artifact name. Keep mod_id/package names stable for world,
+    // network and config compatibility; only the distributable filename changes.
+    archivesName = "SFM-Factory-Studio-${project.minecraft_version}"
+}
+
+// The bundled build is the normal release, so it gets the clean filename.
+// Keep the dependency-free artifact clearly marked for developers only.
+tasks.named('jar', Jar).configure {
+    archiveClassifier.set('slim')
+}
+
+tasks.named('jarJar').configure {
+    archiveClassifier.set('')
+}
+
+java {
+    // MC 26.x 要求 Java 25
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+}
+
+repositories {
+    maven { url = 'https://maven.aliyun.com/repository/public' } // CN mirror of maven central
+    mavenCentral()
+    maven { url = 'https://maven.neoforged.net/releases' }
+    maven { url = 'https://jitpack.io' }
+    // Mekanism maven (for API jar)
+    maven { url = 'https://modmaven.dev/' }
+    // BlameJared maven (for the JEI API jar)
+    maven { url = 'https://maven.blamejared.com' }
+}
+
+// The SFM mod jar this addon builds against.
+def sfmJar = files(project.sfm_jar)
+
+// JEI API (compileOnly — optional integration for item enumeration/rendering; guarded
+// at runtime so the addon works with or without JEI installed). The API is split into a
+// common part (IModPlugin, runtime, ingredients, constants) and a neoforge part.
+// 26.1.2 线：Modrinth 上的最新正式版（maven 上另有 29.47.x，按正式版优先取 29.34.0.90）
+def jeiVersion = "29.34.0.90"
+def jeiCommonApi = "mezz.jei:jei-26.1.2-common-api:${jeiVersion}"
+def jeiNeoApi = "mezz.jei:jei-26.1.2-neoforge-api:${jeiVersion}"
+
+// PinIn: standalone Chinese pinyin matching library (bundled so pinyin search
+// works without requiring JustEnoughCharacters). Depends on fastutil, already
+// present in Minecraft, so we exclude it from the bundle.
+def pininCoords = "com.github.Towdium:PinIn:1.6.0"
+
+dependencies {
+    implementation "net.neoforged:neoforge:${project.neo_version}"
+
+    // SFM is a required companion mod at runtime; we only need it at compile time.
+    compileOnly sfmJar
+    // 26.1.2 的 SFM jar 把 antlr 放在 META-INF/jarjar/ 里嵌套打包，编译期不可见
+    //（1.21.1 的 NeoForge 依赖树自带 antlr，26.1.2 没有），所以显式声明。
+    // 版本与 SFM 内嵌的 antlr4-runtime 完全一致，运行时由 SFM 提供，compileOnly 即可。
+    compileOnly 'org.antlr:antlr4-runtime:4.13.1'
+    testImplementation 'org.antlr:antlr4-runtime:4.13.1'
+    // JEI API: compile-only optional integration; guarded at runtime.
+    compileOnly(jeiCommonApi) { transitive = false }
+    compileOnly(jeiNeoApi) { transitive = false }
+    // dev 环境要**真正加载** JEI 才能验证侧栏联动（compileOnly 只够编译）。
+    // 用 libs 里的完整包，离线可用；29.47 与编译用的 29.34 同一大版本线，
+    // IGuiProperties 的 guiRight() 是 default 方法，二进制兼容。
+    runtimeOnly files("libs/jei-26.1.2-neoforge-29.47.0.111.jar")
+    // Make SFM classes available when running tests (they use SFM's SFML parser/AST).
+    testImplementation sfmJar
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // PinIn: compile against it, bundle it into the jar via jarJar.
+    implementation(pininCoords) { transitive = false }
+    jarJar(pininCoords) { version { strictly "1.6.0" } }
+    testImplementation(pininCoords) { transitive = false }
+}
+
+// Provide SFM to the dev runtime classpath so runClient works with both mods loaded.
+runs {
+    configureEach {
+        systemProperty 'forge.logging.markers', 'REGISTRIES'
+        systemProperty 'forge.logging.console.level', 'debug'
+        modSource project.sourceSets.main
+        // SFM must be present at runtime; add it to the mod runtime classpath.
+        dependencies {
+            runtime sfmJar
+        }
+    }
+    client {
+        // 迁移自检：./gradlew runClient -PverifyMixins=true 时主动加载三个 mixin 目标类
+        systemProperty 'sfmfactorystudio.verifyMixins', project.findProperty('verifyMixins') ?: 'false'
+        // 调试：-PautoOpenScreen=tps 启动后自动打开指定界面（配合自动截图做渲染验证）
+        systemProperty 'sfmfactorystudio.autoOpenScreen', project.findProperty('autoOpenScreen') ?: ''
+        // 新手引导锚点调试：./gradlew runClient -PtutorialAnchors=true 启动后把所有锚点矩形描红并标 id
+        systemProperty 'sfmfactorystudio.tutorialAnchors', project.findProperty('tutorialAnchors') ?: 'false'
+        // 开发辅助：-PautoShotEditor=true 进入编辑器后自动截一张（runs/client/screenshots）
+        systemProperty 'sfmfactorystudio.autoShotEditor', project.findProperty('autoShotEditor') ?: 'false'
+        // 输入诊断：-PdebugInput=true 打印每次点击的原始坐标/edScale
+        systemProperty 'sfmfactorystudio.debugInput', project.findProperty('debugInput') ?: 'false'
+        // 测试期不持久化引导进度：否则一次跳过就永远看不到引导（正式 jar 无此属性）
+        systemProperty 'sfmfactorystudio.disableTutorialPersist', 'true'
+    }
+    server {
+        // 同上；三个 mixin 都是 require=0，失败静默，必须主动触发才能看到 Mixing 日志
+        systemProperty 'sfmfactorystudio.verifyMixins', project.findProperty('verifyMixins') ?: 'false'
+    }
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    // load properties as UTF-8 so the Chinese mod name survives template expansion
+    def utf8Props = new Properties()
+    file('gradle.properties').newReader('UTF-8').withCloseable { reader -> utf8Props.load(reader) }
+    def replaceProperties = [
+            minecraft_version      : utf8Props['minecraft_version'],
+            minecraft_version_range: utf8Props['minecraft_version_range'],
+            neo_version            : utf8Props['neo_version'],
+            neo_version_range      : utf8Props['neo_version_range'],
+            loader_version_range   : utf8Props['loader_version_range'],
+            mod_id                 : utf8Props['mod_id'],
+            mod_name               : utf8Props['mod_name'],
+            mod_license            : utf8Props['mod_license'],
+            mod_version            : utf8Props['mod_version'],
+            mod_authors            : utf8Props['mod_authors'],
+            mod_description        : utf8Props['mod_description']
+    ]
+    inputs.properties replaceProperties
+    filesMatching(['META-INF/neoforge.mods.toml']) {
+        expand replaceProperties
+    }
+}
+
+test {
+    useJUnitPlatform()
+}

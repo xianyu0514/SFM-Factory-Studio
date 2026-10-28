@@ -1,0 +1,1125 @@
+package io.github.xianynomial.sfmfactorystudio.client.blocks;
+import io.github.xianynomial.sfmfactorystudio.client.Loc;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.CodeEditorLayout;
+import ca.teamdman.sfm.client.ProgramTokenContextActions;
+import ca.teamdman.sfm.client.registry.SFMKeyMappings;
+import io.github.xianynomial.sfmfactorystudio.client.SfmlHighlight;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.SfmlKeywordDocs;
+import ca.teamdman.sfml.intellisense.IntellisenseAction;
+import ca.teamdman.sfml.intellisense.IntellisenseContext;
+import ca.teamdman.sfml.manipulation.ManipulationResult;
+import ca.teamdman.sfml.manipulation.ProgramStringManipulationUtils;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.util.Util;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BlockSourceMap;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.util.Mth;
+import net.minecraft.util.StringUtil;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.function.Consumer;
+/**
+ * Small, non-wrapping SFML source editor used beside the block canvas.
+ *
+ * <p>Vanilla's {@code MultiLineEditBox} wraps long source lines and does not
+ * expose its caret/selection, which makes SFM's indentation, comments and
+ * intellisense impossible to reuse.  This widget keeps those pieces explicit
+ * and deliberately implements the same useful editing commands as SFM's text
+ * editor while fitting inside the block editor.</p>
+ */
+final class SfmlCodeEditor extends AbstractWidget {
+    /**
+     * 行高。字体本身 9px，原值 10 只留 1px 缝隙，满屏代码会糊成一片；
+     * 12 是"能一眼分清每行"的最小值，再多就浪费垂直空间了。
+     * 注意：所有行位置都由它推出来（rowOf / visibleLines / 滚动），改它不会错位。
+     */
+    private static final int LINE_H = 12;
+    private static final int GUTTER_W = 36;
+    /** 内容与边框的距离。保持 4：水平滚动条的宽度计算依赖它，改动会破坏既有回归测试，
+     *  而 2px 的观感差异远不如行距明显。 */
+    private static final int PAD = 4;
+    /**
+     * 滚动条占位宽度。保持 10：试过收到 6，但 contentWidth / 水平滚动几何与
+     * CodeEditorPointerTest 的断言都依赖它，改一处要连带改回归基准。
+     * "显眼"的主因其实是轨道常驻 + 滑块高亮，已经在绘制里改掉了（见下方注释）。
+     */
+    private static final int BAR = 10;
+    private static final int FOOTER = 13;
+    private float renderScale = 1;
+    private boolean wrap;
+    private boolean horizontalBar, verticalBar;
+    private Runnable statusAction;
+    private int errorStart = -1, errorEnd = -1;
+    /** 联动高亮：从积木跳过来时临时点亮的那一行（-1 = 无）。只在渲染层使用，不影响光标。 */
+    private int flashOffset = -1;
+    private long flashUntil;
+    /** 反向联动：光标落进哪个积木就通知外面（代码 → 积木方向）。 */
+    private BlockSourceMap sourceMap = BlockSourceMap.EMPTY;
+    private java.util.function.LongConsumer onCursorBlockChanged;
+    private long lastLinkedBlock = -1;
+    private int lastNotifiedCursor = -1;
+
+    /** 注入映射表；由 BlockEditorScreen 在每次重建映射后调用。 */
+    void setSourceMap(BlockSourceMap map) {
+        sourceMap = map == null ? BlockSourceMap.EMPTY : map;
+    }
+
+    /** 光标归属的积木变化时回调（参数为积木 id，-1 表示不在任何积木内）。 */
+    void setOnCursorBlockChanged(java.util.function.LongConsumer callback) {
+        this.onCursorBlockChanged = callback;
+    }
+
+    /**
+     * 每帧检查一次光标归属，变了才回调。
+     *
+     * <p>放在渲染阶段而不是每个改 cursor 的地方，是因为光标有八九处赋值点
+     * （键盘、鼠标、撤销、搜索……），逐处加通知必然漏。这里每帧比一次 int，开销可忽略。
+     *
+     * <p>节流：同一张卡片内移动不重复通知，避免画布反复重绘描边。
+     */
+    private void maybeNotifyCursorBlock() {
+        if (onCursorBlockChanged == null || sourceMap.isEmpty()) return;
+        if (cursor == lastNotifiedCursor) return;
+        lastNotifiedCursor = cursor;
+        long id = sourceMap.blockAt(cursor);
+        if (id == lastLinkedBlock) return;
+        lastLinkedBlock = id;
+        onCursorBlockChanged.accept(id);
+    }
+    private int widestLine;
+    private List<CodeEditorLayout.Row> rows = List.of(new CodeEditorLayout.Row(0, 0, 0, false));
+    private int lastWidth = -1, lastHeight = -1;
+    private int scrollDrag; // 1: vertical, 2: horizontal
+    private double dragOffset;
+    private long lastClick;
+    private double lastClickX, lastClickY;
+    private int clickChain; // 1=单击 2=双击选词 3+=三击选行
+    // 悬停文档：鼠标在关键词上停留片刻浮出说明与示例（mouse-first 的代码自解释）
+    private String hoverWord;
+    private int hoverOffset = -1;
+    private long hoverSince;
+    private boolean hoverShown;
+    private static final long HOVER_DELAY_MS = 350;
+    private static final int HOVER_MAX_WIDTH = 250;
+    private String search = "";
+    private String status = "", shortcutHelp = "";
+    private int statusColor = 0xFFBBCBE0;
+    private double wheelRemainderX, wheelRemainderY;
+    boolean containsPointer(double x, double y) { return visible && inside(x, y); }
+    void cancelPointer() { dragging = false; scrollDrag = 0; }
+    boolean pointerCaptured() { return visible && (dragging || scrollDrag != 0); }
+    void setStatusAction(Runnable action) { statusAction = action; }
+    void setStatus(String text, int color, String help) { status = text; statusColor = color; shortcutHelp = help; }
+
+    private long lastTypedAt;
+    private int lastTypedCursor = -1;
+    private static final Loc POSITION = new Loc("gui.sfmfactorystudio.code_editor.position", "第 %s 行，第 %s 列 · 共 %s 行");
+    private static final int HISTORY_LIMIT = 160;
+    private final Font font;
+    private final Consumer<String> valueListener;
+    private String value = "";
+    private int cursor;
+    private int anchor;
+    private int preferredColumn = -1;
+    private int scrollY;
+    private int scrollX;
+    private boolean dragging;
+    private long focusedAt = Util.getMillis();
+    private List<Integer> lineStarts = List.of(0);
+    private List<MutableComponent> highlighted = List.of(Component.empty());
+    private int highlightDelay;
+    // 窗口隐藏时跳过昂贵的 ANTLR 高亮（每次放积木的模型→代码同步都会走到这里）
+    private boolean highlightStale = false;
+    private final ArrayDeque<State> undo = new ArrayDeque<>();
+    private final ArrayDeque<State> redo = new ArrayDeque<>();
+    private List<IntellisenseAction> suggestions = List.of();
+    private IntellisenseContext suggestionContext;
+    private int selectedSuggestion;
+    private boolean suppressNextTypedCharacter;
+    SfmlCodeEditor(Font font, int x, int y, int width, int height, Consumer<String> valueListener) {
+        super(x, y, width, height, Component.literal(new Loc("gui.sfmfactorystudio.code_editor.title", "SFML 代码编辑").getString()));
+        this.font = font;
+        this.valueListener = valueListener;
+        rebuildLines(true);
+    }
+    String value() {
+        return value;
+    }
+    int cursorPosition() {
+        return cursor;
+    }
+    int selectionCursorPosition() {
+        return anchor;
+    }
+    void setValueFromModel(String next) {
+        if (Objects.equals(value, clean(next))) return;
+        setValue(next, false, false);
+        undo.clear();
+        redo.clear();
+    }
+    void setRenderScale(float scale) { renderScale = scale; }
+
+    // ---- 联动诊断用只读视图（渲染端在界面上直接画出这些值）----
+    int scrollYView() { return scrollY; }
+    boolean flashActive() { return flashOffset >= 0 && System.currentTimeMillis() < flashUntil; }
+    int flashOffsetView() { return flashOffset; }
+    int rowOfView(int offset) { return rowOf(offset); }
+    boolean wrapped() { return wrap; }
+    void toggleWrap() {
+        wrap = !wrap;
+        rebuildRows();
+        ensureCursorVisible();
+        clearSuggestions();
+    }
+    String selectedText() { return value.substring(Math.min(cursor, anchor), Math.max(cursor, anchor)); }
+    String searchText() { return search; }
+    int find(String query, boolean backwards) {
+        search = query;
+        int hit = CodeEditorLayout.find(value, query, cursor, anchor, backwards);
+        if (hit >= 0) {
+            anchor = hit;
+            cursor = hit + query.length();
+            clearSuggestions();
+            ensureCursorVisible();
+        }
+        int count = 0;
+        if (!query.isEmpty()) for (int p = 0; (p = value.indexOf(query, p)) >= 0; p += query.length()) count++;
+        return count;
+    }
+    void goToLine(int line) {
+        moveTo(lineStart(Math.max(0, line - 1)), false);
+        clearSuggestions();
+    }
+    void resizeViewport() {
+        if (lastWidth == width && lastHeight == height) return;
+        int previousView = Math.max(LINE_H, lastHeight - PAD * 2 - BAR - FOOTER);
+        int caretY = rowOf(cursor) * LINE_H;
+        boolean followingCaret = lastHeight < 0 || caretY >= scrollY && caretY + LINE_H <= scrollY + previousView;
+        lastWidth = width;
+        lastHeight = height;
+        rebuildRows();
+        if (followingCaret) ensureCursorVisible();
+        else {
+            scrollY = Mth.clamp(scrollY, 0, maxScrollY());
+            scrollX = Mth.clamp(scrollX, 0, maxScrollX());
+        }
+    }
+    private void rebuildRows() {
+        // Stable tracks do not alter text wrapping or pane geometry as content changes.
+        rows = CodeEditorLayout.rows(value, contentWidth(), wrap,
+                text -> font.plainSubstrByWidth(text, contentWidth() - 2).length());
+        horizontalBar = !wrap && widestLine + 8 > contentWidth();
+        verticalBar = rows.size() * LINE_H > viewHeight();
+        if (!horizontalBar) scrollX = 0;
+        if (!verticalBar) scrollY = 0;
+    }
+    int replace(String query, String replacement, boolean all) {
+        var result = CodeEditorLayout.replace(value, query, clean(replacement), cursor, anchor, all,
+                ca.teamdman.sfml.ast.Program.MAX_PROGRAM_LENGTH);
+        if (result.count() <= 0) return result.count();
+        if (!value.equals(result.source())) {
+            remember();
+            value = result.source();
+            cursor = anchor = result.caret();
+            redo.clear();
+            changed();
+        }
+        search = query;
+        return result.count();
+    }
+    void showError(int oneBasedLine, int column) {
+        int line = Math.max(0, Math.min(lineStarts.size() - 1, oneBasedLine - 1));
+        int start = lineStart(line);
+        // ANTLR counts Unicode code points, the editor stores UTF-16 offsets.
+        int count = value.codePointCount(start, lineEnd(line));
+        moveTo(value.offsetByCodePoints(start, Math.max(0, Math.min(count, column))), false);
+        errorStart = start;
+        errorEnd = lineEnd(line);
+        clearSuggestions();
+    }
+    private int rowOf(int offset) { return CodeEditorLayout.rowAt(rows, offset); }
+    private int viewHeight() { return Math.max(LINE_H, height - PAD * 2 - BAR - FOOTER); }
+
+    void replaceFromAction(ManipulationResult result) {
+        if (result == null) return;
+        remember();
+        value = clean(result.content());
+        cursor = clamp(result.cursorPosition());
+        anchor = clamp(result.selectionCursorPosition());
+        preferredColumn = -1;
+        redo.clear();
+        changed();
+    }
+    void setSuggestions(List<IntellisenseAction> next, IntellisenseContext context) {
+        suggestions = next == null ? List.of() : List.copyOf(next.subList(0, Math.min(8, next.size())));
+        suggestionContext = context;
+        selectedSuggestion = Mth.clamp(selectedSuggestion, 0, Math.max(0, suggestions.size() - 1));
+    }
+    void clearSuggestions() {
+        suggestions = List.of();
+        suggestionContext = null;
+        selectedSuggestion = 0;
+    }
+
+    private void setValue(String next, boolean notify, boolean addHistory) {
+        String cleaned = clean(next);
+        if (Objects.equals(value, cleaned)) return;
+        errorStart = errorEnd = -1;
+        statusAction = null;
+        if (addHistory) remember();
+        value = cleaned;
+        cursor = Math.min(cursor, value.length());
+        anchor = Math.min(anchor, value.length());
+        preferredColumn = -1;
+        redo.clear();
+        rebuildLines(true);
+        ensureCursorVisible();
+        if (notify) valueListener.accept(value);
+    }
+
+    private static String clean(String source) {
+        if (source == null) return "";
+        return source.replace("\r\n", "\n").replace('\r', '\n');
+    }
+
+    /**
+     * 是否按住 Shift。
+     *
+     * <p>包装 {Minecraft.getInstance()} 的判空：单元测试环境没有客户端实例，
+     * 直接调用会 NPE（CodeEditorPointerTest 就踩到过）。真实运行时 mock 恒非空，
+     * 行为不变。
+     */
+    private static boolean shiftDown() {
+        Minecraft mc = Minecraft.getInstance();
+        return mc != null && mc.hasShiftDown();
+    }
+
+    private int clamp(int position) {
+        return Mth.clamp(position, 0, value.length());
+    }
+
+    private void remember() {
+        lastTypedCursor = -1;
+        State now = new State(value, cursor, anchor);
+        if (undo.peek() == null || !undo.peek().equals(now)) undo.push(now);
+        while (undo.size() > HISTORY_LIMIT) undo.removeLast();
+    }
+
+    private void changed() {
+        errorStart = errorEnd = -1;
+        statusAction = null;
+        rebuildLines(false);
+        ensureCursorVisible();
+        clearSuggestions();
+        valueListener.accept(value);
+    }
+
+    private void rebuildLines(boolean highlightNow) {
+        ArrayList<Integer> starts = new ArrayList<>();
+        starts.add(0);
+        for (int i = 0; i < value.length(); i++) {
+            if (value.charAt(i) == '\n') starts.add(i + 1);
+        }
+        lineStarts = List.copyOf(starts);
+        widestLine = 0;
+        for (int i = 0; i < lineStarts.size(); i++)
+            widestLine = Math.max(widestLine, font.width(value.substring(lineStart(i), lineEnd(i))));
+        rebuildRows();
+        if (highlightNow && visible) {
+            highlighted = SfmlHighlight.lines(value);
+            highlightDelay = 0;
+            highlightStale = false;
+        } else {
+            ArrayList<MutableComponent> plain = new ArrayList<>(lineStarts.size());
+            for (int line = 0; line < lineStarts.size(); line++) {
+                plain.add(Component.literal(value.substring(lineStart(line), lineEnd(line))));
+            }
+            highlighted = List.copyOf(plain);
+            highlightDelay = 3;
+            if (highlightNow) highlightStale = true;
+        }
+    }
+
+    private int lineOf(int position) {
+        int p = clamp(position);
+        int lo = 0, hi = lineStarts.size() - 1;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            if (lineStarts.get(mid) <= p) lo = mid + 1;
+            else hi = mid - 1;
+        }
+        return Math.max(0, hi);
+    }
+
+    private int lineStart(int line) {
+        return lineStarts.get(Mth.clamp(line, 0, lineStarts.size() - 1));
+    }
+
+    private int lineEnd(int line) {
+        int l = Mth.clamp(line, 0, lineStarts.size() - 1);
+        return l + 1 < lineStarts.size() ? lineStarts.get(l + 1) - 1 : value.length();
+    }
+
+    private int contentWidth() {
+        return Math.max(8, width - GUTTER_W - PAD * 2 - BAR);
+    }
+
+    private int visibleLines() {
+        return Math.max(1, viewHeight() / LINE_H);
+    }
+
+    private int maxScrollY() {
+        return CodeEditorLayout.maxScroll(rows.size() * LINE_H, viewHeight());
+    }
+    private int maxScrollX() {
+        return horizontalBar ? CodeEditorLayout.maxScroll(widestLine + 8, contentWidth()) : 0;
+    }
+    private void ensureCursorVisible() {
+        int row = rowOf(cursor);
+        int cx = font.width(value.substring(rows.get(row).start(), cursor));
+        int cy = row * LINE_H;
+        if (cy < scrollY) scrollY = cy;
+        if (cy + LINE_H > scrollY + viewHeight()) scrollY = cy + LINE_H - viewHeight();
+        if (cx < scrollX) scrollX = cx;
+        if (cx + 8 > scrollX + contentWidth()) scrollX = cx + 8 - contentWidth();
+        scrollY = Mth.clamp(scrollY, 0, maxScrollY());
+        scrollX = Mth.clamp(scrollX, 0, maxScrollX());
+        focusedAt = Util.getMillis();
+    }
+
+    private void replaceSelection(String inserted) { replaceSelection(inserted, false); }
+
+    private void replaceSelection(String inserted, boolean typing) {
+        String text = clean(inserted);
+        int from = Math.min(cursor, anchor), to = Math.max(cursor, anchor);
+        long now = Util.getMillis();
+        boolean coalesce = typing && cursor == anchor && cursor == lastTypedCursor && now - lastTypedAt < 750;
+        if (!coalesce) remember();
+        value = value.substring(0, from) + text + value.substring(to);
+        cursor = from + text.length();
+        lastTypedAt = now;
+        lastTypedCursor = typing ? cursor : -1;
+        anchor = cursor;
+        preferredColumn = -1;
+        redo.clear();
+        changed();
+    }
+
+    private void deleteRelative(int direction) {
+        if (cursor != anchor) {
+            replaceSelection("");
+            return;
+        }
+        if (direction < 0 && cursor > 0) {
+            anchor = value.offsetByCodePoints(cursor, -1);
+            replaceSelection("");
+        } else if (direction > 0 && cursor < value.length()) {
+            anchor = value.offsetByCodePoints(cursor, 1);
+            replaceSelection("");
+        }
+    }
+
+    private void moveTo(int target, boolean selecting) {
+        lastTypedCursor = -1;
+        cursor = clamp(target);
+        if (!selecting) anchor = cursor;
+        ensureCursorVisible();
+    }
+
+    private int previousWord() {
+        int p = cursor;
+        while (p > 0 && Character.isWhitespace(value.charAt(p - 1))) p--;
+        while (p > 0 && !Character.isWhitespace(value.charAt(p - 1))) p--;
+        return p;
+    }
+
+    private int nextWord() {
+        int p = cursor;
+        while (p < value.length() && !Character.isWhitespace(value.charAt(p))) p++;
+        while (p < value.length() && Character.isWhitespace(value.charAt(p))) p++;
+        return p;
+    }
+
+    private void moveVertical(int delta, boolean selecting) {
+        int row = rowOf(cursor);
+        if (preferredColumn < 0) preferredColumn = font.width(value.substring(rows.get(row).start(), cursor));
+        var target = rows.get(Mth.clamp(row + delta, 0, rows.size() - 1));
+        int column = font.plainSubstrByWidth(value.substring(target.start(), target.end()), preferredColumn).length();
+        moveTo(target.start() + column, selecting);
+    }
+
+    private String autoIndent() {
+        int line = lineOf(cursor);
+        String before = value.substring(lineStart(line), cursor);
+        int n = 0;
+        while (n < before.length() && (before.charAt(n) == ' ' || before.charAt(n) == '\t')) n++;
+        String indent = before.substring(0, n).replace("\t", "    ");
+        String upper = before.stripTrailing().toUpperCase(java.util.Locale.ROOT);
+        if (upper.endsWith(" DO") || upper.endsWith(" THEN") || upper.equals("DO") || upper.equals("THEN")
+                || upper.startsWith("IF ") || upper.startsWith("ELSE IF ") || upper.equals("ELSE")) {
+            indent += "    ";
+        }
+        return "\n" + indent;
+    }
+
+    void undo() {
+        if (undo.isEmpty()) return;
+        redo.push(new State(value, cursor, anchor));
+        restore(undo.pop());
+    }
+
+    void redo() {
+        if (redo.isEmpty()) return;
+        undo.push(new State(value, cursor, anchor));
+        restore(redo.pop());
+    }
+
+    void copySelection() {
+        if (cursor == anchor) return;
+        Minecraft.getInstance().keyboardHandler.setClipboard(selectedText());
+    }
+
+    void cutSelection() {
+        if (cursor == anchor) return;
+        Minecraft.getInstance().keyboardHandler.setClipboard(selectedText());
+        replaceSelection("");
+    }
+
+    void pasteClipboard() {
+        replaceSelection(Minecraft.getInstance().keyboardHandler.getClipboard());
+    }
+
+    void selectAll() {
+        anchor = 0;
+        cursor = value.length();
+        ensureCursorVisible();
+        clearSuggestions();
+    }
+
+    boolean hasSelection() {
+        return cursor != anchor;
+    }
+
+    private void restore(State state) {
+        lastTypedCursor = -1;
+        value = state.value;
+        cursor = clamp(state.cursor);
+        anchor = clamp(state.anchor);
+        preferredColumn = -1;
+        changed();
+    }
+
+    private boolean acceptSuggestion() {
+        if (suggestions.isEmpty() || suggestionContext == null) return false;
+        replaceFromAction(suggestions.get(selectedSuggestion).perform(suggestionContext));
+        clearSuggestions();
+        return true;
+    }
+    void tick() {
+        if (highlightDelay > 0 && --highlightDelay == 0) {
+            if (visible) {
+                highlighted = SfmlHighlight.lines(value);
+                highlightStale = false;
+            }
+            // 不可见时留给 highlightStale，render 发现可见再重建
+        }
+    }
+
+    @Override
+    public boolean keyPressed(KeyEvent event) {
+        int keyCode = event.key(); int scanCode = event.scancode(); int modifiers = event.modifiers();
+        if (!visible || !isFocused()) return false;
+        suppressNextTypedCharacter = false;
+        boolean ctrl = Minecraft.getInstance().hasControlDown();
+        boolean shift = shiftDown();
+        if (ctrl || keyCode >= 256 && keyCode <= 269) lastTypedCursor = -1;
+        if (keyCode == 256 && !suggestions.isEmpty()) {
+            clearSuggestions();
+            return true;
+        }
+        if (!suggestions.isEmpty() && (keyCode == 265 || keyCode == 264)) {
+            selectedSuggestion = Math.floorMod(selectedSuggestion + (keyCode == 265 ? -1 : 1), suggestions.size());
+            return true;
+        }
+        if (SFMKeyMappings.TEXT_EDITOR_ACCEPT_INTELLISENSE_KEY.get().matches(event)
+                && acceptSuggestion()) {
+            // GLFW still emits the matching character event after keyPressed;
+            // without this guard accepting the default '\\' shortcut would
+            // append a stray backslash to the completed SFML.
+            suppressNextTypedCharacter = true;
+            return true;
+        }
+        if (ctrl && keyCode == 32) {
+            ProgramTokenContextActions.getContextAction(value, cursor).ifPresent(Runnable::run);
+            return true;
+        }
+        if (ctrl && keyCode == 65) {
+            selectAll();
+            return true;
+        }
+        if (ctrl && keyCode == 67) {
+            copySelection();
+            return true;
+        }
+        if (ctrl && keyCode == 88) {
+            cutSelection();
+            return true;
+        }
+        if (ctrl && keyCode == 86) {
+            replaceSelection(Minecraft.getInstance().keyboardHandler.getClipboard());
+            return true;
+        }
+        if (ctrl && keyCode == 90) {
+            if (shift) redo(); else undo();
+            return true;
+        }
+        if (ctrl && keyCode == 89) {
+            redo();
+            return true;
+        }
+        if (ctrl && keyCode == 47) {
+            replaceFromAction(ProgramStringManipulationUtils.toggleComments(value, cursor, anchor));
+            return true;
+        }
+        if (keyCode == 258) {
+            replaceFromAction(shift
+                    ? ProgramStringManipulationUtils.deindent(value, cursor, anchor)
+                    : ProgramStringManipulationUtils.indent(value, cursor, anchor));
+            return true;
+        }
+        if (keyCode == 257 || keyCode == 335) {
+            replaceSelection(autoIndent());
+            return true;
+        }
+        if (keyCode == 259) {
+            if (ctrl && cursor == anchor) {
+                anchor = previousWord();
+                replaceSelection("");
+            } else deleteRelative(-1);
+            return true;
+        }
+        if (keyCode == 261) {
+            if (ctrl && cursor == anchor) {
+                anchor = nextWord();
+                replaceSelection("");
+            } else deleteRelative(1);
+            return true;
+        }
+        if (keyCode == 263 || keyCode == 262) {
+            if (!shift && !ctrl && cursor != anchor) {
+                moveTo(keyCode == 263 ? Math.min(cursor, anchor) : Math.max(cursor, anchor), false);
+                preferredColumn = -1;
+                clearSuggestions();
+                return true;
+            }
+            int target = keyCode == 263 ? (ctrl ? previousWord() : cursor > 0 ? value.offsetByCodePoints(cursor, -1) : 0) : (ctrl ? nextWord() : cursor < value.length() ? value.offsetByCodePoints(cursor, 1) : value.length());
+            moveTo(target, shift);
+            preferredColumn = -1;
+            return true;
+        }
+        if (keyCode == 265 || keyCode == 264) {
+            moveVertical(keyCode == 265 ? -1 : 1, shift);
+            return true;
+        }
+        if (keyCode == 268 || keyCode == 269) {
+            int line = lineOf(cursor);
+            moveTo(keyCode == 268 ? (ctrl ? 0 : lineStart(line)) : (ctrl ? value.length() : lineEnd(line)), shift);
+            preferredColumn = -1;
+            return true;
+        }
+        if (keyCode == 266 || keyCode == 267) {
+            moveVertical((keyCode == 266 ? -1 : 1) * Math.max(1, visibleLines() - 1), shift);
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean charTyped(CharacterEvent event) {
+        char codePoint = (char) event.codepoint(); int modifiers = 0;
+        // 输入诊断：中文打不进去时，这里能区分"事件没到"和"字符被过滤"。
+        // 排障时加 -Dsfmfactorystudio.debugInput=true。
+        if (Boolean.getBoolean("sfmfactorystudio.debugInput")) {
+            io.github.xianynomial.sfmfactorystudio.SFMGui.LOGGER.info(
+                    "[input] charTyped cp={} (0x{}) allowed={} focused={}",
+                    event.codepoint(), Integer.toHexString(event.codepoint()),
+                    StringUtil.isAllowedChatCharacter(codePoint), isFocused());
+        }
+        if (suppressNextTypedCharacter) {
+            suppressNextTypedCharacter = false;
+            return true;
+        }
+        if (!visible || !isFocused() || !StringUtil.isAllowedChatCharacter(codePoint)) return false;
+        replaceSelection(Character.toString(codePoint), true);
+        return true;
+    }
+
+    @Override
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        double mouseX = event.x(); double mouseY = event.y(); int button = event.button();
+        int modifiers = event.modifiers();
+        if (!visible || (button != 0 && button != 2) || !inside(mouseX, mouseY)) return false;
+        setFocused(true);
+        if (button == 2) {
+            // 右键只负责聚焦；剪贴板菜单由 BlockEditorScreen 在同一坐标打开
+            dragging = false;
+            scrollDrag = 0;
+            return true;
+        }
+        if (!suggestions.isEmpty() && suggestionContext != null) {
+            int row = suggestionRowAt(mouseX, mouseY);
+            if (row >= 0) {
+                selectedSuggestion = row;
+                acceptSuggestion();
+                return true;
+            }
+        }
+        if (mouseX >= getX() + width - BAR && mouseY < getY() + PAD + viewHeight()) {
+            clearSuggestions();
+            dragOffset = mouseY - verticalThumbY();
+            if (dragOffset >= 0 && dragOffset < verticalThumbSize() && maxScrollY() > 0) scrollDrag = 1;
+            else scrollY = Mth.clamp(scrollY + (dragOffset < 0 ? -viewHeight() : viewHeight()), 0, maxScrollY());
+            return true;
+        }
+        if (mouseY >= getY() + height - FOOTER - BAR && mouseY < getY() + height - FOOTER) {
+            clearSuggestions();
+            dragOffset = mouseX - horizontalThumbX();
+            if (dragOffset >= 0 && dragOffset < horizontalThumbSize() && maxScrollX() > 0) scrollDrag = 2;
+            else scrollX = Mth.clamp(scrollX + (dragOffset < 0 ? -contentWidth() : contentWidth()), 0, maxScrollX());
+            return true;
+        }
+        if (mouseY >= getY() + height - FOOTER) {
+            if (statusAction != null) statusAction.run();
+            return true;
+        }
+        dragging = true;
+        seek(mouseX, mouseY, shiftDown());
+        long now = Util.getMillis();
+        if (!shiftDown() && now - lastClick < 350
+                && Math.abs(mouseX - lastClickX) < 5 && Math.abs(mouseY - lastClickY) < 5) {
+            clickChain = Math.min(clickChain + 1, 3);
+        } else {
+            clickChain = 1;
+        }
+        if (clickChain == 2) {
+            int start = cursor, end = cursor;
+            while (start > 0 && wordCharacter(value.charAt(start - 1))) start--;
+            while (end < value.length() && wordCharacter(value.charAt(end))) end++;
+            anchor = start;
+            cursor = end;
+        } else if (clickChain >= 3) {
+            anchor = lineStart(lineOf(cursor));
+            cursor = lineEnd(lineOf(cursor));
+        }
+        lastClick = now;
+        lastClickX = mouseX;
+        lastClickY = mouseY;
+        return true;
+    }
+
+    @Override
+    public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+        double mouseX = event.x(); double mouseY = event.y(); int button = event.button();
+        int modifiers = event.modifiers();
+        if (button != 0) return false;
+        if (scrollDrag != 0) { dragScroll(mouseX, mouseY); return true; }
+        if (!dragging) return false;
+        seek(mouseX, mouseY, true);
+        return true;
+    }
+
+    @Override
+    public boolean mouseReleased(MouseButtonEvent event) {
+        double mouseX = event.x(); double mouseY = event.y(); int button = event.button();
+        int modifiers = event.modifiers();
+        boolean handled = dragging || scrollDrag != 0;
+        dragging = false;
+        scrollDrag = 0;
+        return handled || button == 0 && inside(mouseX, mouseY);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollXDelta, double scrollYDelta) {
+        if (!visible || !inside(mouseX, mouseY)) return false;
+        double horizontal = shiftDown() && !wrap ? scrollYDelta : scrollXDelta;
+        double vertical = shiftDown() && !wrap ? 0 : scrollYDelta;
+        wheelRemainderX += horizontal * 24;
+        wheelRemainderY += vertical * LINE_H * 3;
+        int stepX = (int) wheelRemainderX, stepY = (int) wheelRemainderY;
+        wheelRemainderX -= stepX;
+        wheelRemainderY -= stepY;
+        scrollX = Mth.clamp(scrollX - stepX, 0, maxScrollX());
+        scrollY = Mth.clamp(scrollY - stepY, 0, maxScrollY());
+        clearSuggestions();
+        return true;
+    }
+
+    private boolean inside(double mx, double my) {
+        return mx >= getX() && mx < getX() + width && my >= getY() && my < getY() + height;
+    }
+
+    private void seek(double mx, double my, boolean selecting) {
+        moveTo(offsetAt(mx, my), selecting);
+        clearSuggestions();
+        preferredColumn = -1;
+    }
+
+    /** Text offset under a point in the text area (shared by click, drag and hover). */
+    private int offsetAt(double mx, double my) {
+        int row = Mth.clamp((int) Math.floor((my - getY() - PAD + scrollY) / LINE_H), 0, rows.size() - 1);
+        var r = rows.get(row);
+        String text = value.substring(r.start(), r.end());
+        int px = Math.max(0, (int) mx - (getX() + GUTTER_W + PAD) + scrollX);
+        int col = font.plainSubstrByWidth(text, px).length();
+        if (col < text.length()) {
+            int before = font.width(text.substring(0, col));
+            int glyph = font.width(text.substring(col, col + 1));
+            if (px - before >= glyph / 2) col++;
+        }
+        return r.start() + col;
+    }
+
+    @Override
+    public void setFocused(boolean focused) {
+        super.setFocused(focused);
+        if (focused) focusedAt = Util.getMillis();
+        else { dragging = false; scrollDrag = 0; }
+    }
+
+    private static boolean wordCharacter(char c) {
+        return Character.isLetterOrDigit(c) || "_:/#.*-".indexOf(c) >= 0;
+    }
+    private int verticalThumbSize() { return Math.min(viewHeight(), Math.max(12, viewHeight() * viewHeight() / Math.max(1, viewHeight() + maxScrollY()))); }
+    private int verticalThumbY() { return getY() + PAD + (viewHeight() - verticalThumbSize()) * scrollY / Math.max(1, maxScrollY()); }
+    private int horizontalThumbSize() { return Math.min(contentWidth(), Math.max(12, contentWidth() * contentWidth() / Math.max(1, contentWidth() + maxScrollX()))); }
+    private int horizontalThumbX() { return getX() + GUTTER_W + PAD + (contentWidth() - horizontalThumbSize()) * scrollX / Math.max(1, maxScrollX()); }
+    private void dragScroll(double mx, double my) {
+        clearSuggestions();
+        if (scrollDrag == 1) scrollY = Mth.clamp((int) Math.round((my - getY() - PAD - dragOffset)
+                * maxScrollY() / Math.max(1, viewHeight() - verticalThumbSize())), 0, maxScrollY());
+        else scrollX = Mth.clamp((int) Math.round((mx - getX() - GUTTER_W - PAD - dragOffset)
+                * maxScrollX() / Math.max(1, contentWidth() - horizontalThumbSize())), 0, maxScrollX());
+    }
+    /**
+     * 从积木跳转过来：把该偏移所在的行滚到可视区中间，并高亮 1.5 秒。
+     *
+     * <p><b>不移动光标</b>——用户此刻正在画布上操作，抢走光标会让后续输入插到别处。
+     * 这里只做"看这里"的视觉提示。
+     *
+     * @param force true 时即使该行已在可视区也居中滚动；false 时已可见就不动，避免画布抖动
+     */
+    void revealOffset(int offset, boolean force) {
+        if (offset < 0 || offset > value.length() || rows.isEmpty()) return;
+        int row = rowOf(offset);
+        if (row < 0 || row >= rows.size()) return;
+        // 点积木是主动操作，光标必须跟着走：
+        // ① 否则高亮行和光标行分离，用户会觉得"高亮的不是我要的行"
+        // ② 短文件（13 行）maxScrollY=0 滚不动，移动光标是唯一可感知的跳转反馈
+        // moveTo 内部会调 ensureCursorVisible 处理滚动与居中。
+        moveTo(offset, false);
+        flashOffset = offset;
+        flashUntil = System.currentTimeMillis() + 1500L;
+    }
+
+    private void clip(GuiGraphicsExtractor g, int x, int y, int right, int bottom) {        // 26.1 的 enableScissor 会用当前 pose 变换矩形（transformAxisAligned），
+        // 而本控件绘制时 pose 已含 edScale（父界面统一缩放），所以传逻辑坐标即可，
+        // 再乘 renderScale 会被缩放两次、裁剪框压扁。
+        g.enableScissor(x, y, right, bottom);
+    }
+    private Component rowComponent(CodeEditorLayout.Row row) {
+        if (row.line() >= highlighted.size()) return Component.literal(value.substring(row.start(), row.end()));
+        int from = row.start() - lineStart(row.line()), to = row.end() - lineStart(row.line());
+        MutableComponent result = Component.empty();
+        int[] offset = {0};
+        highlighted.get(row.line()).visit((style, text) -> {
+            int a = Math.max(0, from - offset[0]), b = Math.min(text.length(), to - offset[0]);
+            if (b > a) result.append(Component.literal(text.substring(a, b)).setStyle(style));
+            offset[0] += text.length();
+            return java.util.Optional.empty();
+        }, net.minecraft.network.chat.Style.EMPTY);
+        return result;
+    }
+    @Override
+    protected void extractWidgetRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partialTick) {
+        maybeNotifyCursorBlock();
+        if (!visible) return;
+        resizeViewport();
+        if (highlightStale) {
+            highlighted = SfmlHighlight.lines(value);
+            highlightStale = false;
+        }
+        updateHover(mouseX, mouseY);
+        g.fill(getX(), getY(), getX() + width, getY() + height, 0xFF111827);
+        // 行号栏贴近正文底色（原 0xFF182234 对比过强，像并排两块面板）
+        g.fill(getX(), getY(), getX() + GUTTER_W, getY() + height - FOOTER, 0xFF161F2E);
+        // 未聚焦用同色系暗边：原来的浅灰 0xFFB8C5D6 在深底上像贴了一圈亮条，很跳
+        // 未聚焦时压到几乎与编辑器底色同值：线宽 1px 已是极限，只能靠颜色再退一档，
+        // 让积木区与代码区之间只剩一道若有若无的界。
+        border(g, getX(), getY(), width, height, isFocused() ? 0xFF2F6FED : 0xFF232F42);
+        int first = Math.max(0, scrollY / LINE_H);
+        int caretRow = rowOf(cursor);
+        int last = Math.min(rows.size(), first + visibleLines() + 2);
+        int selectionStart = Math.min(cursor, anchor), selectionEnd = Math.max(cursor, anchor);
+        int textX = getX() + GUTTER_W + PAD - scrollX;
+        // 光标词全匹配高亮（无选区且有焦点时）：读程序时一眼看到同词的所有出现处
+        String focusWord = isFocused() && selectionStart == selectionEnd
+                ? SfmlKeywordDocs.wordAt(value, cursor) : null;
+        if (focusWord != null && focusWord.length() > 40) focusWord = null;
+        List<int[]> focusHits = focusWord == null
+                ? List.of() : SfmlKeywordDocs.occurrences(value, focusWord);
+        // 当前行底纹：横跨行号栏与正文，且必须画在两者之下（先画）。
+        // 原来只在正文区画一层 0x222E5075，几乎看不见；加强到 0x2E 并延伸到行号，
+        // 视线扫代码时能立刻找到落点。
+        boolean caretVisible = isFocused() && caretRow >= first && caretRow < last;
+        if (caretVisible) {
+            int cy = getY() + PAD + caretRow * LINE_H - scrollY;
+            g.fill(getX() + 1, cy - 1, getX() + width - BAR, cy + LINE_H - 1, 0x2E2E5075);
+        }
+        // 行号栏与正文各自包在 try/finally 里：clip 是全局渲染状态，中途抛异常
+        // 若跳过 disableScissor，裁剪矩形会泄漏到整个屏幕——玩家看到画面被裁成
+        // 编辑器的一小块，只能重启客户端。BlockEditorScreen 的 5 处 scissor 同此写法。
+        clip(g, getX() + 1, getY() + PAD, getX() + GUTTER_W, getY() + PAD + viewHeight());
+        try {
+            for (int i = first; i < last; i++) {
+                var row = rows.get(i);
+                String number = row.continuation() ? ">" : Integer.toString(row.line() + 1);
+                // 当前行号提亮：其余保持低调的灰，当前行给到接近正文的亮度
+                int numColor = (caretVisible && i == caretRow) ? 0xFFC8D4E6 : 0xFF8C9AAF;
+                g.text(font, number, getX() + GUTTER_W - 5 - font.width(number),
+                        getY() + PAD + i * LINE_H - scrollY, numColor, false);
+            }
+        } finally {
+            g.disableScissor();
+        }
+        clip(g, getX() + GUTTER_W + PAD, getY() + PAD,
+                getX() + GUTTER_W + PAD + contentWidth(), getY() + PAD + viewHeight());
+        try {
+            for (int i = first; i < last; i++) {
+                var row = rows.get(i);
+                int y = getY() + PAD + i * LINE_H - scrollY;
+                int start = row.start(), end = row.end();
+                if (errorStart >= 0 && start >= errorStart && start <= errorEnd)
+                    g.fill(getX() + GUTTER_W + PAD, y - 1, getX() + GUTTER_W + PAD + contentWidth(), y + 9, 0x554D2020);
+                if (selectionEnd > start && selectionStart <= end) {
+                    int from = Math.max(start, selectionStart), to = Math.min(end, selectionEnd);
+                    if (to >= from) {
+                        int x1 = textX + font.width(value.substring(start, from));
+                        int x2 = textX + font.width(value.substring(start, to));
+                        if (selectionEnd > end) x2 += 3;
+                        g.fill(x1, y - 1, Math.max(x1 + 1, x2), y + 9, 0x883B82F6);
+                    }
+                }
+                for (int[] hit : focusHits) {
+                    if (hit[1] <= start) continue;
+                    if (hit[0] >= end) break;
+                    int from = Math.max(hit[0], start), to = Math.min(hit[1], end);
+                    int x1 = textX + font.width(value.substring(start, from));
+                    int x2 = textX + font.width(value.substring(start, to));
+                    g.fill(x1, y, x2, y + 9, 0x303B82F6);
+                }
+                // 联动高亮：被"从积木跳过来"点亮的那一行，画淡蓝底 + 左缘竖条。
+                // 用行而不是光标位置来表达，避免与真正的光标 caret 混淆。
+                if (flashOffset >= row.start() && flashOffset < row.end()
+                        && Util.getMillis() < flashUntil) {
+                    // 40% 太抢眼（用户反馈），回落到 26%：能看清但不刺眼；
+                    // 左条保留 2px 饱和色作为"指路"锚点，比整行铺色更安静。
+                    g.fill(textX - 4, y - 1, getX() + getWidth() - BAR, y + LINE_H - 1, 0x423B82F6);
+                    g.fill(textX - 5, y - 1, textX - 2, y + LINE_H - 1, 0xFF5B9BFF);
+                }
+                // 缩进参考线：按前导空格每 4 个一层，最多 6 层。极淡（8% 白），
+                // 只为让层级"能看出来"，不应该被注意到。wrap 折行时仍按原文缩进算。
+                int indentSpaces = 0;
+                // 必须从本行起点往后数（start = row.start()），不能从 0 开始 ——
+                // 从 0 数等于永远检查文件开头，所有行会画出完全相同的竖线。
+                while (start + indentSpaces < end && indentSpaces < 24
+                        && value.charAt(start + indentSpaces) == ' ') {
+                    indentSpaces++;
+                }
+                // 上限 3 层（不是 6）：SFML 实际嵌套 rarely 超过 3，而每层每行一次 fill，
+                // 6 层 × 17 行 = 102 次/帧，3 层直接减半。视觉上几乎无差别，绘制量减半。
+                int levels = Math.min(3, indentSpaces / 4);
+                if (levels > 0) {
+                    int step = Math.max(4, font.width("    "));
+                    for (int lv = 1; lv <= levels; lv++) {
+                        int lx = textX + lv * step - 1;
+                        g.fill(lx, y, lx + 1, y + LINE_H - 2, 0x14FFFFFF);
+                    }
+                }
+                g.text(font, rowComponent(row), textX, y, 0xFFE7EDF7, false);
+            }
+            if (isFocused() && (Util.getMillis() - focusedAt) / 500L % 2L == 0L) {
+                int row = rowOf(cursor);
+                int cx = textX + font.width(value.substring(rows.get(row).start(), cursor));
+                int cy = getY() + PAD + row * LINE_H - scrollY;
+                g.fill(cx, cy - 1, cx + 1, cy + 9, 0xFFF8FAFC);
+            }
+        } finally {
+            g.disableScissor();
+        }
+        int bottom = getY() + height - FOOTER;
+        // 滚动条按 VSCode 的做法收敛：
+        // ① 轨道只在真的能滚时才画，且几乎与背景同色（原来常驻一条 0xFF202D40 的亮带）
+        // ② 滑块平时压到暗灰蓝，只有悬停或拖动才提亮 —— 静止时它不该争夺注意力
+        boolean canScrollY = maxScrollY() > 0;
+        boolean canScrollX = maxScrollX() > 0;
+        if (canScrollY) {
+            g.fill(getX() + width - BAR, getY() + PAD, getX() + width - 1,
+                    getY() + PAD + viewHeight(), 0xFF151E2C);
+        }
+        if (canScrollX) {
+            g.fill(getX() + GUTTER_W + PAD, bottom - BAR, getX() + GUTTER_W + PAD + contentWidth(),
+                    bottom - 1, 0xFF151E2C);
+        }
+        // 滑块：命中区域仍是 BAR(10px)，但只在中间画 4px ——
+        // 用户嫌"真的很宽"，而 BAR 参与 contentWidth / 回归测试不能动，
+        // 所以把"可点区域"和"可见宽度"拆开。
+        // 颜色也压到 30% 透明：静止时它应该像不存在，只有悬停才浮起来。
+        final int VIS_W = 4;
+        int inset = (BAR - VIS_W) / 2;
+        int thumbV = (verticalBar || scrollDrag == 1) ? 0x99B3C4DA : 0x4D94A3B8;
+        int thumbH = (horizontalBar || scrollDrag == 2) ? 0x99B3C4DA : 0x4D94A3B8;
+        if (canScrollY) {
+            int vx = getX() + width - BAR + inset;
+            g.fill(vx, verticalThumbY(), vx + VIS_W, verticalThumbY() + verticalThumbSize(), thumbV);
+        }
+        if (canScrollX) {
+            int hy = bottom - BAR + inset;
+            g.fill(horizontalThumbX(), hy, horizontalThumbX() + horizontalThumbSize(), hy + VIS_W, thumbH);
+        }
+        g.fill(getX() + 1, bottom, getX() + width - 1, getY() + height - 1, 0xFF182234);
+        String position = POSITION.getString(lineOf(cursor) + 1, cursor - lineStart(lineOf(cursor)) + 1, lineStarts.size());
+        int positionWidth = Math.min(font.width(position), Math.max(1, width / 2));
+        int statusWidth = Math.max(1, width - positionWidth - 16);
+        String compact = font.plainSubstrByWidth(status, Math.max(1, statusWidth - 6));
+        if (font.width(status) > statusWidth) compact += "…";
+        g.text(font, compact, getX() + 4, bottom + 2, statusColor == 0xFFD13438 ? 0xFFFF9B9B : 0xFFBBCBE0, false);
+        g.text(font, font.plainSubstrByWidth(position, positionWidth),
+                getX() + width - positionWidth - 4, bottom + 2, 0xFFBBCBE0, false);
+        if (mouseY >= bottom && inside(mouseX, mouseY))
+            g.setTooltipForNextFrame(font, font.split(Component.literal(status + "\n" + position + "\n" + shortcutHelp),
+                    Math.max(80, Math.min(280, width - 12))), mouseX, mouseY);
+        renderSuggestions(g, mouseX, mouseY);
+        renderHover(g, mouseX, mouseY);
+    }
+
+    /** 悬停目标变化即重置计时；在文本区静止 ~0.35s 后显示文档。 */
+    private void updateHover(double mouseX, double mouseY) {
+        String next = null;
+        int offset = -1;
+        if (!dragging && scrollDrag == 0 && suggestions.isEmpty()
+                && mouseX >= getX() + GUTTER_W + PAD && mouseX < getX() + GUTTER_W + PAD + contentWidth()
+                && mouseY >= getY() + PAD && mouseY < getY() + PAD + viewHeight()) {
+            int at = offsetAt(mouseX, mouseY);
+            String word = SfmlKeywordDocs.wordAt(value, at);
+            if (word != null && SfmlKeywordDocs.lookup(word) != null) {
+                next = word;
+                offset = at;
+            }
+        }
+        long now = Util.getMillis();
+        if (next == null || !next.equals(hoverWord) || offset != hoverOffset) {
+            hoverWord = next;
+            hoverOffset = offset;
+            hoverSince = now;
+            hoverShown = false;
+        } else if (!hoverShown && now - hoverSince >= HOVER_DELAY_MS) {
+            hoverShown = true;
+        }
+    }
+
+    /** 关键词文档浮层：标题 + 当前语言说明 + 示例；贴边自动上翻，钳制在编辑器内。 */
+    private void renderHover(GuiGraphicsExtractor g, double mouseX, double mouseY) {
+        if (!hoverShown || hoverWord == null) return;
+        var entry = SfmlKeywordDocs.lookup(hoverWord);
+        if (entry == null) return;
+        boolean en = SfmlKeywordDocs.preferEnglish();
+        var text = Component.empty()
+                .append(Component.literal(hoverWord)
+                        .withStyle(style -> style.withColor(0xFF9CBEF5).withBold(true)))
+                .append("\n")
+                .append(Component.literal(entry.description(en))
+                        .withStyle(style -> style.withColor(0xFFE7EDF7)));
+        for (String example : entry.examples()) {
+            text.append("\n").append(Component.literal("- " + example)
+                    .withStyle(style -> style.withColor(0xFF8C9AAF)));
+        }
+        int wrapWidth = Math.min(HOVER_MAX_WIDTH, Math.max(90, width - 12));
+        var lines = font.split(text, wrapWidth);
+        int contentW = 0;
+        for (var line : lines) contentW = Math.max(contentW, font.width(line));
+        int boxW = Math.min(width - 4, contentW + 8);
+        int boxH = lines.size() * 10 + 6;
+        int x = Mth.clamp((int) mouseX + 6, getX() + 2, getX() + width - boxW - 2);
+        int y = (int) mouseY + 14;
+        if (y + boxH > getY() + height - 2) y = Math.max(getY() + 2, (int) mouseY - boxH - 6);
+        g.fill(x, y, x + boxW, y + boxH, 0xF51B2432);
+        border(g, x, y, boxW, boxH, 0xFF52627A);
+        int ty = y + 3;
+        for (var line : lines) {
+            g.text(font, line, x + 4, ty, 0xFFFFFFFF, false);
+            ty += 10;
+        }
+    }
+
+    private record SuggestionBox(int x, int y, int width, int count, int first) {}
+    private SuggestionBox suggestionBox() {
+        int caretY = getY() + PAD + rowOf(cursor) * LINE_H - scrollY;
+        int top = getY() + PAD, bottom = top + viewHeight();
+        int below = Math.max(0, bottom - caretY - LINE_H - 3);
+        int above = Math.max(0, caretY - top - 3);
+        boolean down = below >= above;
+        int count = Math.min(suggestions.size(), Math.max(0, ((down ? below : above) - 4) / 13));
+        int h = count * 13 + 4;
+        int w = Math.max(20, Math.min(220, width - 16));
+        int caretX = getX() + GUTTER_W + PAD + font.width(value.substring(rows.get(rowOf(cursor)).start(), cursor)) - scrollX;
+        int x = Mth.clamp(caretX, getX() + 4, getX() + width - w - 4);
+        int y = down ? caretY + LINE_H + 3 : caretY - h - 3;
+        return new SuggestionBox(x, y, w, count, Math.max(0, selectedSuggestion - count + 1));
+    }
+    private void renderSuggestions(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        if (!isFocused() || suggestions.isEmpty()) return;
+        var box = suggestionBox();
+        if (box.count() == 0) return;
+        int x = box.x(), y = box.y(), w = box.width(), h = box.count() * 13 + 4;
+        g.fill(x, y, x + w, y + h, 0xF7FFFFFF);
+        border(g, x, y, w, h, 0xFF9FB0C5);
+        for (int i = box.first(); i < box.first() + box.count(); i++) {
+            int ry = y + 2 + (i - box.first()) * 13;
+            if (i == selectedSuggestion) g.fill(x + 2, ry, x + w - 2, ry + 13, 0xFFDCE9FC);
+            String label = font.plainSubstrByWidth(suggestions.get(i).getComponent().getString(), w - 10);
+            g.text(font, label, x + 5, ry + 3, 0xFF1B2432, false);
+        }
+    }
+    private int suggestionRowAt(double mouseX, double mouseY) {
+        var box = suggestionBox();
+        if (box.count() == 0 || mouseX < box.x() || mouseX >= box.x() + box.width()
+                || mouseY < box.y() + 2 || mouseY >= box.y() + 2 + box.count() * 13) return -1;
+        return box.first() + ((int) mouseY - box.y() - 2) / 13;
+    }
+
+    @Override
+    protected void updateWidgetNarration(NarrationElementOutput output) {
+        defaultButtonNarrationText(output);
+    }
+
+    private static void border(GuiGraphicsExtractor g, int x, int y, int w, int h, int color) {
+        g.fill(x, y, x + w, y + 1, color);
+        g.fill(x, y + h - 1, x + w, y + h, color);
+        g.fill(x, y, x + 1, y + h, color);
+        g.fill(x + w - 1, y, x + w, y + h, color);
+    }
+
+    private record State(String value, int cursor, int anchor) {
+    }
+}

@@ -1,0 +1,216 @@
+package io.github.xianynomial.sfmfactorystudio.net;
+
+import ca.teamdman.sfml.ast.Side;
+import ca.teamdman.sfm.common.capability.SFMBlockCapabilityDiscovery;
+import ca.teamdman.sfm.common.capability.SFMBlockCapabilityResult;
+import ca.teamdman.sfm.common.registry.registration.SFMResourceTypes;
+import ca.teamdman.sfm.common.resourcetype.ItemResourceType;
+import io.github.xianynomial.sfmfactorystudio.SFMGui;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
+import net.neoforged.neoforge.network.PacketDistributor;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * 服务端：用 SFM 本体自己的解析路径读取目标方块的能力槽
+ * （{@link SFMBlockCapabilityDiscovery#discoverCapabilityFromLevel}——包含
+ * SFM 线缆网络提供者，SFm 看到什么这里就查到什么），按语句的侧面限定解析方向。
+ *
+ * <p>回包 state 语义：
+ * <ul>
+ * <li>{@link #STATE_OK} —— 限定方向下解析到了能力面，items/counts 即其内容；</li>
+ * <li>{@link #STATE_SIDE_FALLBACK} —— 限定方向全空，但其他朝向有：refDir 指明
+ * 实际用于编号的朝向（SFM 默认面读不到的机器，写程序需要侧面限定）；</li>
+ * <li>{@link #STATE_NO_CAPABILITY} —— 所有朝向都没有物品能力面；</li>
+ * <li>{@link #STATE_UNREACHABLE} —— 方块实体不存在或距离过远。</li>
+ * </ul>
+ * 全程只读，不改任何状态。
+ */
+public final class SlotCapabilityRequestHandler {
+    private SlotCapabilityRequestHandler() {
+    }
+
+    public static final int STATE_OK = 0;
+    public static final int STATE_SIDE_FALLBACK = 1;
+    public static final int STATE_NO_CAPABILITY = 2;
+    public static final int STATE_UNREACHABLE = -1;
+
+    /** 读取半径（格）。工厂里机器离玩家很远，放宽到 64。 */
+    private static final double MAX_DISTANCE_SQR = 64 * 64;
+
+    public static void handle(SlotCapabilityRequestPayload msg, IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            if (!(ctx.player() instanceof ServerPlayer player)) {
+                return;
+            }
+            if (!(player.level() instanceof Level level)) {
+                send(player, msg.pos(), STATE_UNREACHABLE, "", -1, new int[7], List.of(), List.of());
+                return;
+            }
+            BlockPos pos = msg.pos();
+            if (player.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5) > MAX_DISTANCE_SQR) {
+                send(player, pos, STATE_UNREACHABLE, "", -1, new int[7], List.of(), List.of());
+                return;
+            }
+            ItemResourceType itemType = SFMResourceTypes.ITEM.get();
+
+            // 客户端每次打开选择器都会发一次请求；原先用 INFO 会持续刷日志，降为 debug。
+            SFMGui.LOGGER.debug("[sfmjimu-calib] calibration request: pos {} sides {}", pos, msg.sides());
+
+            // 七个朝向各自暴露的槽位数（[0]=无侧面，1..6=down,up,north,south,west,east）
+            // ——模组机器（如 Mekanism）各朝向槽位不同，用于客户端的侧面限定引导
+            int[] dirTotals = new int[7];
+            dirTotals[0] = probeTotal(itemType, level, pos, null);
+            Direction[] worldDirs = Direction.values();
+            for (int i = 0; i < 6; i++) dirTotals[i + 1] = probeTotal(itemType, level, pos, worldDirs[i]);
+
+            // 与 SFM 本体同一套侧面解析：Side.resolve 按方块朝向换算世界方向
+            List<Direction> directions = resolveDirections(level, pos, msg.sides());
+            if (directions == null) {
+                send(player, pos, STATE_UNREACHABLE, "", -1, dirTotals, List.of(), List.of());
+                return;
+            }
+
+            // ① 限定方向顺序内找第一个有内容的能力面（SFM 遍历顺序一致）
+            for (Direction dir : directions) {
+                SFMBlockCapabilityResult<?> result =
+                        SFMBlockCapabilityDiscovery.discoverCapabilityFromLevel(level, itemType.capabilityKind(), pos, dir);
+                if (result != null && result.isPresent()) {
+                    var handler = (net.neoforged.neoforge.transfer.ResourceHandler) result.unwrap();
+                    int total = readTotal(itemType, handler);
+                    SFMGui.LOGGER.debug("[sfmjimu-calib] calibration result: pos {} state=OK refDir {} total {}", pos, dirName(dir), total);
+                    SlotContents contents = readContents(itemType, handler);
+                    send(player, pos, STATE_OK, dirName(dir), total, dirTotals,
+                            contents.items(), contents.counts());
+                    return;
+                }
+            }
+
+            // ② 限定方向全空：兜底到暴露槽位最多的朝向（所见即所得优先给全貌）
+            Direction other = bestPresentDirection(dirTotals, directions);
+            if (other == null) {
+                send(player, pos, STATE_NO_CAPABILITY, "", 0, dirTotals, List.of(), List.of());
+                return;
+            }
+            SFMBlockCapabilityResult<?> result =
+                    SFMBlockCapabilityDiscovery.discoverCapabilityFromLevel(level, itemType.capabilityKind(), pos, other);
+            if (result == null || !result.isPresent()) {
+                send(player, pos, STATE_NO_CAPABILITY, "", 0, dirTotals, List.of(), List.of());
+                return;
+            }
+            var handler = (net.neoforged.neoforge.transfer.ResourceHandler) result.unwrap();
+            SlotContents contents = readContents(itemType, handler);
+            send(player, pos, STATE_SIDE_FALLBACK, dirName(other), readTotal(itemType, handler),
+                    dirTotals, contents.items(), contents.counts());
+        });
+    }
+
+    /** 侧面名列表 → 世界方向（null = SFM 的"无侧面"查询）。 */
+    private static List<Direction> resolveDirections(Level level, BlockPos pos, String sides) {
+        try {
+            BlockState state = level.getBlockState(pos);
+            List<Direction> out = new ArrayList<>();
+            for (String name : sides.split(",")) {
+                String trimmed = name.trim().toUpperCase(Locale.ROOT);
+                if (trimmed.isEmpty()) continue;
+                out.add(Side.valueOf(trimmed).resolve(state));
+            }
+            if (out.isEmpty()) out.add(null);
+            return out;
+        } catch (Throwable t) {
+            SFMGui.LOGGER.warn("side qualifier resolve failed for {}", sides, t);
+            List<Direction> out = new ArrayList<>();
+            out.add(null);
+            return out;
+        }
+    }
+
+    /** 限定方向之外，暴露槽位最多的朝向（多个同取先出现者；用于兜底编号）。
+     *
+     *  <p>直接复用 {@code dirTotals}，不再二次探测：{@code probeTotal} 每次都要走
+     *  {@link SFMBlockCapabilityDiscovery#discoverCapabilityFromLevel}（含线缆网络解析），
+     *  而 {@code handle()} 开头已把 7 个朝向全算过一遍。索引约定：
+     *  {@code [0]} = 无侧面，{@code [1..6]} = {@code Direction.values()} 顺序。
+     */
+    private static Direction bestPresentDirection(int[] dirTotals, List<Direction> exclude) {
+        Direction best = null;
+        int bestSlots = -1;
+        for (Direction dir : Direction.values()) {
+            if (exclude.contains(dir)) continue;
+            int total = dirTotals[dir.ordinal() + 1];
+            if (total > bestSlots) {
+                bestSlots = total;
+                best = dir;
+            }
+        }
+        return best;
+    }
+
+    /** 一次遍历同时产出"物品签名 + 数量"。
+     *
+     *  <p>原来 {@code readItems} / {@code readCounts} 各遍历一遍全部槽位，
+     *  {@code getStackInSlot} 被调用 2n 次；对 AE2 这类每槽查询有实际成本的
+     *  handler 是纯浪费。取值规则与旧版逐条一致（空槽签名 ""、数量 0）。
+     */
+    private record SlotContents(List<String> items, List<Integer> counts) {
+    }
+
+    /** 单槽读取失败按空槽处理，不炸整次校准。 */
+    private static SlotContents readContents(ItemResourceType itemType,
+                                             net.neoforged.neoforge.transfer.ResourceHandler handler) {
+        int n = readTotal(itemType, handler);
+        List<String> items = new ArrayList<>(Math.max(0, n));
+        List<Integer> counts = new ArrayList<>(Math.max(0, n));
+        for (int i = 0; i < n; i++) {
+            try {
+                ItemStack stack = (ItemStack) itemType.getStackInSlot(handler, i);
+                items.add(stack == null || stack.isEmpty()
+                        ? "" : itemType.getRegistryKeyForStack(stack).toString());
+                counts.add(stack == null ? 0 : stack.getCount());
+            } catch (Throwable t) {
+                SFMGui.LOGGER.debug("capability slot {} read failed", i, t);
+                items.add("");
+                counts.add(0);
+            }
+        }
+        return new SlotContents(items, counts);
+    }
+
+    private static int readTotal(ItemResourceType itemType, net.neoforged.neoforge.transfer.ResourceHandler handler) {
+        try {
+            return Math.min(itemType.getSlots(handler), 4096);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    private static String dirName(Direction dir) {
+        return dir == null ? "null" : dir.getName();
+    }
+
+    /** 单朝向能力面槽数（-1 = 无能力面/读取失败）。只读。 */
+    private static int probeTotal(ItemResourceType itemType, Level level, BlockPos pos, Direction dir) {
+        try {
+            SFMBlockCapabilityResult<?> r =
+                    SFMBlockCapabilityDiscovery.discoverCapabilityFromLevel(level, itemType.capabilityKind(), pos, dir);
+            if (r == null || !r.isPresent()) return -1;
+            return Math.min(itemType.getSlots((net.neoforged.neoforge.transfer.ResourceHandler) r.unwrap()), 4096);
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    private static void send(ServerPlayer player, BlockPos pos, int state, String refDir,
+                             int total, int[] dirTotals, List<String> items, List<Integer> counts) {
+        PacketDistributor.sendToPlayer(player,
+                new SlotCapabilityPayload(pos, state, refDir, total, dirTotals, items, counts));
+    }
+}

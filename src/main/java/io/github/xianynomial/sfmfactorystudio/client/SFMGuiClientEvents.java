@@ -1,0 +1,225 @@
+package io.github.xianynomial.sfmfactorystudio.client;
+
+import ca.teamdman.sfm.client.screen.ManagerScreen;
+import io.github.xianynomial.sfmfactorystudio.SFMGui;
+import io.github.xianynomial.sfmfactorystudio.net.OpenEditorHelper;
+import io.github.xianynomial.sfmfactorystudio.net.PullLabelsPayload;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.neoforged.neoforge.client.network.ClientPacketDistributor;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.event.TagsUpdatedEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
+
+/**
+ * Injects addon buttons ("Visual Edit" and "Pull Labels") onto SFM's manager
+ * screen without modifying SFM. The buttons are real vanilla {@link Button}
+ * widgets rendered from the render event, so they look exactly like SFM's own
+ * buttons (user feedback: hand-drawn flat fills read as "not clickable").
+ * Clicks are still handled from the mouse event with the same bounds.
+ */
+@EventBusSubscriber(modid = SFMGui.MOD_ID, value = Dist.CLIENT)
+public final class SFMGuiClientEvents {
+    public static final Loc VISUAL_EDIT = new Loc("gui.sfmfactorystudio.manager.visual_edit", "Visual Edit");
+    public static final Loc PULL_LABELS = new Loc("gui.sfmfactorystudio.manager.pull_labels", "Pull Labels");
+
+    /** Button of the most recent screen press; JEI ghost drags read this (1 = right). */
+    public static int lastPressButton = 0;
+
+    @SubscribeEvent
+    public static void onPressPre(ScreenEvent.MouseButtonPressed.Pre event) {
+        lastPressButton = event.getButton();
+    }
+
+    @SubscribeEvent
+    public static void onTagsUpdated(TagsUpdatedEvent event) {
+        ResourceTagIndex.invalidate();
+    }
+
+    @SubscribeEvent
+    public static void onClientTick(ClientTickEvent.Post event) {
+        // 后台协调帧：资源索引预热（分帧构建）+ 编辑器存储的延迟落盘
+        ResourceIndex.clientTick();
+        io.github.xianynomial.sfmfactorystudio.client.blocks.model.EditorFileStore.tickAll();
+        maybeAutoOpenDebugScreen();
+    }
+
+    /**
+     * 调试用：-Dsfmfactorystudio.autoOpenScreen=tps 启动后自动打开我们的界面，
+     * 便于在无人值守（自动截图）的情况下验证渲染是否正常。默认不执行。
+     */
+    private static boolean debugScreenOpened = false;
+    /** 打开界面后等多少帧再截图（让界面稳定绘制几帧）。 */
+    private static int debugShotCountdown = -1;
+
+    private static void maybeAutoOpenDebugScreen() {
+        if (debugScreenOpened) return;
+        String which = System.getProperty("sfmfactorystudio.autoOpenScreen");
+        if (which == null || which.isBlank()) return;
+        var mc = net.minecraft.client.Minecraft.getInstance();
+        // 只在主菜单就绪时替换，避免和玩家操作抢界面
+        if (!(mc.screen instanceof net.minecraft.client.gui.screens.TitleScreen)) return;
+        try {
+            if ("tps".equals(which)) {
+                mc.setScreen(new TpsSettingsScreen(null));
+                debugScreenOpened = true;
+                debugShotCountdown = 20;
+                SFMGui.LOGGER.info("[debug] auto-opened TpsSettingsScreen");
+            }
+        } catch (Throwable t) {
+            SFMGui.LOGGER.error("[debug] auto-open failed", t);
+            debugScreenOpened = true;
+        }
+    }
+
+    /**
+     * 用 MC 自己的截图 API（离屏渲染，不受窗口遮挡影响）。
+     * 在 ScreenEvent.Render.Post 触发——此时 RenderTarget 里已是"带我们界面"的当前帧。
+     */
+    /** 是否已为当前编辑器会话安排过截图。 */
+    private static boolean editorShotArmed = false;
+
+    private static void maybeTakeDebugScreenshot(net.minecraft.client.gui.screens.Screen screen) {
+        // 开发辅助：-PautoShotEditor=true 时，进入编辑器等 15 帧
+        // （让引导 overlay 稳定）自动截一张，供开发者自查布局。
+        if (Boolean.getBoolean("sfmfactorystudio.autoShotEditor")) {
+            if (screen instanceof io.github.xianynomial.sfmfactorystudio.client.blocks.BlockEditorScreen) {
+                if (!editorShotArmed) {
+                    editorShotArmed = true;
+                    debugShotCountdown = 15;
+                }
+            } else {
+                editorShotArmed = false;
+            }
+        }
+        if (debugShotCountdown <= 0) return;
+        if (!(screen instanceof TpsSettingsScreen)
+                && !(screen instanceof io.github.xianynomial.sfmfactorystudio.client.blocks.BlockEditorScreen)) return;
+        if (--debugShotCountdown > 0) return;
+        try {
+            var mc = net.minecraft.client.Minecraft.getInstance();
+            net.minecraft.client.Screenshot.grab(
+                    mc.gameDirectory,
+                    "sfmstudio-debug",
+                    mc.getMainRenderTarget(),
+                    1,
+                    c -> SFMGui.LOGGER.info("[debug] screenshot: {}", c.getString()));
+        } catch (Throwable t) {
+            SFMGui.LOGGER.error("[debug] screenshot failed", t);
+        }
+    }
+
+    // Match SFM's left button column: x = guiLeft - 120, w = 120, h = 16. The two
+    // addon buttons sit stacked in the 34px gap between SFM's "Paste from clipboard"
+    // (bottom at guiTop+32) and "Edit" (top at guiTop+66) buttons.
+    private static final int BTN_W = 120;
+    private static final int BTN_H = 16;
+    private static final int COL_DX = 120; // left column offset from guiLeft
+
+    /** Render-only vanilla widgets; lazily (re)created at render time so the buttons
+     *  exist for EVERY ManagerScreen render, however the screen came back — user report:
+     *  after opening SFM's own editor and returning, Init-only creation left them gone. */
+    private static Button visualBtn;
+    private static Button pullBtn;
+    private static AbstractContainerScreen<?> lastScreen;
+
+    private SFMGuiClientEvents() {
+    }
+
+    /**
+     * 26.1.2 移除了 getGuiLeft()/getGuiTop() 这两个 public getter，但
+     * AbstractContainerScreen 里 {@code protected int leftPos/topPos} 字段还在。
+     * 用 accessor mixin（AbstractContainerScreenAccessor）直接读字段，
+     * 定位与 1.21.1 完全一致：x = guiLeft - 120，y = guiTop + 32 / + 49。
+     */
+    private static int guiLeft(AbstractContainerScreen<?> s) {
+        return ((io.github.xianynomial.sfmfactorystudio.mixin.AbstractContainerScreenAccessor) s)
+                .sfmfactorystudio$leftPos();
+    }
+
+    private static int guiTop(AbstractContainerScreen<?> s) {
+        return ((io.github.xianynomial.sfmfactorystudio.mixin.AbstractContainerScreenAccessor) s)
+                .sfmfactorystudio$topPos();
+    }
+
+    private static int colX(AbstractContainerScreen<?> s) {
+        return guiLeft(s) - COL_DX;
+    }
+
+    /** Visual-edit button: first of the two, at guiTop + 32. */
+    private static int visualY(AbstractContainerScreen<?> s) {
+        return guiTop(s) + 32;
+    }
+
+    /** Pull-labels button: stacked directly below the first one. */
+    private static int pullY(AbstractContainerScreen<?> s) {
+        return guiTop(s) + 49;
+    }
+
+    @SubscribeEvent
+    public static void onRenderPost(ScreenEvent.Render.Post event) {
+        // 调试截图：必须放在 ManagerScreen 早退之前，否则非管理器界面永远截不到
+        maybeTakeDebugScreenshot(event.getScreen());
+        if (!(event.getScreen() instanceof ManagerScreen ms)) {
+            visualBtn = null;
+            pullBtn = null;
+            lastScreen = null;
+            return;
+        }
+        if (visualBtn == null || pullBtn == null || lastScreen != ms) {
+            int x = colX(ms);
+            visualBtn = Button.builder(VISUAL_EDIT.getComponent(), b -> {
+            }).bounds(x, visualY(ms), BTN_W, BTN_H).build();
+            pullBtn = Button.builder(PULL_LABELS.getComponent(), b -> {
+            }).bounds(x, pullY(ms), BTN_W, BTN_H).build();
+            lastScreen = ms;
+        }
+        // A resize reinitializes the same screen instance; keep drawing and hit bounds together.
+        visualBtn.setPosition(colX(ms), visualY(ms));
+        pullBtn.setPosition(colX(ms), pullY(ms));
+        visualBtn.extractRenderState(event.getGuiGraphics(), event.getMouseX(), event.getMouseY(), event.getPartialTick());
+        pullBtn.extractRenderState(event.getGuiGraphics(), event.getMouseX(), event.getMouseY(), event.getPartialTick());
+        // 专属标识（用户反馈：要能和原生按钮区分）——左缘竖向强调条，与编辑器卡片的左色条同一视觉语言；
+        // 淡蓝取 C_SELECT_SOFT（#8DB0F5，选中边框同款），符合整体 UI（用户反馈：淡蓝）
+        GuiGraphicsExtractor g = event.getGuiGraphics();
+        int x = colX(ms);
+        g.fill(x + 2, visualY(ms) + 2, x + 5, visualY(ms) + BTN_H - 2, 0xFF8DB0F5);
+        g.fill(x + 2, pullY(ms) + 2, x + 5, pullY(ms) + BTN_H - 2, 0xFF8DB0F5);
+    }
+
+    @SubscribeEvent
+    public static void onMousePressedPre(ScreenEvent.MouseButtonPressed.Pre event) {
+        if (!(event.getScreen() instanceof ManagerScreen ms)) {
+            return;
+        }
+        if (event.getButton() != 0) {
+            return;
+        }
+        double mx = event.getMouseX(), my = event.getMouseY();
+        int x = colX(ms);
+        if (inside(mx, my, x, visualY(ms))) {
+            try {
+                OpenEditorHelper.open(ms);
+            } catch (Throwable t) {
+                SFMGui.LOGGER.error("Failed to open visual editor", t);
+            }
+            event.setCanceled(true);
+        } else if (inside(mx, my, x, pullY(ms))) {
+            try {
+                ClientPacketDistributor.sendToServer(new PullLabelsPayload(ms.getMenu().MANAGER_POSITION));
+            } catch (Throwable t) {
+                SFMGui.LOGGER.error("Failed to pull labels", t);
+            }
+            event.setCanceled(true);
+        }
+    }
+
+    private static boolean inside(double mx, double my, int x, int y) {
+        return mx >= x && mx <= x + BTN_W && my >= y && my <= y + BTN_H;
+    }
+}

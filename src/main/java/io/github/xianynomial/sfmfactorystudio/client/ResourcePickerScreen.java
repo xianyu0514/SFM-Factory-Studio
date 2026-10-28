@@ -1,0 +1,370 @@
+package io.github.xianynomial.sfmfactorystudio.client;
+
+import io.github.xianynomial.sfmfactorystudio.client.Loc;
+
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BProgram;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Consumer;
+
+/**
+ * Built-in fallback resource catalog used when JEI is not installed (with JEI,
+ * players drag from JEI's own list instead). Light glass theme: searchable icon
+ * grid. The resource category is chosen before this screen opens, so this page
+ * never mixes category selection with concrete resources.
+ *
+ * 两种模式：
+ * 单选（legacy）——点击物品立即返回；
+ * 多选（multiPick != null）——左键点击即选中（再点取消）、左键按住拖动框选
+ * 扫过的一切，绿色描边标记已选，底部「完成」一次性提交整组（语义=「和」
+ * 备选链，SFML or 连接）。多选模式永不自动关闭。
+ */
+public class ResourcePickerScreen extends Screen {
+    private static final Loc SEARCH = new Loc("gui.sfmfactorystudio.blocks.picker.search", "搜索...");
+    private static final Loc TITLE = new Loc("gui.sfmfactorystudio.blocks.picker.title", "选择%s");
+    private static final Loc COUNT = new Loc("gui.sfmfactorystudio.blocks.picker.count", "%s 项");
+    private static final Loc CANCEL = new Loc("gui.sfmfactorystudio.blocks.close", "关闭");
+    private static final Loc DONE = new Loc("gui.sfmfactorystudio.blocks.picker.done", "完成");
+    private static final Loc CLEAR = new Loc("gui.sfmfactorystudio.blocks.picker.clear", "清空");
+    private static final Loc MULTI_HINT = new Loc("gui.sfmfactorystudio.blocks.picker.multi_hint", "左键点击选中 · 按住拖动框选 · 点「完成」添加");
+
+    private static final int CELL = 22;
+    private static final int COLS = 11;
+    /** 已选项的绿色描边（与单选蓝区分：绿=攒着一组，蓝=即选即走）。 */
+    private static final int GREEN = 0xFF0C8F58;
+
+    private final Screen previousScreen;
+    private final BProgram.ResourceKind resourceKind;
+    private final Consumer<String> onPick;
+    @Nullable
+    private final Consumer<List<String>> multiPick;
+    private final LinkedHashSet<String> multiSelected = new LinkedHashSet<>();
+
+    private final List<ResourceIndex.Entry> filtered = new ArrayList<>();
+    private EditBox searchBox;
+    private int scrollRow = 0;
+    private ResourceIndex.Entry hoveredEntry;
+    // 多选拖动状态：pressIndex = 按下的格子（-1 无）；bandDragging = 已进入框选；
+    // pressWasSelected = 按下时是否已选中（纯点击松手=取消选中；拖动则保持选中并框选）
+    private int pressIndex = -1;
+    private int bandAnchor = -1;
+    private boolean bandDragging = false;
+    private int bandCursor = -1;
+    private boolean pressWasSelected = false;
+
+    public ResourcePickerScreen(Screen previousScreen, BProgram.ResourceKind resourceKind, Consumer<String> onPick) {
+        this(previousScreen, resourceKind, onPick, null);
+    }
+
+    /** 多选模式：完成时回调整组 id（保序）。 */
+    public ResourcePickerScreen(Screen previousScreen, BProgram.ResourceKind resourceKind,
+                                Consumer<String> onPick, @Nullable Consumer<List<String>> multiPick) {
+        super(Component.literal(TITLE.getString(resourceKind.chineseName())));
+        this.previousScreen = previousScreen;
+        this.resourceKind = resourceKind;
+        this.onPick = onPick;
+        this.multiPick = multiPick;
+    }
+
+    private boolean multi() {
+        return multiPick != null;
+    }
+
+    private int gridLeft() {
+        return this.width / 2 - (COLS * CELL) / 2;
+    }
+
+    private int gridTop() {
+        return multi() ? 66 : 54;
+    }
+
+    private int visibleRows() {
+        return Math.max(1, (this.height - gridTop() - 44) / CELL);
+    }
+
+    @Override
+    protected void init() {
+        searchBox = new EditBox(this.font, this.width / 2 - 110, 26, 220, 16, Component.empty());
+        searchBox.setMaxLength(128);
+        searchBox.setBordered(false);
+        searchBox.setTextColor(0xFF1B2432);
+        searchBox.setTextShadow(false);
+        searchBox.setHint(Component.literal(SEARCH.getString()));
+        searchBox.setResponder(s -> applyFilter());
+        this.addRenderableWidget(searchBox);
+        this.setInitialFocus(searchBox);
+        applyFilter();
+    }
+
+    private void applyFilter() {
+        String raw = searchBox.getValue().trim().toLowerCase(Locale.ROOT);
+        filtered.clear();
+        for (ResourceIndex.Entry entry : ResourceIndex.forKind(resourceKind)) {
+            if (raw.isEmpty()
+                    || entry.searchText().contains(raw)
+                    || PinyinSearch.matchesNormalized(entry.displayName(), raw)) {
+                filtered.add(entry);
+            }
+        }
+        scrollRow = 0;
+    }
+
+    @Override
+    public void extractTransparentBackground(GuiGraphicsExtractor graphics) {
+        // opaque light backdrop: no vanilla blur, no world show-through
+    }
+
+    @Override
+    public void extractRenderState(GuiGraphicsExtractor graphics, int mx, int my, float partialTick) {
+        hoveredEntry = null;
+        graphics.fill(0, 0, this.width, this.height, 0xFFF2F4F8);
+        drawCentered(graphics, this.title.getString(), this.width / 2, 10, 0xFF1B2432);
+        graphics.fill(this.width / 2 - 114, 23, this.width / 2 + 114, 45, 0xFFFFFFFF);
+        border(graphics, this.width / 2 - 114, 23, 228, 22, 0xFFD9DFEA);
+        if (multi()) {
+            drawCentered(graphics, MULTI_HINT.getString(), this.width / 2, 52, 0xFF6B7688);
+        }
+
+        renderGrid(graphics, mx, my);
+        int bottom = this.height - 24;
+        if (multi()) {
+            drawCentered(graphics, COUNT.getString(filtered.size()) + " · " + DONE.getString()
+                    + "(" + multiSelected.size() + ")", this.width / 2, this.height - 38, 0xFF6B7688);
+            button(graphics, mx, my, this.width / 2 - 118, bottom, 70, CLEAR.getString(), 0xFF5B6472, this::clearMulti);
+            button(graphics, mx, my, this.width / 2 - 42, bottom, 84,
+                    DONE.getString() + "(" + multiSelected.size() + ")", GREEN, this::commitMulti);
+            button(graphics, mx, my, this.width / 2 + 48, bottom, 70, CANCEL.getString(), 0xFF1B2432, this::onClose);
+        } else {
+            drawCentered(graphics, COUNT.getString(filtered.size()), this.width / 2,
+                    this.height - 38, 0xFF6B7688);
+            button(graphics, mx, my, this.width / 2 - 50, bottom, 100, CANCEL.getString(), 0xFF1B2432, this::onClose);
+        }
+        super.extractRenderState(graphics, mx, my, partialTick);
+        if (hoveredEntry != null) {
+            graphics.setTooltipForNextFrame(this.font, List.of(
+                    Component.literal(hoveredEntry.displayName()),
+                    Component.literal(hoveredEntry.sfmlId())), java.util.Optional.empty(), mx, my);
+        }
+    }
+
+    private void button(GuiGraphicsExtractor g, int mx, int my, int x, int y, int w, String label, int color, Runnable action) {
+        boolean hover = mx >= x && mx < x + w && my >= y && my < y + 18;
+        g.fill(x, y, x + w, y + 18, hover ? 0xFFE2E8F2 : 0xFFFFFFFF);
+        border(g, x, y, w, 18, 0xFFD9DFEA);
+        drawCentered(g, label, x + w / 2, y + 5, color);
+    }
+
+    private void clearMulti() {
+        multiSelected.clear();
+    }
+
+    private void commitMulti() {
+        if (multiPick == null) return;
+        if (multiSelected.isEmpty()) {
+            onClose();
+            return;
+        }
+        multiPick.accept(new ArrayList<>(multiSelected));
+        Minecraft.getInstance().setScreen(previousScreen);
+    }
+
+    /** 框选拖动时画半透明选区矩形（格对齐）。 */
+    private void renderBand(GuiGraphicsExtractor g, int left, int top) {
+        if (!bandDragging || bandAnchor < 0 || bandCursor < 0) return;
+        int[] a = cellRect(bandAnchor, left, top);
+        int[] b = cellRect(bandCursor, left, top);
+        if (a == null || b == null) return;
+        int x1 = Math.min(a[0], b[0]), y1 = Math.min(a[1], b[1]);
+        int x2 = Math.max(a[0], b[0]) + CELL, y2 = Math.max(a[1], b[1]) + CELL;
+        g.fill(x1, y1, x2, y2, 0x300C8F58);
+        border(g, x1, y1, x2 - x1, y2 - y1, GREEN);
+    }
+
+    private int @Nullable [] cellRect(int index, int left, int top) {
+        int i = index - scrollRow * COLS;
+        if (i < 0) return null;
+        int cx = left + (i % COLS) * CELL;
+        int cy = top + (i / COLS) * CELL;
+        return new int[]{cx, cy};
+    }
+
+    private void renderGrid(GuiGraphicsExtractor g, int mx, int my) {
+        int left = gridLeft();
+        int top = gridTop();
+        int rows = visibleRows();
+        g.fill(left - 3, top - 3, left + COLS * CELL + 3, top + rows * CELL + 3, 0xFFFFFFFF);
+        border(g, left - 3, top - 3, COLS * CELL + 6, rows * CELL + 6, 0xFFD9DFEA);
+        for (int i = 0; i < rows * COLS; i++) {
+            int index = scrollRow * COLS + i;
+            if (index >= filtered.size()) break;
+            ResourceIndex.Entry entry = filtered.get(index);
+            int cx = left + (i % COLS) * CELL;
+            int cy = top + (i / COLS) * CELL;
+            boolean over = mx >= cx && mx < cx + CELL && my >= cy && my < cy + CELL;
+            boolean picked = multiSelected.contains(entry.sfmlId());
+            g.fill(cx + 1, cy + 1, cx + CELL - 1, cy + CELL - 1, over ? 0x502F6FED : 0x90606B7E);
+            ResourceIndex.renderIcon(g, this.font, entry, cx + 3, cy + 3);
+            if (picked) {
+                // 绿色描边 + 右下角小圆点双标记（描边在拖动中也醒目）
+                border(g, cx, cy, CELL, CELL, GREEN);
+                border(g, cx + 1, cy + 1, CELL - 2, CELL - 2, GREEN);
+                g.fill(cx + CELL - 6, cy + CELL - 6, cx + CELL - 3, cy + CELL - 3, GREEN);
+            }
+            if (over) hoveredEntry = entry;
+        }
+        renderBand(g, left, top);
+        // scrollbar
+        int totalRows = (filtered.size() + COLS - 1) / COLS;
+        if (totalRows > rows) {
+            int barH = Math.max(16, rows * CELL * rows / totalRows);
+            int barY = top + (rows * CELL - barH) * scrollRow / Math.max(1, totalRows - rows);
+            g.fill(left + COLS * CELL + 3, barY, left + COLS * CELL + 5, barY + barH, 0xFFB9C4D2);
+        }
+    }
+
+    private int cellIndexAt(double mx, double my) {
+        int left = gridLeft();
+        int top = gridTop();
+        int rows = visibleRows();
+        if (mx < left || mx >= left + COLS * CELL || my < top || my >= top + rows * CELL) return -1;
+        int col = (int) ((mx - left) / CELL);
+        int row = (int) ((my - top) / CELL);
+        int index = scrollRow * COLS + row * COLS + col;
+        return index >= 0 && index < filtered.size() ? index : -1;
+    }
+
+    @Override
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        double mx = event.x(); double my = event.y(); int button = event.button();
+        int modifiers = event.modifiers();
+        if (super.mouseClicked(event, doubleClick)) return true;
+        if (button != 0) return true;
+
+        int index = cellIndexAt(mx, my);
+        if (index >= 0) {
+            ResourceIndex.Entry entry = filtered.get(index);
+            int cx = gridLeft() + ((index - scrollRow * COLS) % COLS) * CELL;
+            int cy = gridTop() + ((index - scrollRow * COLS) / COLS) * CELL;
+            if (multi()) {
+                // 左键直接选中（无需快捷键/角标）；已选中项纯点击（松手未拖动）才取消。
+                // 按住拖动=从这格开始框选。
+                pressIndex = index;
+                pressWasSelected = multiSelected.contains(entry.sfmlId());
+                multiSelected.add(entry.sfmlId());
+                bandAnchor = index;
+                bandDragging = false;
+                bandCursor = index;
+                return true;
+            }
+            onPick.accept(entry.sfmlId());
+            Minecraft.getInstance().setScreen(previousScreen);
+            return true;
+        }
+        pressIndex = -1;
+        bandDragging = false;
+
+        // bottom buttons (multi mode)
+        if (multi()) {
+            int bottom = this.height - 24;
+            if (mx >= this.width / 2 - 118 && mx < this.width / 2 - 48 && my >= bottom && my < bottom + 18) {
+                clearMulti();
+                return true;
+            }
+            if (mx >= this.width / 2 - 42 && mx < this.width / 2 + 42 && my >= bottom && my < bottom + 18) {
+                commitMulti();
+                return true;
+            }
+            if (mx >= this.width / 2 + 48 && mx < this.width / 2 + 118 && my >= bottom && my < bottom + 18) {
+                onClose();
+                return true;
+            }
+        } else if (mx >= this.width / 2 - 50 && mx < this.width / 2 + 50
+                && my >= this.height - 24 && my < this.height - 6) {
+            onClose();
+            return true;
+        }
+        return super.mouseClicked(event, doubleClick);
+    }
+
+    @Override
+    public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
+        double mx = event.x(); double my = event.y(); int button = event.button();
+        int modifiers = event.modifiers();
+        if (multi() && pressIndex >= 0 && button == 0) {
+            int cur = cellIndexAt(mx, my);
+            if (cur < 0) return true;
+            if (!bandDragging && cur != pressIndex) bandDragging = true;
+            bandCursor = cur;
+            if (bandDragging) {
+                // 矩形框选：锚点格与当前格之间的整片区域全部加入。
+                // 拖动中滚轮会改 scrollRow，相对行/列可能为负——用 floorMod 保证
+                // 行列号不出错（负数取模会把列算成负、选错一片）
+                int ac = Math.floorMod(bandAnchor - scrollRow * COLS, COLS), ar = Math.floorDiv(bandAnchor - scrollRow * COLS, COLS);
+                int cc = Math.floorMod(cur - scrollRow * COLS, COLS), cr = Math.floorDiv(cur - scrollRow * COLS, COLS);
+                int c1 = Math.min(ac, cc), c2 = Math.max(ac, cc);
+                int r1 = Math.min(ar, cr), r2 = Math.max(ar, cr);
+                for (int r = Math.max(0, r1); r <= r2; r++) {
+                    for (int c = c1; c <= c2; c++) {
+                        int idx = scrollRow * COLS + r * COLS + c;
+                        if (idx >= 0 && idx < filtered.size()) multiSelected.add(filtered.get(idx).sfmlId());
+                    }
+                }
+            }
+            return true;
+        }
+        return super.mouseDragged(event, dx, dy);
+    }
+
+    @Override
+    public boolean mouseReleased(MouseButtonEvent event) {
+        double mx = event.x(); double my = event.y(); int button = event.button();
+        int modifiers = event.modifiers();
+        if (multi() && pressIndex >= 0 && button == 0) {
+            // 纯点击一个已选中项 = 取消选中（拖动过则保持，框选只加不减）
+            if (!bandDragging && pressWasSelected) {
+                multiSelected.remove(filtered.get(pressIndex).sfmlId());
+            }
+            pressIndex = -1;
+            bandAnchor = -1;
+            bandDragging = false;
+            bandCursor = -1;
+            return true;
+        }
+        return super.mouseReleased(event);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
+        int totalRows = (filtered.size() + COLS - 1) / COLS;
+        int maxScroll = Math.max(0, totalRows - visibleRows());
+        scrollRow = Mth.clamp(scrollRow - (int) Math.signum(scrollY), 0, maxScroll);
+        return true;
+    }
+
+    @Override
+    public void onClose() {
+        Minecraft.getInstance().setScreen(previousScreen);
+    }
+
+    private static void border(GuiGraphicsExtractor g, int x, int y, int w, int h, int color) {
+        g.fill(x, y, x + w, y + 1, color);
+        g.fill(x, y + h - 1, x + w, y + h, color);
+        g.fill(x, y, x + 1, y + h, color);
+        g.fill(x + w - 1, y, x + w, y + h, color);
+    }
+
+    private void drawCentered(GuiGraphicsExtractor g, String text, int centerX, int y, int color) {
+        g.text(font, text, centerX - font.width(text) / 2, y, color, false);
+    }
+}

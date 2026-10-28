@@ -1,0 +1,293 @@
+package io.github.xianynomial.sfmfactorystudio.client;
+import io.github.xianynomial.sfmfactorystudio.client.Loc;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.ComponentNames;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Consumer;
+/**
+ * NBT 组件可视化选择器：只列背包里真实持有的物品堆（注册表物品只有默认
+ * 组件、没有实际 NBT，列出来全是死内容——2026-09-09 用户拍板取消「全部物品」
+ * 页签）。选中物品后列出其全部非默认数据组件（中文名 + 值预览），点选回调
+ * 完整目标（组件id[/选择器]，冒号写点）。输入分发 super 优先。
+ */
+public class NbtItemPickerScreen extends Screen {
+    private static final int SLOT = 20, COLS = 12, GRID_W = COLS * SLOT;
+    private static final int PANEL_W = GRID_W + 24, ROW_H = 18;
+    // 行距大幅拉开，各层绝不重叠
+    private static final int PANEL_TOP = 40;
+    private static final int TAB_Y = 56;      // 返回链接行（面板顶+16）
+    private static final int SEARCH_Y = 84;   // 搜索框（+28）
+    private static final int CONTENT_Y = 116; // 内容区（搜索+32）
+    /** 可见行数跟着窗口高度走，大屏多显示、小屏也不至于挤没。 */
+    private int maxRows() {
+        int byHeight = (this.height - CONTENT_Y - 60) / Math.max(ROW_H, SLOT);
+        return Math.max(6, Math.min(16, byHeight));
+    }
+
+    private final Screen parent;
+    private final Consumer<String> onPick;
+    private final List<ItemStack> inventory = new ArrayList<>();
+    private List<ItemStack> shownItems = new ArrayList<>();
+    private record PickRow(String display, String target) {}
+    private final List<PickRow> pickRows = new ArrayList<>();
+    private boolean componentPage = false;
+    private ItemStack selected = ItemStack.EMPTY;
+    private EditBox search;
+    private String query = "";
+    private int itemScroll = 0, compScroll = 0;
+    public NbtItemPickerScreen(Screen parent, Consumer<String> onPick) {
+        super(Component.literal(new Loc("gui.sfmfactorystudio.nbt.title", "选择 NBT 组件").getString()));
+        this.parent = parent;
+        this.onPick = onPick;
+        var player = Minecraft.getInstance().player;
+        if (player != null) {
+            var inv = player.getInventory();
+            for (int i = 0; i < inv.getContainerSize(); i++) {
+                ItemStack s = inv.getItem(i);
+                if (!s.isEmpty()) inventory.add(s.copy());
+            }
+        }
+    }
+
+    @Override
+    protected void init() {
+        int px = panelX();
+        search = new EditBox(this.font, px + 8, SEARCH_Y, PANEL_W - 16, 14, Component.literal(""));
+        search.setBordered(false); // 去掉 EditBox 黑色边框——它的自绘背景会盖住我们的面板
+        search.setTextColor(0xFF1B2432);
+        search.setHint(Component.literal(new Loc("gui.sfmfactorystudio.nbt.hint", "搜索物品名称或拼音…").getString()));
+        search.setResponder(q -> {
+            query = q.trim().toLowerCase(Locale.ROOT);
+            itemScroll = 0;
+            compScroll = 0;
+            refilter();
+        });
+        addRenderableWidget(search);
+        setInitialFocus(search);
+        refilter();
+    }
+
+    private int panelX() { return Math.max(4, width / 2 - PANEL_W / 2); }
+    private void refilter() {
+        shownItems = new ArrayList<>();
+        if (query.isEmpty()) { shownItems.addAll(inventory); return; }
+        for (ItemStack s : inventory) {
+            String name = s.getHoverName().getString();
+            if (name.toLowerCase(Locale.ROOT).contains(query)
+                    || PinyinSearch.matchesNormalized(name, query)) shownItems.add(s);
+        }
+    }
+
+    private void openComponents(ItemStack stack) {
+        selected = stack;
+        pickRows.clear();
+        componentPage = true;
+        compScroll = 0;
+        BuiltInRegistries.DATA_COMPONENT_TYPE.forEach(type -> {
+            if (io.github.xianynomial.sfmfactorystudio.net.NbtMatcherHook.hasNonDefault(stack, type)) {
+                String id = String.valueOf(BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(type));
+                Object value = stack.getComponents().get(type);
+                if (value instanceof net.minecraft.world.item.enchantment.ItemEnchantments ench) {
+                    for (var e : ench.entrySet()) {
+                        var k = e.getKey().unwrapKey();
+                        if (k.isEmpty()) continue;
+                        var fullLoc = k.get().identifier();
+                        // minecraft 命名空间→纯路径；其他→ns__path（双下划线编码命名空间）
+                        String target = fullLoc.getNamespace().equals("minecraft")
+                                ? fullLoc.getPath()
+                                : fullLoc.getNamespace() + "__" + fullLoc.getPath();
+                        String name = Component.translatable(
+                                "enchantment." + fullLoc.getNamespace() + "." + fullLoc.getPath()).getString();
+                        pickRows.add(new PickRow(
+                                ComponentNames.display(id) + " · " + name + " " + e.getValue(),
+                                id + "/" + target));
+                    }
+                } else if (value instanceof net.minecraft.world.item.alchemy.PotionContents pc) {
+                    pc.potion().ifPresent(h -> {
+                        var k = BuiltInRegistries.POTION.getKey(h.value());
+                        if (k != null) {
+                            String target = k.getNamespace().equals("minecraft")
+                                    ? k.getPath()
+                                    : k.getNamespace() + "__" + k.getPath();
+                            pickRows.add(new PickRow(
+                                    ComponentNames.display(id) + " · " + k.getPath(),
+                                    id + "/" + target));
+                        }
+                    });
+                } else if (value instanceof net.minecraft.world.item.component.CustomData data) {
+                    var tag = data.copyTag();
+                    for (String key : tag.keySet()) {
+                        if (pickRows.size() > 30) break;
+                        String leaf;
+                        var t = tag.get(key);
+                        if (t instanceof net.minecraft.nbt.NumericTag n) leaf = " = " + n.longValue();
+                        else if (t instanceof net.minecraft.nbt.StringTag st) leaf = " = " + st.value();
+                        else leaf = "";
+                        // 点号编码为 __（下划线保持原样，不再歧义）
+                        pickRows.add(new PickRow(
+                                ComponentNames.display(id) + " · " + key + leaf,
+                                id + "/" + key.replace(".", "__")));
+                    }
+                } else if (value instanceof Component text) {
+                    String raw = text.getString();
+                    // 名称可编码（纯字母数字）→ 精确匹配该名称；含中文/符号 → 存在性
+                    String encoded = io.github.xianynomial.sfmfactorystudio.net.NbtMatcherHook.encodeNameMatcher(raw);
+                    String target = encoded == null ? id : id + "/" + encoded;
+                    String t = raw.length() > 18 ? raw.substring(0, 18) + "…" : raw;
+                    String mark = encoded == null ? "" : new Loc("gui.sfmfactorystudio.nbt.by_name", "（按此名称）").getString();
+                    pickRows.add(new PickRow(ComponentNames.display(id) + " · " + t + mark, target));
+                } else {
+                    String pv = ComponentNames.preview(type, stack);
+                    pickRows.add(new PickRow(
+                            pv.isEmpty() ? ComponentNames.display(id)
+                                    : ComponentNames.display(id) + " · " + pv,
+                            id));
+                }
+            }
+        });
+    }
+
+    private static void rounded(GuiGraphicsExtractor g, int x, int y, int w, int h, int r, int color) {
+        if (r <= 0 || w < r * 2 || h < r * 2) { g.fill(x, y, x + w, y + h, color); return; }
+        g.fill(x + 1, y, x + w - 1, y + h, color);
+        g.fill(x, y + 1, x + w, y + h - 1, color);
+    }
+
+    @Override
+    public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float partialTick) {
+        g.fill(0, 0, width, height, 0x90000000);
+        int px = panelX();
+        int rows = Math.min(maxRows(), (shownItems.size() + COLS - 1) / COLS);
+        // 组件页可见行数封顶（超长组件列表不再把面板撑出屏幕底），滚轮才能真正滚动
+        int compRows = Math.max(1, Math.min(maxRows(), pickRows.size()));
+        int panelH = componentPage
+                ? CONTENT_Y - PANEL_TOP + compRows * ROW_H + 16
+                : CONTENT_Y - PANEL_TOP + rows * SLOT + 16;
+        g.fill(px + 3, PANEL_TOP + 3, px + PANEL_W + 3, PANEL_TOP + panelH + 3, 0x30203A5A);
+        g.fill(px, PANEL_TOP, px + PANEL_W, PANEL_TOP + panelH, 0xFFF6F8FC);
+        g.fill(px, PANEL_TOP, px + PANEL_W, PANEL_TOP + 1, 0xFFC9D4E2);
+        g.fill(px, PANEL_TOP + panelH - 1, px + PANEL_W, PANEL_TOP + panelH, 0xFFC9D4E2);
+        g.fill(px, PANEL_TOP, px + 1, PANEL_TOP + panelH, 0xFFC9D4E2);
+        g.fill(px + PANEL_W - 1, PANEL_TOP, px + PANEL_W, PANEL_TOP + panelH, 0xFFC9D4E2);
+        if (componentPage) {
+            g.text(font, new Loc("gui.sfmfactorystudio.nbt.comp_count", "%s 的 NBT（%s 项）")
+                    .getString(selected.getHoverName().getString(), pickRows.size()),
+                    px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
+            g.text(font, new Loc("gui.sfmfactorystudio.nbt.back", "← 返回选物品").getString(), px + 10, TAB_Y, 0xFF2F6FED, false);
+            g.fill(px + 8, TAB_Y + 16, px + PANEL_W - 8, TAB_Y + 17, 0xFFE0E5EC); // 分隔线
+            // 可见行数封顶（超长组件列表不再把面板撑出屏幕），滚轮才能真正滚动
+            int visible = Math.min(maxRows(), pickRows.size()); // 空列表必须为 0，否则下面 get(0) 越界
+            compScroll = Math.min(compScroll, Math.max(0, pickRows.size() - visible));
+            for (int i = 0; i < visible; i++) {
+                PickRow row = pickRows.get(compScroll + i);
+                int ry = CONTENT_Y + i * ROW_H;
+                boolean hover = mx >= px + 4 && mx < px + PANEL_W - 4 && my >= ry && my < ry + ROW_H;
+                g.fill(px + 4, ry, px + PANEL_W - 4, ry + ROW_H, hover ? 0xFFF1F4F9 : 0xFFFFFFFF);
+                g.fill(px + 8, ry + 6, px + 11, ry + 10, 0xFF8B5CF6);
+                g.text(font, font.plainSubstrByWidth(row.display(), PANEL_W - 32),
+                        px + 15, ry + 4, 0xFF1B2432, false);
+            }
+            if (pickRows.isEmpty()) {
+                String empty = new Loc("gui.sfmfactorystudio.nbt.empty_item", "这件物品没有 NBT 数据，换一件试试").getString();
+                g.text(font, empty, px + PANEL_W / 2 - font.width(empty) / 2,
+                        CONTENT_Y + 5, 0xFFB45309, false);
+            }
+        } else {
+            g.text(font, new Loc("gui.sfmfactorystudio.nbt.pick_prompt", "选择一件身上有的物品，查看它的 NBT").getString(), px + 10, PANEL_TOP + 6, 0xFF1B2432, false);
+            int gridRows = (shownItems.size() + COLS - 1) / COLS;
+            int visibleRows = Math.min(maxRows(), gridRows);
+            itemScroll = Math.min(itemScroll, Math.max(0, gridRows - visibleRows));
+            for (int r = 0; r < visibleRows; r++) for (int c = 0; c < COLS; c++) {
+                int idx = (r + itemScroll) * COLS + c;
+                if (idx >= shownItems.size()) break;
+                ItemStack s = shownItems.get(idx);
+                int sx = px + 12 + c * SLOT, sy = CONTENT_Y + r * SLOT;
+                boolean hover = mx >= sx - 1 && mx < sx + 19 && my >= sy - 1 && my < sy + 19;
+                if (hover) g.fill(sx - 1, sy - 1, sx + 19, sy + 19, 0xFFE0EBFB);
+                g.item(s, sx, sy);
+                g.itemDecorations(font, s, sx, sy);
+            }
+            if (shownItems.isEmpty()) {
+                String empty = inventory.isEmpty() ? new Loc("gui.sfmfactorystudio.nbt.empty_inv", "背包是空的：先把想按 NBT 区分的物品拿在身上再来").getString()
+                        : new Loc("gui.sfmfactorystudio.nbt.no_match_inv", "背包里没有匹配的物品").getString();
+                g.text(font, empty, px + PANEL_W / 2 - font.width(empty) / 2,
+                        CONTENT_Y + 6, 0xFFB45309, false);
+            }
+        }
+        // 搜索框底板（EditBox 无边框后需要自己画底色+边框才能看清位置）
+        if (search != null) {
+            rounded(g, search.getX() - 4, search.getY() - 3, search.getWidth() + 8, search.getHeight() + 6, 4, 0xFFFFFFFF);
+            g.fill(search.getX() - 4, search.getY() - 3, search.getX() + search.getWidth() + 4, search.getY() - 2, 0xFFC9D4E2);
+            g.fill(search.getX() - 4, search.getY() + search.getHeight() + 2, search.getX() + search.getWidth() + 4, search.getY() + search.getHeight() + 3, 0xFFC9D4E2);
+            g.fill(search.getX() - 4, search.getY() - 3, search.getX() - 3, search.getY() + search.getHeight() + 3, 0xFFC9D4E2);
+            g.fill(search.getX() + search.getWidth() + 3, search.getY() - 3, search.getX() + search.getWidth() + 4, search.getY() + search.getHeight() + 3, 0xFFC9D4E2);
+        }
+        super.extractRenderState(g, mx, my, partialTick);
+    }
+
+    @Override
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        double mx = event.x(); double my = event.y(); int button = event.button();
+        int modifiers = event.modifiers();
+        if (super.mouseClicked(event, doubleClick)) return true;
+        if (button != 0) return true;
+        int px = panelX();
+        if (componentPage) {
+            if (my >= TAB_Y - 3 && my < TAB_Y + 14 && mx >= px + 8 && mx < px + 100) {
+                componentPage = false; return true;
+            }
+            int visible = Math.min(maxRows(), pickRows.size()); // 空列表必须为 0，否则下面 get(0) 越界
+            for (int i = 0; i < visible; i++) {
+                int ry = CONTENT_Y + i * ROW_H;
+                if (my >= ry && my < ry + ROW_H && mx >= px + 4 && mx < px + PANEL_W - 4) {
+                    String target = pickRows.get(compScroll + i).target();
+                    Minecraft.getInstance().setScreen(parent);
+                    onPick.accept(target);
+                    return true;
+                }
+            }
+            return true;
+        }
+        int gridRows = (shownItems.size() + COLS - 1) / COLS;
+        int visibleRows = Math.min(maxRows(), gridRows);
+        for (int r = 0; r < visibleRows; r++) for (int c = 0; c < COLS; c++) {
+            int idx = (r + itemScroll) * COLS + c;
+            if (idx >= shownItems.size()) break;
+            int sx = px + 12 + c * SLOT, sy = CONTENT_Y + r * SLOT;
+            if (mx >= sx - 1 && mx < sx + 19 && my >= sy - 1 && my < sy + 19) {
+                openComponents(shownItems.get(idx)); return true;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public boolean keyPressed(KeyEvent event) {
+        int keyCode = event.key(); int scanCode = event.scancode(); int modifiers = event.modifiers();
+        if (super.keyPressed(event)) return true;
+        if (keyCode == 256) { onClose(); return true; }
+        return true;
+    }
+
+    @Override
+    public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
+        if (componentPage) compScroll = Math.max(0, compScroll - (int) Math.signum(scrollY));
+        else itemScroll = Math.max(0, itemScroll - (int) Math.signum(scrollY));
+        return true;
+    }
+
+    @Override
+    public void onClose() { Minecraft.getInstance().setScreen(parent); }
+    @Override
+    public void extractTransparentBackground(GuiGraphicsExtractor g) {}
+}

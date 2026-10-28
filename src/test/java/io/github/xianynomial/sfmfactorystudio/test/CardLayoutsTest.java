@@ -1,0 +1,252 @@
+package io.github.xianynomial.sfmfactorystudio.test;
+
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BProgram;
+import io.github.xianynomial.sfmfactorystudio.client.blocks.model.CardLayouts;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Pure-logic tests for the free-coordinate card layout engine (方案 A):
+ * grid snapping, overlap separation, and saved-position fingerprint matching.
+ * No Minecraft instance needed — these are the regression guards for
+ * layouts.json persistence and undo position preservation.
+ */
+public class CardLayoutsTest {
+
+    // ---------------------------------------------------------------- snap
+
+    @Test
+    public void snapRoundsToGrid() {
+        assertEquals(0, CardLayouts.snap(0));
+        assertEquals(0, CardLayouts.snap(3));    // 3/8 = 0.375 → 0
+        assertEquals(8, CardLayouts.snap(5));    // 0.625 → 8
+        assertEquals(8, CardLayouts.snap(8));
+        assertEquals(16, CardLayouts.snap(13));  // 1.625 → 2×8
+        assertEquals(-8, CardLayouts.snap(-5));
+    }
+
+    @Test
+    public void completeCardCloneIsPlacedDirectlyBelowOnTheSameGrid() {
+        assertEquals(184, CardLayouts.directlyBelow(16, 143));
+        assertEquals(-16, CardLayouts.directlyBelow(-200, 163));
+    }
+
+    // ------------------------------------------------------- matchByKeys
+
+    @Test
+    public void matchReorderedKeys() {
+        // 卡片被 ◀/▶ 重排后：指纹相同但顺序对调，各自匹配回自己的条目
+        int[] m = CardLayouts.matchByKeys(List.of("a", "b"), List.of("b", "a"));
+        assertArrayEquals(new int[]{1, 0}, m);
+    }
+
+    @Test
+    public void matchDuplicatesInOrder() {
+        // 两个相同脉冲卡：按出现顺序一一对应，不能都抢第一条
+        int[] m = CardLayouts.matchByKeys(List.of("p", "p", "p"), List.of("p", "p"));
+        assertArrayEquals(new int[]{0, 1, -1}, m);
+    }
+
+    @Test
+    public void matchMissingKeyIsMinusOne() {
+        // 新增卡片（指纹没存过）→ -1 → 调用方回退自动排布
+        int[] m = CardLayouts.matchByKeys(List.of("a", "x", "b"), List.of("b", "a"));
+        assertArrayEquals(new int[]{1, -1, 0}, m);
+    }
+
+    @Test
+    public void matchEmptyHave() {
+        assertArrayEquals(new int[]{-1, -1}, CardLayouts.matchByKeys(List.of("a", "b"), List.of()));
+    }
+
+    // ---------------------------------------------------- resolveOverlaps
+
+    @Test
+    public void overlappingCardIsPushedBelow() {
+        // 两卡同位：程序顺序在前的保持原位，后者被推到其下方（含 24px 间距，吸附 8px 网格）
+        int[] ys = CardLayouts.resolveOverlaps(
+                new int[]{0, 0}, new int[]{0, 0}, new int[]{100, 100}, new int[]{40, 40}, -1);
+        assertEquals(0, ys[0]);
+        assertEquals(CardLayouts.snap(40 + CardLayouts.CARD_GAP), ys[1]);
+    }
+
+    @Test
+    public void sideBySideCardsDoNotMove() {
+        // x 不相交（并排布局）→ 谁都不动
+        int[] ys = CardLayouts.resolveOverlaps(
+                new int[]{0, 400}, new int[]{0, 0}, new int[]{380, 380}, new int[]{100, 100}, -1);
+        assertArrayEquals(new int[]{0, 0}, ys);
+    }
+
+    @Test
+    public void keepIndexWinsOverProgramOrder() {
+        // keepIdx=1：第二张卡是刚落位的卡，第一张撞上它也要让路
+        int[] ys = CardLayouts.resolveOverlaps(
+                new int[]{0, 0}, new int[]{0, 0}, new int[]{100, 100}, new int[]{40, 40}, 1);
+        assertEquals(0, ys[1]);
+        assertEquals(CardLayouts.snap(40 + CardLayouts.CARD_GAP), ys[0]);
+    }
+
+    @Test
+    public void stackedChainResolves() {
+        // 三张卡完全叠在一起 → 按程序顺序纵向排开、互不重叠
+        int[] ys = CardLayouts.resolveOverlaps(
+                new int[]{0, 0, 0}, new int[]{0, 0, 0}, new int[]{100, 100, 100}, new int[]{40, 40, 40}, -1);
+        assertEquals(0, ys[0]);
+        int y1 = CardLayouts.snap(40 + CardLayouts.CARD_GAP);
+        assertEquals(y1, ys[1]);
+        assertEquals(CardLayouts.snap(y1 + 40 + CardLayouts.CARD_GAP), ys[2]);
+        for (int i = 0; i < 3; i++) {
+            for (int j = i + 1; j < 3; j++) {
+                assertTrue(!CardLayouts.intersects(0, ys[i], 100, 40, 0, ys[j], 100, 40),
+                        "cards " + i + " and " + j + " still overlap");
+            }
+        }
+    }
+
+    @Test
+    public void manyStackedCardsStillResolveWithoutOverlap() {
+        int count = 64;
+        int[] xs = new int[count];
+        int[] ys = new int[count];
+        int[] ws = new int[count];
+        int[] hs = new int[count];
+        java.util.Arrays.fill(ws, 380);
+        java.util.Arrays.fill(hs, 40);
+        int[] resolved = CardLayouts.resolveOverlaps(xs, ys, ws, hs, -1);
+        for (int i = 0; i < count; i++) {
+            for (int j = i + 1; j < count; j++) {
+                assertTrue(!CardLayouts.intersects(xs[i], resolved[i], ws[i], hs[i],
+                                xs[j], resolved[j], ws[j], hs[j]),
+                        "large stack still overlaps at " + i + "/" + j);
+            }
+        }
+    }
+
+    @Test
+    public void positionsNeverMoveUp() {
+        // 避让只能往下推，永不把卡往上挪
+        int[] ys = CardLayouts.resolveOverlaps(
+                new int[]{0, 0, 400, 400}, new int[]{0, 500, 0, 1000},
+                new int[]{100, 100, 100, 100}, new int[]{40, 40, 40, 40}, -1);
+        assertTrue(ys[0] >= 0 && ys[1] >= 500 && ys[2] >= 0 && ys[3] >= 1000,
+                "some card moved up: " + java.util.Arrays.toString(ys));
+    }
+
+    // ------------------------------------------------------------ triggerKey
+
+    @Test
+    public void timerHeaderFieldsFormTheKey() {
+        var a = new BProgram.TimerTrigger();
+        var b = new BProgram.TimerTrigger();
+        assertEquals(CardLayouts.triggerKey(a), CardLayouts.triggerKey(b));
+
+        b.count = 40;   // 改头部数值 → 另一张卡
+        assertNotEquals(CardLayouts.triggerKey(a), CardLayouts.triggerKey(b));
+
+        var c = new BProgram.TimerTrigger();
+        c.global = true;
+        assertNotEquals(CardLayouts.triggerKey(a), CardLayouts.triggerKey(c));
+    }
+
+    @Test
+    public void bodyEditsDoNotChangeTheKey() {
+        // 编辑卡内积木块是最常见操作，绝不能因此丢位置
+        var a = new BProgram.TimerTrigger();
+        var b = new BProgram.TimerTrigger();
+        b.body.add(new BProgram.Statement.Input());
+        assertEquals(CardLayouts.triggerKey(a), CardLayouts.triggerKey(b));
+    }
+
+    @Test
+    public void pulseKeysAreAllEqual() {
+        assertEquals(CardLayouts.triggerKey(new BProgram.PulseTrigger()),
+                CardLayouts.triggerKey(new BProgram.PulseTrigger()));
+    }
+
+    // ------------------------------------------------------------- keysOf
+
+    @Test
+    public void keysOfKeepsProgramOrder() {
+        var t1 = new BProgram.TimerTrigger();
+        var t2 = new BProgram.PulseTrigger();
+        var t3 = new BProgram.TimerTrigger();
+        t3.count = 99;
+        List<String> keys = CardLayouts.keysOf(List.of(t1, t2, t3));
+        assertEquals(List.of(CardLayouts.triggerKey(t1), "p", CardLayouts.triggerKey(t3)), keys);
+    }
+    /** "游戏冻结（Application Hang）"回归：同位/重叠副本的几何必须严格终止。
+     *  旧 while(true) 实现没有 visited 守卫且 y 不单调，栈中非栈顶卡会原地
+     *  打转——而走链被 renderCard 每帧每卡调用，等价于打开编辑器即冻结。 */
+    @Test
+    public void stackWalkTerminatesOnDegenerateGeometry() {
+        // 两张卡同位重叠（top 相同）：不构成"紧贴"链 → 各自返回自身。
+        // 旧实现遇到任何"非栈顶的链上卡"都会原地打转（无 visited 守卫、
+        // y 不单调）——本用例与下方各用例共同锁死：任何几何都必须终止。
+        int[] tops = {100, 100};
+        int[] hs = {86, 86};
+        assertEquals(0, CardLayouts.farthestInStack(tops, hs, 0, 8));
+        assertEquals(1, CardLayouts.farthestInStack(tops, hs, 1, 8));
+    }
+
+    @Test
+    public void stackWalkHandlesOverlappingBelowWithinBand() {
+        // 下方卡 top 落在当前底边 ±8 内：算作紧贴链
+        int[] tops = {0, 86};
+        int[] hs = {86, 86};
+        assertEquals(1, CardLayouts.farthestInStack(tops, hs, 0, 8));
+        // 交叉重叠（第二张 top 在第一张内部）：不是链
+        int[] tops2 = {0, 40};
+        assertEquals(0, CardLayouts.farthestInStack(tops2, hs, 0, 8));
+    }
+
+    @Test
+    public void stackWalkClimbsToTopThenDescendsToBottom() {
+        // 三层紧贴栈：0(0..86) 1(86..172) 2(172..258)；从中间层 1 出发
+        int[] tops = {172, 0, 86};
+        int[] hs = {86, 86, 86};
+        int bottom = CardLayouts.farthestInStack(tops, hs, 1, 8);
+        assertEquals(0, bottom, "应走到栈底（y 最大那张）");
+    }
+
+    @Test
+    public void stackWalkAloneReturnsSelf() {
+        int[] tops = {100};
+        int[] hs = {86};
+        assertEquals(0, CardLayouts.farthestInStack(tops, hs, 0, 8), "单独成栈返回自身（调用方映射为 null）");
+    }
+
+    @Test
+    public void stackWalkStopsWhenGapExceedsBand() {
+        // 断开的两段：0..86 与 300..386（间距超过 8px 带）
+        int[] tops = {0, 300};
+        int[] hs = {86, 86};
+        assertEquals(0, CardLayouts.farthestInStack(tops, hs, 0, 8), "断链不跨越");
+        assertEquals(1, CardLayouts.farthestInStack(tops, hs, 1, 8));
+    }
+
+    @Test
+    public void stackChainReturnsFullTopToBottomOrder() {
+        // 三层栈：cand0=底(y200) cand1=顶(y0) cand2=中(y100)
+        int[] tops = {200, 0, 100};
+        int[] hs = {100, 100, 100};
+        int[] mid = CardLayouts.stackChain(tops, hs, 2, 8);
+        assertEquals(3, mid.length);
+        assertEquals(1, mid[0]);
+        assertEquals(2, mid[1]);
+        assertEquals(0, mid[2]);
+        // 从栈顶出发是同一条链
+        int[] top = CardLayouts.stackChain(tops, hs, 1, 8);
+        assertEquals(1, top[0]);
+        assertEquals(0, top[2]);
+        // 单独成栈：链只含自身（farthestInStack 语义不变）
+        assertEquals(1, CardLayouts.stackChain(new int[]{0}, new int[]{50}, 0, 8).length);
+        assertEquals(0, CardLayouts.farthestInStack(new int[]{0}, new int[]{50}, 0, 8));
+    }
+}
