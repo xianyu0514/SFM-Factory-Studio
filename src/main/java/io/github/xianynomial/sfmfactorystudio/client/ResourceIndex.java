@@ -7,6 +7,9 @@ import io.github.xianynomial.sfmfactorystudio.SFMGui;
 import io.github.xianynomial.sfmfactorystudio.client.blocks.model.BProgram;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.renderer.block.FluidModel;
+import net.minecraft.client.renderer.block.FluidStateModelSet;
+import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -16,7 +19,8 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.material.Fluids;
-import net.neoforged.neoforge.client.extensions.common.IClientFluidTypeExtensions;
+import net.neoforged.neoforge.client.fluid.FluidTintSource;
+import net.neoforged.neoforge.fluids.FluidStack;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -215,11 +219,7 @@ public final class ResourceIndex {
                 Fluid fluid = sourceFluids.get(cursor++);
                 Identifier fluidId = BuiltInRegistries.FLUID.getKey(fluid);
                 String sfmlId = "fluid:" + fluidId.getNamespace() + ":" + fluidId.getPath();
-                // 26.1.2 移除了 IClientFluidTypeExtensions 的 getStillTexture()/getTintColor()
-                // 以及 Fluid.getFluidType()——MC 与 NeoForge 两侧都不再提供这些 API，
-                // 所以流体条目降级为文字条目（等价于原代码 catch 分支的行为）：
-                // 仍可搜索、可选中、可生成正确的 SFML，只是不再显示流体贴图。
-                building.add(Entry.text(sfmlId, fluidId.toString()));
+                building.add(fluidEntry(fluid, fluidId, sfmlId));
             }
             case CHEMICALS -> {
                 // 26.1.2 无 Mekanism：化学源恒空，直接跳过该阶段
@@ -279,6 +279,86 @@ public final class ResourceIndex {
         } catch (Throwable ignored) {
             // SFM registry not yet available — items/fluids only
         }
+    }
+
+    /**
+     * 构建一个流体条目：优先「静置纹理 + 染色」，其次「桶图标」，最后退文字。
+     *
+     * <p><b>为什么不再用 {@code IClientFluidTypeExtensions}：</b>26.1 把流体纹理从
+     * 「客户端扩展 API」改成了<b>模型驱动</b>——{@code getStillTexture()} /
+     * {@code getFlowingTexture()} / {@code getTintColor()} 已从接口删除（现在整个接口
+     * 只剩 overlay 与 fog 四项），纹理改由 {@link FluidModel} 的 {@code Material} 声明，
+     * 因此自动进入 block atlas，也不再需要旧版的 {@code TextureStitchEvent}。
+     *
+     * <p>取法与 JEI 29.47 的 {@code IPlatformFluidHelperInternal#getStillFluidSprite}
+     * 逐条一致（字节码核对过）：{@code ModelManager#getFluidStateModelSet()} →
+     * {@code FluidStateModelSet#get(FluidState)} → {@code FluidModel#stillMaterial()}。
+     *
+     * <p><b>三个必须处理的事实</b>：
+     * <ol>
+     *   <li>{@code FluidStateModelSet#get} 的实际实现是
+     *       {@code modelByFluid.getOrDefault(fluid, missingModel)}，而 {@code bake()}
+     *       只烘焙水与熔岩两种默认模型。所以<b>没在 {@code RegisterFluidModelsEvent}
+     *       注册过的模组流体一律拿到 missingModel</b>，其 sprite <b>不是 null</b>，
+     *       而是紫黑格纹理 ⇒ 必须比对 {@link MissingTextureAtlasSprite#getLocation()}
+     *       才能识别（JEI 也是这么过滤的），单独判 null 形同虚设。</li>
+     *   <li>{@code FluidModel#fluidTintSource()} 标注 {@code @Nullable}：为空时按白色
+     *       {@code 0xFFFFFFFF} 处理（纹理自带颜色，如熔岩，再染白等于不改）。</li>
+     *   <li>染色只能走 {@code colorAsStack}：{@code colorInWorld} 需要世界坐标，
+     *       GUI 里没有。水在世界里的 biome 变色正是走后者，所以这里得到的是标准水色
+     *       （{@code FluidTintSources.water()} 的常量 {@code 0xFF3F76E4}）。</li>
+     * </ol>
+     *
+     * <p>显示名仍取 {@code fluid.getFluidType().getDescription()}：{@code Fluid} 在
+     * NeoForge patch 版里 {@code implements IFluidExtension}，该方法<b>并未移除</b>
+     * （纯 MC 的 client.jar 里看不到，所以容易误判）。这样 26.1.2 与 1.21.1 / 1.20.1
+     * 显示的是同一个本地化名（「水」而不是 {@code minecraft:water}）。
+     */
+    private static Entry fluidEntry(Fluid fluid, Identifier fluidId, String sfmlId) {
+        String displayName;
+        try {
+            displayName = fluid.getFluidType().getDescription().getString();
+        } catch (Throwable t) {
+            displayName = fluidId.toString();
+        }
+
+        // ① 模型驱动的静置纹理 + tint（与原版 / JEI 同一视觉）
+        try {
+            FluidStateModelSet modelSet = Minecraft.getInstance().getModelManager().getFluidStateModelSet();
+            FluidModel model = modelSet == null ? null : modelSet.get(fluid.defaultFluidState());
+            TextureAtlasSprite sprite = model == null ? null : model.stillMaterial().sprite();
+            if (sprite != null
+                    && !MissingTextureAtlasSprite.getLocation().equals(sprite.atlasLocation())) {
+                FluidTintSource tintSource = model.fluidTintSource();
+                int tint = tintSource == null
+                        ? 0xFFFFFFFF
+                        : tintSource.colorAsStack(new FluidStack(fluid, 1));
+                return Entry.sprite(sfmlId, displayName, sprite.contents().name(), tint);
+            }
+        } catch (Throwable t) {
+            SFMGui.LOGGER.debug("fluid still-texture unavailable for {}", sfmlId, t);
+        }
+
+        // ② 没有模型（多数是未适配 26.1 的模组流体）→ 桶图标比文字更易辨认。
+        // 不能直接用 Entry.item(...)：那个工厂会把 sfmlId 写成桶的物品 id、
+        // resourceKind 写成 ITEM，选中后生成的 SFML 会变成 'minecraft:water'
+        // 而不是 'fluid:minecraft:water'。这里沿用流体的 sfmlId 与 kind，
+        // 只借用 ITEM 的绘制方式（Kind.ITEM 走 item 渲染）。
+        try {
+            Item bucket = fluid.getBucket();
+            if (bucket != null && bucket != net.minecraft.world.item.Items.AIR) {
+                ItemStack bucketStack = new ItemStack(bucket);
+                String search = (displayName + " " + bucketStack.getHoverName().getString()
+                        + " " + sfmlId).toLowerCase(Locale.ROOT);
+                return new Entry(sfmlId, displayName, search, Entry.resourceKindOf(sfmlId),
+                        Kind.ITEM, bucketStack, null, 0);
+            }
+        } catch (Throwable t) {
+            SFMGui.LOGGER.debug("fluid bucket unavailable for {}", sfmlId, t);
+        }
+
+        // ③ 彻底兜底：文字条目仍可搜索、可选中、能生成正确的 SFML
+        return Entry.text(sfmlId, displayName);
     }
 
     // ===== shared icon rendering (used by picker grid and the code-editor bar) =====

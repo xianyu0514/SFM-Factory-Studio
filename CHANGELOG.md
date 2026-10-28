@@ -12,6 +12,7 @@
 - **修复（交互）**：代码编辑区的右键此前无反应——判断用的是中键（`button == 2`），而注释一直写的是右键。现在右键与中键都能打开剪贴板菜单。
 - **改进（性能）**：槽位能力查询不再对同一批朝向重复做两次能力发现（每次都要解析线缆网络），单槽内容的读取也从两遍合并为一遍；该请求的日志降为 debug。
 - **改进**：资源显示名缓存加上限（4096），长期游玩不再无界增长。
+- **修复（三版功能对齐）**：26.1.2 线的流体条目此前降级为纯文字——因为 26.1 移除了 `IClientFluidTypeExtensions` 的 `getStillTexture()` / `getTintColor()`。现在改用 26.1 的模型驱动接口（`ModelManager → FluidStateModelSet → FluidModel.stillMaterial()`，与 JEI 29.47 同一路径）取静置纹理与染色，显示与 1.21.1 / 1.20.1 一致；未注册模型的模组流体回退为桶图标，无桶才退文字。顺带修正另两版回退分支丢失本地化名（显示成 registry id）的问题。
 - **内部**：`sfm` 依赖下限由 `[4.30,)` 收紧到 `[4.34,)`，与 SFM 本体当前版本严格对齐。4.30~4.33 从未针对本附属测试过，放宽只会让用户装上后在运行期撞 `NoSuchMethodError`。
 - **测试**：三版打包全部通过（302 / 288 / 289 用例，0 失败），三版一致性、语言 key、资源完整性检查同步通过。
 
@@ -25,6 +26,7 @@
 - **Fixed (interaction):** right-clicking inside the code editor did nothing — the check used the middle button (`button == 2`) while the comment said "right click". Both buttons now open the clipboard menu.
 - **Improved (performance):** the slot-capability query no longer performs capability discovery twice over the same faces (each pass resolves cable networks), and per-slot contents are read in one pass instead of two; that request's log dropped to debug.
 - **Improved:** the resource display-name cache is capped (4096), so it no longer grows without bound over long play sessions.
+- **Fixed (feature parity across lines):** fluid entries on the 26.1.2 line were text-only, because 26.1 removed `getStillTexture()` / `getTintColor()` from `IClientFluidTypeExtensions`. They now take the still texture and tint from 26.1's model-driven API (`ModelManager → FluidStateModelSet → FluidModel.stillMaterial()`, the same path JEI 29.47 uses), matching 1.21.1 / 1.20.1. Fluids without a registered model fall back to their bucket icon, and only then to text. Also fixed the other two lines losing the localised name (showing the raw registry id) in the fallback branch.
 - **Internal:** the `sfm` dependency floor is tightened from `[4.30,)` to `[4.34,)` to match the current SFM release. 4.30–4.33 were never tested with this addon; allowing them only defers the failure to a `NoSuchMethodError` at runtime.
 - **Tests:** all three builds pass (302 / 288 / 289 cases, 0 failures), together with the three-way parity, language-key and resource-integrity checks.
 
